@@ -1,4 +1,4 @@
-import { Application, Sprite, Texture, Container } from 'pixi.js'
+import { Application, Sprite, Texture, Container, Text } from 'pixi.js'
 import type { SpriteRenderState, StoryboardSprite } from '~/types'
 import { Origin } from '~/types'
 import { prepareStoryboard, resolveStoryboard } from './timeline'
@@ -44,6 +44,8 @@ function loadTextureFromUrl(url: string): Promise<Texture> {
 export class StoryboardRenderer {
     private app!: Application
     private stage!: Container
+    /** Child container for storyboard sprites — always below the overlay layer */
+    private spritesLayer!: Container
 
     /** PixiJS sprites keyed by storyboard sprite id */
     private pixiSprites = new Map<string, Sprite>()
@@ -57,8 +59,13 @@ export class StoryboardRenderer {
     /** Sprite definitions for origin/anchor lookups */
     private spriteIndex = new Map<string, StoryboardSprite>()
 
-    /** Pre-processed sprites for per-frame resolution (O(log n) binary search) */
+    /** Pre-processed sprites for per-frame resolution */
     private prepared: PreparedSprite[] = []
+
+    /** FPS overlay */
+    private fpsText!: Text
+    private fpsSmooth = 60
+    private lastRenderTime = 0
 
     get canvas(): HTMLCanvasElement {
         return this.app.canvas as HTMLCanvasElement
@@ -79,19 +86,37 @@ export class StoryboardRenderer {
         })
 
         this.stage = this.app.stage
+        this.spritesLayer = new Container()
+        this.stage.addChild(this.spritesLayer) // layer 0: storyboard sprites
         container.appendChild(this.canvas)
         this.fitToContainer(container)
+
+        this.fpsText = new Text({
+            text: '',
+            style: { fontFamily: 'monospace', fontSize: 14, fill: 0xffffff, stroke: { color: 0x000000, width: 3 } },
+        })
+        this.fpsText.x = 6
+        this.fpsText.y = 6
+        this.fpsText.visible = false
+        this.stage.addChild(this.fpsText) // layer 1: always on top
 
         const ro = new ResizeObserver(() => this.fitToContainer(container))
         ro.observe(container)
     }
 
+    toggleFps(): void {
+        this.fpsText.visible = !this.fpsText.visible
+        if (!this.fpsText.visible) this.lastRenderTime = 0
+    }
+
     destroy(): void {
-        this.blobUrls.forEach(url => URL.revokeObjectURL(url))
-        this.blobUrls.clear()
-        this.textureCache.clear()
+        this.pixiSprites.forEach(s => s.destroy())
         this.pixiSprites.clear()
         this.spriteIndex.clear()
+        this.blobUrls.forEach(url => URL.revokeObjectURL(url))
+        this.blobUrls.clear()
+        this.textureCache.forEach(t => t.destroy())
+        this.textureCache.clear()
         this.prepared = []
         this.app.destroy(true)
     }
@@ -103,8 +128,17 @@ export class StoryboardRenderer {
      * Requires loadSprites() to have been called first.
      */
     render(timeMs: number): void {
+        if (this.fpsText.visible) {
+            const now = performance.now()
+            if (this.lastRenderTime > 0) {
+                const instant = 1000 / (now - this.lastRenderTime)
+                this.fpsSmooth = this.fpsSmooth * 0.85 + instant * 0.15
+                this.fpsText.text = `${this.fpsSmooth.toFixed(0)} fps`
+            }
+            this.lastRenderTime = now
+        }
+
         const states = resolveStoryboard(this.prepared, timeMs)
-        if (states.length > 0) console.debug('[renderer] render', timeMs.toFixed(0), 'ms →', states.length, 'active sprites')
         const activeIds = new Set(states.map(s => s.spriteId))
 
         for (const state of states) {
@@ -127,6 +161,15 @@ export class StoryboardRenderer {
         sprites: StoryboardSprite[],
         getFileHandle: (path: string) => Promise<FileSystemFileHandle | null>,
     ): Promise<void> {
+        // Clear previous project's state before loading new one
+        this.pixiSprites.forEach(s => { this.spritesLayer.removeChild(s); s.destroy() })
+        this.pixiSprites.clear()
+        this.spriteIndex.clear()
+        this.blobUrls.forEach(url => URL.revokeObjectURL(url))
+        this.blobUrls.clear()
+        this.textureCache.forEach(t => t.destroy())
+        this.textureCache.clear()
+
         this.prepared = prepareStoryboard(sprites)
 
         for (const sprite of sprites) {
@@ -167,7 +210,7 @@ export class StoryboardRenderer {
         const pixiSprite = new Sprite(texture)
         pixiSprite.anchor.set(anchor[0], anchor[1])
 
-        this.stage.addChild(pixiSprite)
+        this.spritesLayer.addChild(pixiSprite)
         this.pixiSprites.set(spriteId, pixiSprite)
         return pixiSprite
     }

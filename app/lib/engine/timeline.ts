@@ -91,35 +91,43 @@ function resolveSprite(p: PreparedSprite, timeMs: number): SpriteRenderState | n
     let y = p.defaultY
 
     if (p.M.length > 0) {
-        const m = binarySearch(p.M, timeMs)
-        x = easedValue(m, timeMs, c => c.startX, c => c.endX)
-        y = easedValue(m, timeMs, c => c.startY, c => c.endY)
+        if (timeMs >= p.M[0]!.startTime) {
+            const m = resolveCommand(p.M, timeMs)
+            x = easedValue(m, timeMs, c => c.startX, c => c.endX)
+            y = easedValue(m, timeMs, c => c.startY, c => c.endY)
+        }
+        // before first M command → stay at defaultX/defaultY
     }
-    if (p.MX.length > 0) x = easedValue(binarySearch(p.MX, timeMs), timeMs, c => c.startX, c => c.endX)
-    if (p.MY.length > 0) y = easedValue(binarySearch(p.MY, timeMs), timeMs, c => c.startY, c => c.endY)
+    if (p.MX.length > 0 && timeMs >= p.MX[0]!.startTime)
+        x = easedValue(resolveCommand(p.MX, timeMs), timeMs, c => c.startX, c => c.endX)
+    if (p.MY.length > 0 && timeMs >= p.MY[0]!.startTime)
+        y = easedValue(resolveCommand(p.MY, timeMs), timeMs, c => c.startY, c => c.endY)
 
     // ── Scale ──
     let scaleX = 1
     let scaleY = 1
 
-    if (p.S.length > 0) {
-        const s = binarySearch(p.S, timeMs)
+    if (p.S.length > 0 && timeMs >= p.S[0]!.startTime) {
+        const s = resolveCommand(p.S, timeMs)
         scaleX = scaleY = easedValue(s, timeMs, c => c.startScale, c => c.endScale)
     }
-    if (p.V.length > 0) {
-        const v = binarySearch(p.V, timeMs)
+    if (p.V.length > 0 && timeMs >= p.V[0]!.startTime) {
+        const v = resolveCommand(p.V, timeMs)
         scaleX = easedValue(v, timeMs, c => c.startX, c => c.endX)
         scaleY = easedValue(v, timeMs, c => c.startY, c => c.endY)
     }
 
     // ── Rotation ──
-    const rotation = p.R.length > 0
-        ? easedValue(binarySearch(p.R, timeMs), timeMs, c => c.startAngle, c => c.endAngle)
+    const rotation = p.R.length > 0 && timeMs >= p.R[0]!.startTime
+        ? easedValue(resolveCommand(p.R, timeMs), timeMs, c => c.startAngle, c => c.endAngle)
         : 0
 
     // ── Opacity ──
+    // Before the first F command fires → sprite is invisible (osu! default)
     const opacity = p.F.length > 0
-        ? easedValue(binarySearch(p.F, timeMs), timeMs, c => c.startOpacity, c => c.endOpacity)
+        ? (timeMs >= p.F[0]!.startTime
+            ? easedValue(resolveCommand(p.F, timeMs), timeMs, c => c.startOpacity, c => c.endOpacity)
+            : 0)
         : 1
 
     // ── Color ──
@@ -127,8 +135,8 @@ function resolveSprite(p: PreparedSprite, timeMs: number): SpriteRenderState | n
     let g = 255
     let b = 255
 
-    if (p.C.length > 0) {
-        const col = binarySearch(p.C, timeMs)
+    if (p.C.length > 0 && timeMs >= p.C[0]!.startTime) {
+        const col = resolveCommand(p.C, timeMs)
         r = easedValue(col, timeMs, c => c.startR, c => c.endR)
         g = easedValue(col, timeMs, c => c.startG, c => c.endG)
         b = easedValue(col, timeMs, c => c.startB, c => c.endB)
@@ -169,30 +177,28 @@ function sortedGroup<T extends Command>(commands: Command[], type: T['type']): T
 }
 
 /**
- * Binary search: finds the command active at timeMs.
- * Commands must be sorted by startTime.
- * Returns the last command whose startTime <= timeMs, clamped to array bounds.
+ * Resolves the active command at timeMs, handling overlapping commands correctly.
+ * Commands must be sorted by startTime. Assumes timeMs >= commands[0].startTime.
+ *
+ * Priority rules:
+ * - Among commands active at timeMs (startTime <= t <= endTime), pick the one
+ *   with the highest startTime (most recently started = highest priority).
+ * - If no command is active, hold the value of the command with the latest endTime.
  */
-function binarySearch<T extends Command>(commands: T[], timeMs: number): T {
-    const first = commands[0] as T
-    const last = commands[commands.length - 1] as T
+function resolveCommand<T extends Command>(commands: T[], timeMs: number): T {
+    let bestActive: T | undefined
+    let bestEnded: T | undefined
 
-    if (timeMs <= first.startTime) return first
-    if (timeMs >= last.endTime) return last
-
-    let lo = 0
-    let hi = commands.length - 1
-
-    while (lo < hi) {
-        const mid = (lo + hi + 1) >> 1
-        if ((commands[mid] as T).startTime <= timeMs) {
-            lo = mid
-        } else {
-            hi = mid - 1
+    for (const cmd of commands) {
+        if (cmd.startTime > timeMs) break // sorted by startTime → can early-exit
+        if (timeMs <= cmd.endTime) {
+            bestActive = cmd // last assigned = highest startTime among active
+        } else if (bestEnded === undefined || cmd.endTime > bestEnded.endTime) {
+            bestEnded = cmd // track the most recently ended command
         }
     }
 
-    return commands[lo] as T
+    return (bestActive ?? bestEnded ?? commands[0])!
 }
 
 function easedValue<T extends Command>(

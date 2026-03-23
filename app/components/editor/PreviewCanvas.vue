@@ -16,6 +16,12 @@ const props = defineProps<{
 const containerRef = ref<HTMLDivElement | null>(null)
 const renderer = new StoryboardRenderer()
 const isReady = ref(false)
+const fpsVisible = ref(false)
+
+function toggleFps() {
+    renderer.toggleFps()
+    fpsVisible.value = !fpsVisible.value
+}
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 
@@ -59,5 +65,11 @@ watch(
 </script>
 
 <template>
-    <div ref="containerRef" class="relative w-full h-full overflow-hidden bg-black" />
+    <div ref="containerRef" class="relative w-full h-full overflow-hidden bg-black">
+        <button
+            class="absolute top-2 right-2 z-10 px-2 py-0.5 text-xs font-mono rounded transition-colors"
+            :class="fpsVisible ? 'bg-white/20 text-white' : 'bg-black/40 text-white/50 hover:text-white/80'"
+            @click="toggleFps"
+        >fps</button>
+    </div>
 </template>
