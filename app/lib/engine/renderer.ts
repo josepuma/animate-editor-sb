@@ -1,6 +1,6 @@
 import { Application, Sprite, Texture, Container, Text } from 'pixi.js'
 import type { SpriteRenderState, StoryboardSprite } from '~/types'
-import { Origin } from '~/types'
+import { Origin, Layer } from '~/types'
 import { prepareStoryboard, resolveStoryboard } from './timeline'
 import type { PreparedSprite } from './timeline'
 
@@ -13,6 +13,16 @@ import type { PreparedSprite } from './timeline'
 export const OSU_WIDTH    = 854   // 16:9 storyboard canvas width
 export const OSU_HEIGHT   = 480
 export const OSU_X_OFFSET = 107   // storyboard origin → canvas origin
+
+// ─── Layer render order (bottom → top) ───────────────────────────────────────
+
+const LAYER_RENDER_ORDER: Record<Layer, number> = {
+    [Layer.Background]: 0,
+    [Layer.Fail]:       1,
+    [Layer.Pass]:       2,
+    [Layer.Foreground]: 3,
+    [Layer.Overlay]:    4,
+}
 
 // ─── Origin → PixiJS anchor ──────────────────────────────────────────────────
 
@@ -170,10 +180,13 @@ export class StoryboardRenderer {
         this.textureCache.forEach(t => t.destroy())
         this.textureCache.clear()
 
-        this.prepared = prepareStoryboard(sprites)
-
+        // Index all sprites first
         for (const sprite of sprites) {
             this.spriteIndex.set(sprite.id, sprite)
+        }
+
+        // Load textures
+        for (const sprite of sprites) {
             if (this.blobUrls.has(sprite.filePath)) continue
 
             const handle = await getFileHandle(sprite.filePath)
@@ -186,14 +199,23 @@ export class StoryboardRenderer {
             const blobUrl = URL.createObjectURL(file)
             this.blobUrls.set(sprite.filePath, blobUrl)
 
-            console.debug('[renderer] loading texture', sprite.filePath)
             try {
                 const texture = await loadTextureFromUrl(blobUrl)
                 this.textureCache.set(sprite.filePath, texture)
-                console.debug('[renderer] texture ok', sprite.filePath, texture.width, 'x', texture.height)
             } catch (err) {
                 console.warn('[renderer] texture failed', sprite.filePath, err)
             }
+        }
+
+        this.prepared = prepareStoryboard(sprites)
+
+        // Pre-create PixiJS sprites sorted by layer (bottom → top).
+        // Within the same layer, preserve the original .osb file order.
+        const sorted = [...sprites].sort((a, b) =>
+            LAYER_RENDER_ORDER[a.layer] - LAYER_RENDER_ORDER[b.layer]
+        )
+        for (const sprite of sorted) {
+            this.getOrCreateSprite(sprite.id)
         }
     }
 
@@ -209,6 +231,7 @@ export class StoryboardRenderer {
 
         const pixiSprite = new Sprite(texture)
         pixiSprite.anchor.set(anchor[0], anchor[1])
+        pixiSprite.visible = false // hidden until first render
 
         this.spritesLayer.addChild(pixiSprite)
         this.pixiSprites.set(spriteId, pixiSprite)
