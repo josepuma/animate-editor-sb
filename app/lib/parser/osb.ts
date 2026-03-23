@@ -2,6 +2,7 @@ import { Layer, Origin, Easing } from '~/types'
 import type {
     Storyboard,
     StoryboardSprite,
+    LoopGroup,
     Command,
 } from '~/types'
 
@@ -19,12 +20,15 @@ export function parseOsb(source: string): Storyboard {
     let section = ''
     let currentSprite: StoryboardSprite | null = null
     let spriteIndex = 0
+    let currentLoop: LoopGroup | null = null
 
     for (const raw of lines) {
         const line = raw.trimEnd()
 
         // ── Section headers ──
         if (line.startsWith('[')) {
+            commitLoop(currentLoop, currentSprite)
+            currentLoop = null
             section = line
             continue
         }
@@ -32,34 +36,73 @@ export function parseOsb(source: string): Storyboard {
         // ── Variables ──
         if (section === '[Variables]') {
             const eq = line.indexOf('=')
-            if (eq !== -1) {
-                variables[line.slice(0, eq).trim()] = line.slice(eq + 1).trim()
-            }
+            if (eq !== -1) variables[line.slice(0, eq).trim()] = line.slice(eq + 1).trim()
             continue
         }
 
         if (section !== '[Events]') continue
-
-        // ── Skip comments and empty lines ──
         if (!line || line.startsWith('//')) continue
 
-        const isCommand = line.startsWith(' ') || line.startsWith('_')
+        const depth = indentDepth(line)
 
-        if (!isCommand) {
-            // New sprite/animation declaration
+        if (depth === 0) {
+            // New sprite — commit any open loop first
+            commitLoop(currentLoop, currentSprite)
+            currentLoop = null
             currentSprite = parseSpriteLine(line, spriteIndex++)
             if (currentSprite) sprites.push(currentSprite)
         } else if (currentSprite) {
-            // Command belonging to the current sprite
-            const cmd = parseCommandLine(line.trim())
-            if (cmd) currentSprite.commands.push(cmd)
+            const trimmed = line.trim()
+            const clean = trimmed.replace(/^_+/, '')
+            const type = clean.split(',')[0]?.trim() ?? ''
+
+            if (depth === 1 && type === 'L') {
+                // Loop header — commit previous loop and start a new one
+                commitLoop(currentLoop, currentSprite)
+                const parts = clean.split(',')
+                currentLoop = {
+                    startTime: parseInt(parts[1] ?? '0', 10),
+                    loopCount: Math.max(1, parseInt(parts[2] ?? '1', 10)),
+                    commands: [],
+                }
+            } else if (depth >= 2 && currentLoop !== null) {
+                // Command inside loop body — times are relative to the loop iteration
+                const cmd = parseCommandLine(trimmed)
+                if (cmd) currentLoop.commands.push(cmd)
+            } else {
+                // Direct command (depth 1, not L) — commit any open loop first
+                commitLoop(currentLoop, currentSprite)
+                currentLoop = null
+                const cmd = parseCommandLine(trimmed)
+                if (cmd) currentSprite.commands.push(cmd)
+            }
         }
     }
+
+    // Commit any loop still open at EOF
+    commitLoop(currentLoop, currentSprite)
 
     return {
         sprites,
         variables: Object.keys(variables).length ? variables : undefined,
     }
+}
+
+// ─── Loop helpers ─────────────────────────────────────────────────────────────
+
+/** Pushes a completed loop into the sprite's loops array. */
+function commitLoop(loop: LoopGroup | null, sprite: StoryboardSprite | null): void {
+    if (loop && sprite && loop.commands.length > 0) sprite.loops.push(loop)
+}
+
+/** Counts leading underscore/space characters to determine nesting depth. */
+function indentDepth(line: string): number {
+    let d = 0
+    for (const ch of line) {
+        if (ch === '_' || ch === ' ') d++
+        else break
+    }
+    return d
 }
 
 // ─── Sprite parser ────────────────────────────────────────────────────────────
@@ -86,6 +129,7 @@ function parseSpriteLine(line: string, index: number): StoryboardSprite | null {
         defaultX: x,
         defaultY: y,
         commands: [],
+        loops: [],
     }
 }
 

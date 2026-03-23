@@ -1,7 +1,7 @@
 export { Layer, Origin } from './layer'
 export { Easing } from './easing'
 export type { CommandType, Command, FadeCommand, MoveCommand, MoveXCommand, MoveYCommand, ScaleCommand, VectorScaleCommand, RotateCommand, ColorCommand, ParameterCommand } from './commands'
-export type { StoryboardSprite } from './sprite'
+export type { StoryboardSprite, LoopGroup } from './sprite'
 export type { Storyboard } from './storyboard'
 export type { ProjectConfig, Project } from './project'
 export type { SpriteRenderState } from './renderer'

@@ -1,6 +1,13 @@
 import { Layer, Origin } from './layer'
 import type { Command } from './commands'
 
+/** One L block from a .osb file — commands use times relative to the loop start. */
+export interface LoopGroup {
+  startTime: number
+  loopCount: number
+  commands: Command[]
+}
+
 export interface StoryboardSprite {
   id: string
   layer: Layer
@@ -10,4 +17,5 @@ export interface StoryboardSprite {
   defaultX: number
   defaultY: number
   commands: Command[]
+  loops: LoopGroup[]
 }
