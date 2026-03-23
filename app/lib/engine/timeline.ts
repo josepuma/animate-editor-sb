@@ -87,47 +87,45 @@ export function resolveStoryboard(prepared: PreparedSprite[], timeMs: number): S
 
 function resolveSprite(p: PreparedSprite, timeMs: number): SpriteRenderState | null {
     // ── Position ──
+    // defaultX/Y used only when there are no M commands at all.
+    // Before first M fires → easedValue returns M[0].startX/Y (storybrew behavior).
     let x = p.defaultX
     let y = p.defaultY
 
     if (p.M.length > 0) {
-        if (timeMs >= p.M[0]!.startTime) {
-            const m = resolveCommand(p.M, timeMs)
-            x = easedValue(m, timeMs, c => c.startX, c => c.endX)
-            y = easedValue(m, timeMs, c => c.startY, c => c.endY)
-        }
-        // before first M command → stay at defaultX/defaultY
+        const m = resolveCommand(p.M, timeMs)
+        x = easedValue(m, timeMs, c => c.startX, c => c.endX)
+        y = easedValue(m, timeMs, c => c.startY, c => c.endY)
     }
-    if (p.MX.length > 0 && timeMs >= p.MX[0]!.startTime)
+    if (p.MX.length > 0)
         x = easedValue(resolveCommand(p.MX, timeMs), timeMs, c => c.startX, c => c.endX)
-    if (p.MY.length > 0 && timeMs >= p.MY[0]!.startTime)
+    if (p.MY.length > 0)
         y = easedValue(resolveCommand(p.MY, timeMs), timeMs, c => c.startY, c => c.endY)
 
     // ── Scale ──
     let scaleX = 1
     let scaleY = 1
 
-    if (p.S.length > 0 && timeMs >= p.S[0]!.startTime) {
+    if (p.S.length > 0) {
         const s = resolveCommand(p.S, timeMs)
         scaleX = scaleY = easedValue(s, timeMs, c => c.startScale, c => c.endScale)
     }
-    if (p.V.length > 0 && timeMs >= p.V[0]!.startTime) {
+    if (p.V.length > 0) {
         const v = resolveCommand(p.V, timeMs)
         scaleX = easedValue(v, timeMs, c => c.startX, c => c.endX)
         scaleY = easedValue(v, timeMs, c => c.startY, c => c.endY)
     }
 
     // ── Rotation ──
-    const rotation = p.R.length > 0 && timeMs >= p.R[0]!.startTime
+    const rotation = p.R.length > 0
         ? easedValue(resolveCommand(p.R, timeMs), timeMs, c => c.startAngle, c => c.endAngle)
         : 0
 
     // ── Opacity ──
-    // Before the first F command fires → sprite is invisible (osu! default)
+    // No F commands → always visible. Otherwise use startOpacity of first command
+    // before it fires (storybrew behavior), then interpolate normally.
     const opacity = p.F.length > 0
-        ? (timeMs >= p.F[0]!.startTime
-            ? easedValue(resolveCommand(p.F, timeMs), timeMs, c => c.startOpacity, c => c.endOpacity)
-            : 0)
+        ? easedValue(resolveCommand(p.F, timeMs), timeMs, c => c.startOpacity, c => c.endOpacity)
         : 1
 
     // ── Color ──
@@ -135,7 +133,7 @@ function resolveSprite(p: PreparedSprite, timeMs: number): SpriteRenderState | n
     let g = 255
     let b = 255
 
-    if (p.C.length > 0 && timeMs >= p.C[0]!.startTime) {
+    if (p.C.length > 0) {
         const col = resolveCommand(p.C, timeMs)
         r = easedValue(col, timeMs, c => c.startR, c => c.endR)
         g = easedValue(col, timeMs, c => c.startG, c => c.endG)
@@ -208,7 +206,8 @@ function easedValue<T extends Command>(
     getEnd: (c: T) => number,
 ): number {
     const { startTime, endTime, easing } = command
-    if (startTime === endTime) return getEnd(command)
-    const t = Math.max(0, Math.min(1, (timeMs - startTime) / (endTime - startTime)))
+    if (timeMs < startTime) return getStart(command) // before command → hold start value
+    if (startTime === endTime) return getEnd(command)  // instant command → end value
+    const t = Math.min(1, (timeMs - startTime) / (endTime - startTime))
     return easedLerp(getStart(command), getEnd(command), t, easing)
 }
