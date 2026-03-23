@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { parseOsb } from '~/lib/parser/osb'
 import type { StoryboardSprite } from '~/types'
 
@@ -22,7 +22,14 @@ const audioFiles = computed(() => fs.listFiles('.mp3', '.ogg', '.wav'))
 const projectName = computed(() => fs.rootHandle.value?.name ?? null)
 const hasProject = computed(() => fs.rootHandle.value !== null)
 const hasAudio = computed(() => audio.durationMs.value > 0)
-const seekValue = computed(() => [audio.currentMs.value])
+
+// ─── Slider drag state ────────────────────────────────────────────────────────
+// Separate display value from committed seek to avoid feedback loop between
+// the live rAF tick updating currentMs and the slider's update:modelValue event.
+
+const isDragging = ref(false)
+const dragMs = ref(0)
+const seekValue = computed(() => [isDragging.value ? dragMs.value : audio.currentMs.value])
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
@@ -30,6 +37,7 @@ async function openProject() {
     loadError.value = null
     sprites.value = []
     selectedOsb.value = null
+    audio.unload()
 
     const ok = await fs.openProject()
     if (!ok) return
@@ -69,11 +77,50 @@ function formatMs(ms: number): string {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-function onSeek(val: number[]) {
-    audio.seek(val[0] ?? 0)
+function onSliderPointerDown() {
+    dragMs.value = audio.currentMs.value
+    isDragging.value = true
 }
 
-onUnmounted(() => audio.destroy())
+function onSliderUpdate(val: number[]) {
+    dragMs.value = val[0] ?? 0
+}
+
+function onSliderPointerUp() {
+    if (!isDragging.value) return
+    isDragging.value = false
+    audio.seek(dragMs.value)
+}
+
+// ─── Keyboard shortcuts ───────────────────────────────────────────────────────
+
+const SEEK_STEP_MS = 5000
+
+function onKeyDown(e: KeyboardEvent) {
+    const tag = (e.target as HTMLElement).tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return
+
+    if (e.code === 'Space') {
+        e.preventDefault()
+        audio.isPlaying.value ? audio.pause() : audio.play()
+    } else if (e.code === 'ArrowRight') {
+        e.preventDefault()
+        audio.seek(audio.currentMs.value + SEEK_STEP_MS)
+    } else if (e.code === 'ArrowLeft') {
+        e.preventDefault()
+        audio.seek(audio.currentMs.value - SEEK_STEP_MS)
+    }
+}
+
+onMounted(() => {
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('pointerup', onSliderPointerUp)
+})
+onUnmounted(() => {
+    window.removeEventListener('keydown', onKeyDown)
+    window.removeEventListener('pointerup', onSliderPointerUp)
+    audio.destroy()
+})
 </script>
 
 <template lang="pug">
@@ -162,6 +209,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                         :step="1"
                         :model-value="seekValue"
                         :disabled="!hasAudio"
-                        @update:model-value="onSeek"
+                        @pointerdown="onSliderPointerDown"
+                        @update:model-value="onSliderUpdate"
                     )
 </template>

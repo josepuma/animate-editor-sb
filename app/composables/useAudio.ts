@@ -70,9 +70,9 @@ export function useAudio() {
 
     function pause(): void {
         if (!isPlaying.value) return
+        isPlaying.value = false  // set before stopSource so onended guard doesn't call stop()
         stopSource()
         stopTick()
-        isPlaying.value = false
     }
 
     function stop(): void {
@@ -120,9 +120,19 @@ export function useAudio() {
     }
 
     function stopSource(): void {
-        try { sourceNode?.stop() } catch { }
-        sourceNode?.disconnect()
-        sourceNode = null
+        if (sourceNode) {
+            sourceNode.onended = null  // prevent stale async onended from resetting state
+            try { sourceNode.stop() } catch { }
+            sourceNode.disconnect()
+            sourceNode = null
+        }
+    }
+
+    /** Fully clears audio state (call when opening a new project). */
+    function unload(): void {
+        stop()
+        audioBuffer = null
+        durationMs.value = 0
     }
 
     function destroy(): void {
@@ -130,6 +140,7 @@ export function useAudio() {
         audioCtx?.close()
         audioCtx = null
         audioBuffer = null
+        durationMs.value = 0
     }
 
     return {
@@ -152,6 +163,7 @@ export function useAudio() {
         stop,
         seek,
         setVolume,
+        unload,
         destroy,
     }
 }
