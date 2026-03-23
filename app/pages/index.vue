@@ -128,7 +128,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
 
     //- Toolbar
     header.flex.items-center.gap-3.px-4.h-12.border-b.border-border.shrink-0
-        span.font-semibold.text-sm storybrew-web
+        span.font-semibold.text-sm web
         Separator(orientation="vertical" class="h-5")
         Button(size="sm" variant="outline" @click="openProject") Open Project
         span.text-muted-foreground.text-xs(v-if="projectName") {{ projectName }}

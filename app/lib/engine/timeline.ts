@@ -88,7 +88,6 @@ export function resolveStoryboard(prepared: PreparedSprite[], timeMs: number): S
 function resolveSprite(p: PreparedSprite, timeMs: number): SpriteRenderState | null {
     // ── Position ──
     // defaultX/Y used only when there are no M commands at all.
-    // Before first M fires → easedValue returns M[0].startX/Y (storybrew behavior).
     let x = p.defaultX
     let y = p.defaultY
 
@@ -123,7 +122,6 @@ function resolveSprite(p: PreparedSprite, timeMs: number): SpriteRenderState | n
 
     // ── Opacity ──
     // No F commands → always visible. Otherwise use startOpacity of first command
-    // before it fires (storybrew behavior), then interpolate normally.
     const opacity = p.F.length > 0
         ? easedValue(resolveCommand(p.F, timeMs), timeMs, c => c.startOpacity, c => c.endOpacity)
         : 1
@@ -147,7 +145,9 @@ function resolveSprite(p: PreparedSprite, timeMs: number): SpriteRenderState | n
 
     for (const param of p.P) {
         if (param.startTime > timeMs) break // sorted, can early-exit
-        if (param.endTime < timeMs) continue
+        // blank endTime in .osb → parsed as endTime = startTime → hold until sprite dies
+        const effectiveEnd = param.startTime === param.endTime ? p.activeEnd : param.endTime
+        if (effectiveEnd < timeMs) continue
         if (param.parameter === 'A') additive = true
         else if (param.parameter === 'H') flipH = true
         else if (param.parameter === 'V') flipV = true
