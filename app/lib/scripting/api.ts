@@ -1,6 +1,7 @@
 import { Layer, Origin, Easing } from '~/types'
 import type {
     StoryboardSprite,
+    LoopGroup,
     Command,
     FadeCommand,
     MoveCommand,
@@ -12,6 +13,75 @@ import type {
     ColorCommand,
     ParameterCommand,
 } from '~/types'
+
+// ─── LoopBuilder ──────────────────────────────────────────────────────────────
+
+export class LoopBuilder {
+    readonly _group: LoopGroup
+
+    constructor(startTime: number, loopCount: number) {
+        this._group = { startTime, loopCount, commands: [] }
+    }
+
+    fade(easing: Easing, startTime: number, endTime: number, startOpacity: number, endOpacity: number): this {
+        this._push<FadeCommand>({ type: 'F', easing, startTime, endTime, startOpacity, endOpacity })
+        return this
+    }
+
+    move(easing: Easing, startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this {
+        this._push<MoveCommand>({ type: 'M', easing, startTime, endTime, startX, startY, endX, endY })
+        return this
+    }
+
+    moveX(easing: Easing, startTime: number, endTime: number, startX: number, endX: number): this {
+        this._push<MoveXCommand>({ type: 'MX', easing, startTime, endTime, startX, endX })
+        return this
+    }
+
+    moveY(easing: Easing, startTime: number, endTime: number, startY: number, endY: number): this {
+        this._push<MoveYCommand>({ type: 'MY', easing, startTime, endTime, startY, endY })
+        return this
+    }
+
+    scale(easing: Easing, startTime: number, endTime: number, startScale: number, endScale: number): this {
+        this._push<ScaleCommand>({ type: 'S', easing, startTime, endTime, startScale, endScale })
+        return this
+    }
+
+    scaleVec(easing: Easing, startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this {
+        this._push<VectorScaleCommand>({ type: 'V', easing, startTime, endTime, startX, startY, endX, endY })
+        return this
+    }
+
+    rotate(easing: Easing, startTime: number, endTime: number, startAngle: number, endAngle: number): this {
+        this._push<RotateCommand>({ type: 'R', easing, startTime, endTime, startAngle, endAngle })
+        return this
+    }
+
+    color(easing: Easing, startTime: number, endTime: number, startR: number, startG: number, startB: number, endR: number, endG: number, endB: number): this {
+        this._push<ColorCommand>({ type: 'C', easing, startTime, endTime, startR, startG, startB, endR, endG, endB })
+        return this
+    }
+
+    flipH(startTime: number, endTime: number): this {
+        this._push<ParameterCommand>({ type: 'P', easing: Easing.Linear, startTime, endTime, parameter: 'H' })
+        return this
+    }
+
+    flipV(startTime: number, endTime: number): this {
+        this._push<ParameterCommand>({ type: 'P', easing: Easing.Linear, startTime, endTime, parameter: 'V' })
+        return this
+    }
+
+    additive(startTime: number, endTime: number): this {
+        this._push<ParameterCommand>({ type: 'P', easing: Easing.Linear, startTime, endTime, parameter: 'A' })
+        return this
+    }
+
+    private _push<T extends Command>(cmd: T): void {
+        this._group.commands.push(cmd)
+    }
+}
 
 // ─── SpriteBuilder ────────────────────────────────────────────────────────────
 
@@ -29,6 +99,7 @@ export class SpriteBuilder {
             defaultX: x,
             defaultY: y,
             commands: [],
+            loops: [],
         }
     }
 
@@ -97,6 +168,25 @@ export class SpriteBuilder {
     /** _P,A — Additive blend mode for the given time range */
     additive(startTime: number, endTime: number): this {
         this._push<ParameterCommand>({ type: 'P', easing: Easing.Linear, startTime, endTime, parameter: 'A' })
+        return this
+    }
+
+    /**
+     * _L — Loop group. Commands inside repeat `loopCount` times starting at `startTime`.
+     * Times inside the callback are relative to the loop start (0 = first frame of the loop).
+     *
+     * @example
+     * sprite('logo.png').loop(0, 4, l => {
+     *   l.fade(Easing.Linear, 0, 500, 0, 1)
+     *   l.fade(Easing.Linear, 500, 1000, 1, 0)
+     * })
+     */
+    loop(startTime: number, loopCount: number, build: (l: LoopBuilder) => void): this {
+        const lb = new LoopBuilder(startTime, loopCount)
+        build(lb)
+        if (lb._group.commands.length > 0) {
+            this._sprite.loops.push(lb._group)
+        }
         return this
     }
 
