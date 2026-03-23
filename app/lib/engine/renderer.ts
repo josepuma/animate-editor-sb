@@ -4,10 +4,15 @@ import { Origin } from '~/types'
 import { prepareStoryboard, resolveStoryboard } from './timeline'
 import type { PreparedSprite } from './timeline'
 
-// ─── osu! canvas constants ───────────────────────────────────────────────────
+// ─── osu! canvas constants (16:9) ────────────────────────────────────────────
+//
+// Storyboard coordinate space: x ∈ [-107, 747], y ∈ [0, 480], centre = (320, 240)
+// Canvas pixel space:          x ∈ [0,    854], y ∈ [0, 480]
+// Conversion: canvas_x = storyboard_x + OSU_X_OFFSET
 
-export const OSU_WIDTH = 640
-export const OSU_HEIGHT = 480
+export const OSU_WIDTH    = 854   // 16:9 storyboard canvas width
+export const OSU_HEIGHT   = 480
+export const OSU_X_OFFSET = 107   // storyboard origin → canvas origin
 
 // ─── Origin → PixiJS anchor ──────────────────────────────────────────────────
 
@@ -169,7 +174,7 @@ export class StoryboardRenderer {
 
     private applyState(sprite: Sprite, state: SpriteRenderState): void {
         sprite.visible = state.visible
-        sprite.x = state.x
+        sprite.x = state.x + OSU_X_OFFSET
         sprite.y = state.y
         sprite.alpha = state.opacity
         sprite.rotation = state.rotation
@@ -183,7 +188,7 @@ export class StoryboardRenderer {
         sprite.blendMode = state.additive ? 'add' : 'normal'
     }
 
-    /** Scales the canvas to fill the container while preserving 4:3 ratio. */
+    /** Scales the canvas to fill the container while preserving 16:9 ratio. */
     private fitToContainer(container: HTMLElement): void {
         const { clientWidth: w, clientHeight: h } = container
         const scale = Math.min(w / OSU_WIDTH, h / OSU_HEIGHT)
