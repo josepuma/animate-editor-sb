@@ -68,7 +68,7 @@ async function executeScript(
     //   sprite('logo.png').fade(Easing.SineOut, 0, 500, 0, 1)
     // without any import statements.
     const fn = new Function(
-        'sprite', 'beat', 'bpm', 'offset', 'Layer', 'Origin', 'Easing',
+        'sprite', 'beat', 'bpm', 'offset', 'Layer', 'Origin', 'Easing', 'random', 'randomInt',
         `"use strict";\n${code}`,
     )
 
@@ -80,6 +80,8 @@ async function executeScript(
         context.Layer,
         context.Origin,
         context.Easing,
+        context.random,
+        context.randomInt,
     )
 
     return getSprites()

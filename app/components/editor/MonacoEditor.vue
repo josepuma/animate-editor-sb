@@ -246,6 +246,18 @@ declare function sprite(
  */
 declare function beat(beats: number): number
 
+/**
+ * Random float in [min, max).
+ * @example random(0.1, 0.3) // → e.g. 0.217
+ */
+declare function random(min: number, max: number): number
+
+/**
+ * Random integer in [min, max] (both inclusive).
+ * @example randomInt(0, 3) // → 0, 1, 2 or 3
+ */
+declare function randomInt(min: number, max: number): number
+
 /** Project BPM (beats per minute) */
 declare const bpm: number
 

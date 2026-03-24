@@ -457,6 +457,10 @@ export interface ScriptContext {
     offset: number
     /** Helpers to convert beats → ms */
     beat(beats: number): number
+    /** Random float in [min, max) */
+    random(min: number, max: number): number
+    /** Random integer in [min, max] (inclusive) */
+    randomInt(min: number, max: number): number
     /** Enums — available directly in scripts */
     Layer: typeof Layer
     Origin: typeof Origin
@@ -491,6 +495,8 @@ export function createScriptContext(scriptId: string, bpm: number, offset: numbe
         bpm,
         offset,
         beat: (beats: number) => beats * msPerBeat + offset,
+        random: (min: number, max: number) => Math.random() * (max - min) + min,
+        randomInt: (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min,
         Layer,
         Origin,
         Easing,
