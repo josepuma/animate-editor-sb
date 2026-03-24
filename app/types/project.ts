@@ -10,6 +10,11 @@ export interface ProjectConfig {
   bpm: number
   /** Audio offset in milliseconds */
   offset: number
+  /**
+   * Script paths in render order (first = rendered below, last = rendered on top).
+   * Scripts not listed here are appended at the end.
+   */
+  scriptOrder?: string[]
 }
 
 export interface Project {

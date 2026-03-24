@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { parseOsb } from '~/lib/parser/osb'
 import type { StoryboardSprite } from '~/types'
 import type { ProjectConfig } from '~/types/project'
@@ -43,6 +43,28 @@ const isSaving         = ref(false)
 const activeMode       = ref<'osb' | 'script'>('osb')
 const previewResetKey  = ref(0)
 
+// ─── Script render order ──────────────────────────────────────────────────────
+// Paths in bottom-to-top render order: first = rendered below, last = rendered on top.
+
+const scriptOrder = ref<string[]>([])
+
+// Keep scriptOrder in sync when scripts are added/removed.
+// New scripts not yet in the order get appended at the top (renders on top by default).
+watch(
+    () => scripting.spritesByScript.value,
+    (map) => {
+        const present = Object.keys(map)
+        // Remove paths no longer present
+        const filtered = scriptOrder.value.filter(p => present.includes(p))
+        // Append any new paths at the end (renders on top)
+        const newPaths = present.filter(p => !filtered.includes(p))
+        if (filtered.length !== scriptOrder.value.length || newPaths.length > 0) {
+            scriptOrder.value = [...filtered, ...newPaths]
+        }
+    },
+    { deep: false },
+)
+
 // ─── Derived ──────────────────────────────────────────────────────────────────
 
 const osbFiles    = computed(() => fs.listFiles('.osb'))
@@ -52,9 +74,17 @@ const projectName = computed(() => fs.rootHandle.value?.name ?? null)
 const hasProject  = computed(() => fs.rootHandle.value !== null)
 const hasAudio    = computed(() => audio.durationMs.value > 0)
 
-const displaySprites = computed(() =>
-    activeMode.value === 'script' ? scripting.sprites.value : osbSprites.value
-)
+const displaySprites = computed(() => {
+    if (activeMode.value !== 'script') return osbSprites.value
+    const map = scripting.spritesByScript.value
+    // Flatten in scriptOrder: first = rendered below, last = rendered on top
+    const ordered = scriptOrder.value.flatMap(p => map[p] ?? [])
+    // Any scripts not in order yet (shouldn't happen, but safety net)
+    const unordered = Object.entries(map)
+        .filter(([p]) => !scriptOrder.value.includes(p))
+        .flatMap(([, sprites]) => sprites)
+    return [...ordered, ...unordered]
+})
 
 const scriptLabel = computed(() =>
     selectedScript.value
@@ -76,6 +106,7 @@ async function openProject() {
     selectedOsb.value = null
     selectedScript.value = null
     projectConfig.value = null
+    scriptOrder.value = []
     audio.unload()
     scripting.clear()
     previewResetKey.value++  // tell PreviewCanvas to reset the renderer cache
@@ -84,15 +115,16 @@ async function openProject() {
     if (!ok) return
 
     // Load project config
-    const configText = await fs.readTextFile('storybrew.json')
+    const configText = await fs.readTextFile('animate.json')
     if (configText) {
         try {
             const cfg = JSON.parse(configText) as ProjectConfig
             projectConfig.value = cfg
             scriptBpm.value    = cfg.bpm ?? 180
             scriptOffset.value = cfg.offset ?? 0
+            scriptOrder.value  = cfg.scriptOrder ?? []
         } catch {
-            console.warn('[index] Could not parse storybrew.json')
+            console.warn('[index] Could not parse animate.json')
         }
     }
 
@@ -224,6 +256,25 @@ async function runScript() {
     }
 }
 
+// ─── Script order ─────────────────────────────────────────────────────────────
+
+async function saveProjectConfig() {
+    if (!hasProject.value) return
+    const cfg = { ...(projectConfig.value ?? {}), scriptOrder: scriptOrder.value }
+    await fs.writeTextFile('animate.json', JSON.stringify(cfg, null, 2))
+}
+
+function moveScript(path: string, direction: -1 | 1) {
+    const order = [...scriptOrder.value]
+    const idx = order.indexOf(path)
+    if (idx === -1) return
+    const target = idx + direction
+    if (target < 0 || target >= order.length) return
+    ;[order[idx], order[target]] = [order[target]!, order[idx]!]
+    scriptOrder.value = order
+    saveProjectConfig()
+}
+
 // ─── Input handlers ───────────────────────────────────────────────────────────
 
 function onBpmChange(e: Event) {
@@ -304,7 +355,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
         Menubar.border-0.rounded-none.shadow-none.h-full.px-2.gap-0(class="bg-transparent")
 
             MenubarMenu
-                MenubarTrigger.font-semibold.text-sm.px-2 storybrew web
+                MenubarTrigger.font-semibold.text-sm.px-2 animate editor
 
             MenubarMenu
                 MenubarTrigger.text-sm.px-2 File
@@ -354,15 +405,35 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                 .py-2
 
                     //- Scripts
-                    p.px-3.py-1.text-xs.font-semibold.text-muted-foreground.uppercase.tracking-wider Scripts
+                    .flex.items-center.px-3.py-1
+                        span.text-xs.font-semibold.text-muted-foreground.uppercase.tracking-wider.flex-1 Scripts
+                        span.text-xs.text-muted-foreground(class="opacity-50" title="Render order: top = below, bottom = on top") ↑↓
                     template(v-if="tsFiles.length")
-                        button(
-                            v-for="f in tsFiles"
-                            :key="f.path"
-                            class="w-full text-left px-3 py-1.5 text-xs truncate transition-colors hover:bg-accent hover:text-accent-foreground"
-                            :class="selectedScript === f.path ? 'bg-accent text-accent-foreground' : ''"
-                            @click="openScript(f.path)"
-                        ) {{ f.name }}
+                        //- Render in scriptOrder (unknown paths appended at end)
+                        .flex.items-center.group(
+                            v-for="path in [...scriptOrder.filter(p => tsFiles.some(f => f.path === p)), ...tsFiles.filter(f => !scriptOrder.includes(f.path)).map(f => f.path)]"
+                            :key="path"
+                        )
+                            button(
+                                class="flex-1 min-w-0 text-left pl-3 pr-1 py-1.5 text-xs truncate transition-colors hover:bg-accent hover:text-accent-foreground"
+                                :class="selectedScript === path ? 'bg-accent text-accent-foreground' : ''"
+                                @click="openScript(path)"
+                            ) {{ path.split('/').pop() }}
+                            .flex.shrink-0.opacity-0.group-hover(class="group-hover:opacity-100")
+                                button(
+                                    class="px-0.5 py-1 text-muted-foreground hover:text-foreground disabled:opacity-20"
+                                    :disabled="scriptOrder.indexOf(path) <= 0"
+                                    @click.stop="moveScript(path, -1)"
+                                    title="Move up (render below)"
+                                )
+                                    Icon(name="lucide:chevron-up" size="12")
+                                button(
+                                    class="px-0.5 py-1 text-muted-foreground hover:text-foreground disabled:opacity-20"
+                                    :disabled="scriptOrder.indexOf(path) >= scriptOrder.length - 1"
+                                    @click.stop="moveScript(path, 1)"
+                                    title="Move down (render on top)"
+                                )
+                                    Icon(name="lucide:chevron-down" size="12")
                     p.px-3.py-1.text-xs.text-muted-foreground(v-else) No .ts files
                     Separator.my-2
 

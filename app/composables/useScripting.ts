@@ -145,6 +145,7 @@ export function useScripting() {
 
     return {
         sprites,
+        spritesByScript: readonly(spritesByScript),
         isRunning: readonly(isRunning),
         errors: readonly(errors),
         run,
