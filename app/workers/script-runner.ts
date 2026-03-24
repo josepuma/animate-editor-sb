@@ -14,6 +14,7 @@ import type { StoryboardSprite } from '~/types'
 
 interface RunMessage {
     type: 'run'
+    scriptId: string
     code: string
     bpm: number
     offset: number
@@ -40,7 +41,7 @@ self.onmessage = async (event: MessageEvent<WorkerInMessage>) => {
     if (msg.type !== 'run') return
 
     try {
-        const sprites = await executeScript(msg.code, msg.bpm, msg.offset)
+        const sprites = await executeScript(msg.scriptId, msg.code, msg.bpm, msg.offset)
         const out: ResultMessage = { type: 'result', sprites }
         self.postMessage(out)
     } catch (err) {
@@ -55,11 +56,12 @@ self.onmessage = async (event: MessageEvent<WorkerInMessage>) => {
 // ─── Execution ────────────────────────────────────────────────────────────────
 
 async function executeScript(
+    scriptId: string,
     code: string,
     bpm: number,
     offset: number,
 ): Promise<StoryboardSprite[]> {
-    const { context, getSprites } = createScriptContext(bpm, offset)
+    const { context, getSprites } = createScriptContext(scriptId, bpm, offset)
 
     // Build the function that wraps user code.
     // We inject context bindings as named parameters so the user can write:

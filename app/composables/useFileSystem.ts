@@ -90,6 +90,43 @@ export function useFileSystem() {
         return collectFiles(fileTree.value, extensions.map(e => e.toLowerCase()))
     }
 
+    /**
+     * Writes a text file to a project-relative path, creating intermediate
+     * directories as needed.
+     */
+    /** Re-scans the project folder and updates the file tree. */
+    async function refresh(): Promise<void> {
+        if (!rootHandle.value) return
+        fileTree.value = await buildTree(rootHandle.value, '')
+    }
+
+    async function writeTextFile(relativePath: string, content: string): Promise<boolean> {
+        if (!rootHandle.value) return false
+
+        const parts = relativePath.replace(/\\/g, '/').split('/').filter(Boolean)
+        const start = parts[0] === rootHandle.value.name ? 1 : 0
+
+        let dir: FileSystemDirectoryHandle = rootHandle.value
+
+        try {
+            for (let i = start; i < parts.length - 1; i++) {
+                dir = await dir.getDirectoryHandle(parts[i]!, { create: true })
+            }
+            const filename = parts[parts.length - 1]
+            if (!filename) return false
+            const fileHandle = await dir.getFileHandle(filename, { create: true })
+            const writable = await fileHandle.createWritable()
+            await writable.write(content)
+            await writable.close()
+            // Refresh the file tree so new files appear in the sidebar
+            fileTree.value = await buildTree(rootHandle.value, '')
+            return true
+        } catch (err) {
+            console.error('[useFileSystem] writeTextFile failed', err)
+            return false
+        }
+    }
+
     return {
         isSupported,
         rootHandle: readonly(rootHandle),
@@ -97,7 +134,9 @@ export function useFileSystem() {
         openProject,
         getFileHandle,
         readTextFile,
+        writeTextFile,
         listFiles,
+        refresh,
     }
 }
 
@@ -110,7 +149,10 @@ async function buildTree(
     const path = parentPath ? `${parentPath}/${handle.name}` : handle.name
     const children: (ProjectFileHandle | ProjectDirHandle)[] = []
 
-    for await (const entry of handle.values()) {
+    // FileSystemDirectoryHandle.values() is part of the File System Access API
+    // not yet in the standard TypeScript DOM lib — cast required.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for await (const entry of (handle as any).values() as AsyncIterable<FileSystemHandle>) {
         if (entry.kind === 'file') {
             children.push({
                 name: entry.name,

@@ -74,8 +74,12 @@ export function prepareStoryboard(sprites: StoryboardSprite[]): PreparedSprite[]
         let activeStart = Infinity
         let activeEnd = -Infinity
 
-        // Active window from direct commands
+        // Active window from direct commands.
+        // P (parameter) commands are modifiers that apply within the sprite's lifetime
+        // but must not define the lifetime themselves — e.g. additive(0,0) is a
+        // zero-duration shorthand meaning "always additive", not "alive since t=0".
         for (const c of sprite.commands) {
+            if (c.type === 'P') continue
             if (c.startTime < activeStart) activeStart = c.startTime
             if (c.endTime > activeEnd) activeEnd = c.endTime
         }

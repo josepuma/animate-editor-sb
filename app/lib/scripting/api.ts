@@ -225,9 +225,11 @@ export interface ScriptContext {
 
 /**
  * Builds a ScriptContext that accumulates sprites into a shared array.
+ * `scriptId` is used to namespace sprite IDs so sprites from different
+ * scripts never collide in the renderer's sprite map.
  * The array is returned after the script runs.
  */
-export function createScriptContext(bpm: number, offset: number): {
+export function createScriptContext(scriptId: string, bpm: number, offset: number): {
     context: ScriptContext
     getSprites: () => StoryboardSprite[]
 } {
@@ -238,7 +240,10 @@ export function createScriptContext(bpm: number, offset: number): {
     const context: ScriptContext = {
         sprite(filePath, layer = Layer.Foreground, origin = Origin.Centre, x = 320, y = 240) {
             const builder = new SpriteBuilder(filePath, layer, origin, x, y)
-            sprites.push(builder.build())
+            // Namespace the id so sprites from different scripts never share an id
+            const sp = builder.build()
+            sp.id = `${scriptId}::sprite_${_idCounter}`
+            sprites.push(sp)
             // Return builder so the user can chain commands;
             // the sprite reference in the array stays in sync since it's the same object.
             return builder
