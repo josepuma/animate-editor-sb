@@ -364,7 +364,12 @@ function resolveCommand<T extends Command>(commands: T[], timeMs: number): T {
         if (cmd.startTime > timeMs) break // sorted by startTime → can early-exit
         if (timeMs <= cmd.endTime) {
             bestActive = cmd // last assigned = highest startTime among active
-        } else if (bestEnded === undefined || cmd.endTime > bestEnded.endTime) {
+        } else if (
+            bestEnded === undefined ||
+            cmd.endTime > bestEnded.endTime ||
+            // Same endTime → prefer the command with higher startTime (most recently started)
+            (cmd.endTime === bestEnded.endTime && cmd.startTime > bestEnded.startTime)
+        ) {
             bestEnded = cmd // track the most recently ended command
         }
     }
