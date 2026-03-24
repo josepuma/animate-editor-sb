@@ -85,22 +85,62 @@ declare enum Origin {
 }
 
 interface LoopBuilder {
-  /** Fade opacity */
+  /** Fade — instant: fade(time, value) */
+  fade(time: number, value: number): this
+  /** Fade — linear: fade(startTime, endTime, startOpacity, endOpacity) */
+  fade(startTime: number, endTime: number, startOpacity: number, endOpacity: number): this
+  /** Fade — full: fade(easing, startTime, endTime, startOpacity, endOpacity) */
   fade(easing: Easing, startTime: number, endTime: number, startOpacity: number, endOpacity: number): this
-  /** Move on both axes */
+
+  /** Move — instant: move(time, x, y) */
+  move(time: number, x: number, y: number): this
+  /** Move — linear: move(startTime, endTime, startX, startY, endX, endY) */
+  move(startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this
+  /** Move — full: move(easing, startTime, endTime, startX, startY, endX, endY) */
   move(easing: Easing, startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this
-  /** Move X axis only */
+
+  /** MoveX — instant: moveX(time, x) */
+  moveX(time: number, x: number): this
+  /** MoveX — linear: moveX(startTime, endTime, startX, endX) */
+  moveX(startTime: number, endTime: number, startX: number, endX: number): this
+  /** MoveX — full: moveX(easing, startTime, endTime, startX, endX) */
   moveX(easing: Easing, startTime: number, endTime: number, startX: number, endX: number): this
-  /** Move Y axis only */
+
+  /** MoveY — instant: moveY(time, y) */
+  moveY(time: number, y: number): this
+  /** MoveY — linear: moveY(startTime, endTime, startY, endY) */
+  moveY(startTime: number, endTime: number, startY: number, endY: number): this
+  /** MoveY — full: moveY(easing, startTime, endTime, startY, endY) */
   moveY(easing: Easing, startTime: number, endTime: number, startY: number, endY: number): this
-  /** Uniform scale */
+
+  /** Scale — instant: scale(time, value) */
+  scale(time: number, value: number): this
+  /** Scale — linear: scale(startTime, endTime, startScale, endScale) */
+  scale(startTime: number, endTime: number, startScale: number, endScale: number): this
+  /** Scale — full: scale(easing, startTime, endTime, startScale, endScale) */
   scale(easing: Easing, startTime: number, endTime: number, startScale: number, endScale: number): this
-  /** Non-uniform (vector) scale */
+
+  /** ScaleVec — instant: scaleVec(time, x, y) */
+  scaleVec(time: number, x: number, y: number): this
+  /** ScaleVec — linear: scaleVec(startTime, endTime, startX, startY, endX, endY) */
+  scaleVec(startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this
+  /** ScaleVec — full: scaleVec(easing, startTime, endTime, startX, startY, endX, endY) */
   scaleVec(easing: Easing, startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this
-  /** Rotate (radians) */
+
+  /** Rotate — instant: rotate(time, angle) */
+  rotate(time: number, angle: number): this
+  /** Rotate — linear: rotate(startTime, endTime, startAngle, endAngle) */
+  rotate(startTime: number, endTime: number, startAngle: number, endAngle: number): this
+  /** Rotate — full: rotate(easing, startTime, endTime, startAngle, endAngle) */
   rotate(easing: Easing, startTime: number, endTime: number, startAngle: number, endAngle: number): this
-  /** Colour tint (0–255 per channel) */
+
+  /** Color — instant: color(time, r, g, b) */
+  color(time: number, r: number, g: number, b: number): this
+  /** Color — linear: color(startTime, endTime, startR, startG, startB, endR, endG, endB) */
+  color(startTime: number, endTime: number, startR: number, startG: number, startB: number, endR: number, endG: number, endB: number): this
+  /** Color — full: color(easing, startTime, endTime, startR, startG, startB, endR, endG, endB) */
   color(easing: Easing, startTime: number, endTime: number, startR: number, startG: number, startB: number, endR: number, endG: number, endB: number): this
+
   /** Horizontal flip for the given time range */
   flipH(startTime: number, endTime: number): this
   /** Vertical flip for the given time range */
@@ -110,22 +150,62 @@ interface LoopBuilder {
 }
 
 interface SpriteBuilder {
-  /** Fade opacity */
+  /** Fade — instant: fade(time, value) */
+  fade(time: number, value: number): this
+  /** Fade — linear: fade(startTime, endTime, startOpacity, endOpacity) */
+  fade(startTime: number, endTime: number, startOpacity: number, endOpacity: number): this
+  /** Fade — full: fade(easing, startTime, endTime, startOpacity, endOpacity) */
   fade(easing: Easing, startTime: number, endTime: number, startOpacity: number, endOpacity: number): this
-  /** Move on both axes */
+
+  /** Move — instant: move(time, x, y) */
+  move(time: number, x: number, y: number): this
+  /** Move — linear: move(startTime, endTime, startX, startY, endX, endY) */
+  move(startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this
+  /** Move — full: move(easing, startTime, endTime, startX, startY, endX, endY) */
   move(easing: Easing, startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this
-  /** Move X axis only */
+
+  /** MoveX — instant: moveX(time, x) */
+  moveX(time: number, x: number): this
+  /** MoveX — linear: moveX(startTime, endTime, startX, endX) */
+  moveX(startTime: number, endTime: number, startX: number, endX: number): this
+  /** MoveX — full: moveX(easing, startTime, endTime, startX, endX) */
   moveX(easing: Easing, startTime: number, endTime: number, startX: number, endX: number): this
-  /** Move Y axis only */
+
+  /** MoveY — instant: moveY(time, y) */
+  moveY(time: number, y: number): this
+  /** MoveY — linear: moveY(startTime, endTime, startY, endY) */
+  moveY(startTime: number, endTime: number, startY: number, endY: number): this
+  /** MoveY — full: moveY(easing, startTime, endTime, startY, endY) */
   moveY(easing: Easing, startTime: number, endTime: number, startY: number, endY: number): this
-  /** Uniform scale */
+
+  /** Scale — instant: scale(time, value) */
+  scale(time: number, value: number): this
+  /** Scale — linear: scale(startTime, endTime, startScale, endScale) */
+  scale(startTime: number, endTime: number, startScale: number, endScale: number): this
+  /** Scale — full: scale(easing, startTime, endTime, startScale, endScale) */
   scale(easing: Easing, startTime: number, endTime: number, startScale: number, endScale: number): this
-  /** Non-uniform (vector) scale */
+
+  /** ScaleVec — instant: scaleVec(time, x, y) */
+  scaleVec(time: number, x: number, y: number): this
+  /** ScaleVec — linear: scaleVec(startTime, endTime, startX, startY, endX, endY) */
+  scaleVec(startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this
+  /** ScaleVec — full: scaleVec(easing, startTime, endTime, startX, startY, endX, endY) */
   scaleVec(easing: Easing, startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this
-  /** Rotate (radians) */
+
+  /** Rotate — instant: rotate(time, angle) */
+  rotate(time: number, angle: number): this
+  /** Rotate — linear: rotate(startTime, endTime, startAngle, endAngle) */
+  rotate(startTime: number, endTime: number, startAngle: number, endAngle: number): this
+  /** Rotate — full: rotate(easing, startTime, endTime, startAngle, endAngle) */
   rotate(easing: Easing, startTime: number, endTime: number, startAngle: number, endAngle: number): this
-  /** Colour tint (0–255 per channel) */
+
+  /** Color — instant: color(time, r, g, b) */
+  color(time: number, r: number, g: number, b: number): this
+  /** Color — linear: color(startTime, endTime, startR, startG, startB, endR, endG, endB) */
+  color(startTime: number, endTime: number, startR: number, startG: number, startB: number, endR: number, endG: number, endB: number): this
+  /** Color — full: color(easing, startTime, endTime, startR, startG, startB, endR, endG, endB) */
   color(easing: Easing, startTime: number, endTime: number, startR: number, startG: number, startB: number, endR: number, endG: number, endB: number): this
+
   /** Horizontal flip for the given time range */
   flipH(startTime: number, endTime: number): this
   /** Vertical flip for the given time range */

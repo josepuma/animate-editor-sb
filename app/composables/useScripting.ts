@@ -14,14 +14,18 @@ export function useScripting() {
     const isRunning = ref(false)
     const errors = ref<ScriptError[]>([])
 
-    let worker: Worker | null = null
+    // Per-script sequence counters — a newer run of script X supersedes older
+    // runs of X, but NEVER cancels a concurrent run of script Y.
+    const runSeqMap = new Map<string, number>()
+
+    // Per-script workers — each script gets its own worker slot.
+    const workerMap = new Map<string, Worker>()
+
+    // Count of in-flight runs (drives isRunning).
+    let runningCount = 0
 
     // Flat view of all sprites across all scripts, in insertion order.
     const sprites = computed(() => Object.values(spritesByScript.value).flat())
-
-    // Monotonically increasing counter — each call to run() gets a unique token.
-    // If a newer run supersedes this one, we discard the result instead of applying it.
-    let runSeq = 0
 
     // ── Run ───────────────────────────────────────────────────────────────────
 
@@ -29,41 +33,45 @@ export function useScripting() {
      * Compiles and runs a TypeScript storyboard script.
      * Only the sprites for `scriptId` are replaced on success.
      * Other scripts' sprites remain untouched.
-     * If called while a previous run is in progress the previous worker is
-     * cancelled and the new run takes over — no silent drops.
+     * Rapid saves to the same script cancel the previous run of that script,
+     * but concurrent runs of different scripts are fully independent.
      */
     async function run(scriptId: string, tsSource: string, bpm: number, offset: number): Promise<void> {
-        const seq = ++runSeq
+        const seq = (runSeqMap.get(scriptId) ?? 0) + 1
+        runSeqMap.set(scriptId, seq)
 
+        runningCount++
         isRunning.value = true
         errors.value = []
 
         // 1. Compile TypeScript → JS
         const { code, errors: compileErrors } = await compileScript(tsSource)
 
-        // A newer run was started while we were compiling — bail out
-        if (seq !== runSeq) return
-
-        if (compileErrors.length) {
-            errors.value = compileErrors.map(m => ({ message: m, phase: 'compile' as const }))
-            isRunning.value = false
+        // A newer run of THIS script started while compiling — bail out
+        if (runSeqMap.get(scriptId) !== seq) {
+            if (--runningCount === 0) isRunning.value = false
             return
         }
 
-        // 2. Execute in a Web Worker (runInWorker cancels any previous worker)
+        if (compileErrors.length) {
+            errors.value = compileErrors.map(m => ({ message: m, phase: 'compile' as const }))
+            if (--runningCount === 0) isRunning.value = false
+            return
+        }
+
+        // 2. Execute in a Web Worker (per-script worker, cancels previous run of same script)
         try {
             const result = await runInWorker(scriptId, code, bpm, offset)
-            if (seq !== runSeq) return  // superseded while worker was running
-            // Shallow-copy the map so Vue detects the change, then update only this script
+            if (runSeqMap.get(scriptId) !== seq) return
             spritesByScript.value = { ...spritesByScript.value, [scriptId]: result }
         } catch (err) {
-            if (seq !== runSeq) return
+            if (runSeqMap.get(scriptId) !== seq) return
             errors.value = [{
                 message: err instanceof Error ? err.message : String(err),
                 phase: 'runtime',
             }]
         } finally {
-            if (seq === runSeq) isRunning.value = false
+            if (--runningCount === 0) isRunning.value = false
         }
     }
 
@@ -82,8 +90,8 @@ export function useScripting() {
     }
 
     function destroy(): void {
-        worker?.terminate()
-        worker = null
+        workerMap.forEach(w => w.terminate())
+        workerMap.clear()
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────
@@ -95,20 +103,21 @@ export function useScripting() {
         offset: number,
     ): Promise<StoryboardSprite[]> {
         return new Promise((resolve, reject) => {
-            // Terminate any previous worker
-            worker?.terminate()
-            worker = new Worker(
+            // Terminate any previous worker for this specific script
+            workerMap.get(scriptId)?.terminate()
+            const w = new Worker(
                 new URL('~/workers/script-runner.ts', import.meta.url),
                 { type: 'module' },
             )
+            workerMap.set(scriptId, w)
 
             const timeout = setTimeout(() => {
-                worker?.terminate()
-                worker = null
+                w.terminate()
+                workerMap.delete(scriptId)
                 reject(new Error('Script timed out (5s)'))
             }, 5_000)
 
-            worker.onmessage = (event: MessageEvent<WorkerOutMessage>) => {
+            w.onmessage = (event: MessageEvent<WorkerOutMessage>) => {
                 clearTimeout(timeout)
                 const msg = event.data
 
@@ -118,19 +127,19 @@ export function useScripting() {
                     reject(new Error(msg.message))
                 }
 
-                worker?.terminate()
-                worker = null
+                w.terminate()
+                workerMap.delete(scriptId)
             }
 
-            worker.onerror = (err) => {
+            w.onerror = (err: ErrorEvent) => {
                 clearTimeout(timeout)
                 reject(new Error(err.message))
-                worker?.terminate()
-                worker = null
+                w.terminate()
+                workerMap.delete(scriptId)
             }
 
             const msg: WorkerInMessage = { type: 'run', scriptId, code, bpm, offset }
-            worker.postMessage(msg)
+            w.postMessage(msg)
         })
     }
 

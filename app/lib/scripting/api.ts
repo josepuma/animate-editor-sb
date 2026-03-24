@@ -23,43 +23,163 @@ export class LoopBuilder {
         this._group = { startTime, loopCount, commands: [] }
     }
 
-    fade(easing: Easing, startTime: number, endTime: number, startOpacity: number, endOpacity: number): this {
-        this._push<FadeCommand>({ type: 'F', easing, startTime, endTime, startOpacity, endOpacity })
+    // fade(time, value)
+    fade(time: number, value: number): this
+    // fade(startTime, endTime, startOpacity, endOpacity)
+    fade(startTime: number, endTime: number, startOpacity: number, endOpacity: number): this
+    // fade(easing, startTime, endTime, startOpacity, endOpacity)
+    fade(easing: Easing, startTime: number, endTime: number, startOpacity: number, endOpacity: number): this
+    fade(...args: number[]): this {
+        if (args.length === 2) {
+            const [time, value] = args as [number, number]
+            this._push<FadeCommand>({ type: 'F', easing: Easing.Linear, startTime: time, endTime: time, startOpacity: value, endOpacity: value })
+        } else if (args.length === 4) {
+            const [startTime, endTime, startOpacity, endOpacity] = args as [number, number, number, number]
+            this._push<FadeCommand>({ type: 'F', easing: Easing.Linear, startTime, endTime, startOpacity, endOpacity })
+        } else {
+            const [easing, startTime, endTime, startOpacity, endOpacity] = args as [Easing, number, number, number, number]
+            this._push<FadeCommand>({ type: 'F', easing, startTime, endTime, startOpacity, endOpacity })
+        }
         return this
     }
 
-    move(easing: Easing, startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this {
-        this._push<MoveCommand>({ type: 'M', easing, startTime, endTime, startX, startY, endX, endY })
+    // move(time, x, y)
+    move(time: number, x: number, y: number): this
+    // move(startTime, endTime, startX, startY, endX, endY)
+    move(startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this
+    // move(easing, startTime, endTime, startX, startY, endX, endY)
+    move(easing: Easing, startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this
+    move(...args: number[]): this {
+        if (args.length === 3) {
+            const [time, x, y] = args as [number, number, number]
+            this._push<MoveCommand>({ type: 'M', easing: Easing.Linear, startTime: time, endTime: time, startX: x, startY: y, endX: x, endY: y })
+        } else if (args.length === 6) {
+            const [startTime, endTime, startX, startY, endX, endY] = args as [number, number, number, number, number, number]
+            this._push<MoveCommand>({ type: 'M', easing: Easing.Linear, startTime, endTime, startX, startY, endX, endY })
+        } else {
+            const [easing, startTime, endTime, startX, startY, endX, endY] = args as [Easing, number, number, number, number, number, number]
+            this._push<MoveCommand>({ type: 'M', easing, startTime, endTime, startX, startY, endX, endY })
+        }
         return this
     }
 
-    moveX(easing: Easing, startTime: number, endTime: number, startX: number, endX: number): this {
-        this._push<MoveXCommand>({ type: 'MX', easing, startTime, endTime, startX, endX })
+    // moveX(time, x)
+    moveX(time: number, x: number): this
+    // moveX(startTime, endTime, startX, endX)
+    moveX(startTime: number, endTime: number, startX: number, endX: number): this
+    // moveX(easing, startTime, endTime, startX, endX)
+    moveX(easing: Easing, startTime: number, endTime: number, startX: number, endX: number): this
+    moveX(...args: number[]): this {
+        if (args.length === 2) {
+            const [time, x] = args as [number, number]
+            this._push<MoveXCommand>({ type: 'MX', easing: Easing.Linear, startTime: time, endTime: time, startX: x, endX: x })
+        } else if (args.length === 4) {
+            const [startTime, endTime, startX, endX] = args as [number, number, number, number]
+            this._push<MoveXCommand>({ type: 'MX', easing: Easing.Linear, startTime, endTime, startX, endX })
+        } else {
+            const [easing, startTime, endTime, startX, endX] = args as [Easing, number, number, number, number]
+            this._push<MoveXCommand>({ type: 'MX', easing, startTime, endTime, startX, endX })
+        }
         return this
     }
 
-    moveY(easing: Easing, startTime: number, endTime: number, startY: number, endY: number): this {
-        this._push<MoveYCommand>({ type: 'MY', easing, startTime, endTime, startY, endY })
+    // moveY(time, y)
+    moveY(time: number, y: number): this
+    // moveY(startTime, endTime, startY, endY)
+    moveY(startTime: number, endTime: number, startY: number, endY: number): this
+    // moveY(easing, startTime, endTime, startY, endY)
+    moveY(easing: Easing, startTime: number, endTime: number, startY: number, endY: number): this
+    moveY(...args: number[]): this {
+        if (args.length === 2) {
+            const [time, y] = args as [number, number]
+            this._push<MoveYCommand>({ type: 'MY', easing: Easing.Linear, startTime: time, endTime: time, startY: y, endY: y })
+        } else if (args.length === 4) {
+            const [startTime, endTime, startY, endY] = args as [number, number, number, number]
+            this._push<MoveYCommand>({ type: 'MY', easing: Easing.Linear, startTime, endTime, startY, endY })
+        } else {
+            const [easing, startTime, endTime, startY, endY] = args as [Easing, number, number, number, number]
+            this._push<MoveYCommand>({ type: 'MY', easing, startTime, endTime, startY, endY })
+        }
         return this
     }
 
-    scale(easing: Easing, startTime: number, endTime: number, startScale: number, endScale: number): this {
-        this._push<ScaleCommand>({ type: 'S', easing, startTime, endTime, startScale, endScale })
+    // scale(time, value)
+    scale(time: number, value: number): this
+    // scale(startTime, endTime, startScale, endScale)
+    scale(startTime: number, endTime: number, startScale: number, endScale: number): this
+    // scale(easing, startTime, endTime, startScale, endScale)
+    scale(easing: Easing, startTime: number, endTime: number, startScale: number, endScale: number): this
+    scale(...args: number[]): this {
+        if (args.length === 2) {
+            const [time, value] = args as [number, number]
+            this._push<ScaleCommand>({ type: 'S', easing: Easing.Linear, startTime: time, endTime: time, startScale: value, endScale: value })
+        } else if (args.length === 4) {
+            const [startTime, endTime, startScale, endScale] = args as [number, number, number, number]
+            this._push<ScaleCommand>({ type: 'S', easing: Easing.Linear, startTime, endTime, startScale, endScale })
+        } else {
+            const [easing, startTime, endTime, startScale, endScale] = args as [Easing, number, number, number, number]
+            this._push<ScaleCommand>({ type: 'S', easing, startTime, endTime, startScale, endScale })
+        }
         return this
     }
 
-    scaleVec(easing: Easing, startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this {
-        this._push<VectorScaleCommand>({ type: 'V', easing, startTime, endTime, startX, startY, endX, endY })
+    // scaleVec(time, x, y)
+    scaleVec(time: number, x: number, y: number): this
+    // scaleVec(startTime, endTime, startX, startY, endX, endY)
+    scaleVec(startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this
+    // scaleVec(easing, startTime, endTime, startX, startY, endX, endY)
+    scaleVec(easing: Easing, startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this
+    scaleVec(...args: number[]): this {
+        if (args.length === 3) {
+            const [time, x, y] = args as [number, number, number]
+            this._push<VectorScaleCommand>({ type: 'V', easing: Easing.Linear, startTime: time, endTime: time, startX: x, startY: y, endX: x, endY: y })
+        } else if (args.length === 6) {
+            const [startTime, endTime, startX, startY, endX, endY] = args as [number, number, number, number, number, number]
+            this._push<VectorScaleCommand>({ type: 'V', easing: Easing.Linear, startTime, endTime, startX, startY, endX, endY })
+        } else {
+            const [easing, startTime, endTime, startX, startY, endX, endY] = args as [Easing, number, number, number, number, number, number]
+            this._push<VectorScaleCommand>({ type: 'V', easing, startTime, endTime, startX, startY, endX, endY })
+        }
         return this
     }
 
-    rotate(easing: Easing, startTime: number, endTime: number, startAngle: number, endAngle: number): this {
-        this._push<RotateCommand>({ type: 'R', easing, startTime, endTime, startAngle, endAngle })
+    // rotate(time, angle)
+    rotate(time: number, angle: number): this
+    // rotate(startTime, endTime, startAngle, endAngle)
+    rotate(startTime: number, endTime: number, startAngle: number, endAngle: number): this
+    // rotate(easing, startTime, endTime, startAngle, endAngle)
+    rotate(easing: Easing, startTime: number, endTime: number, startAngle: number, endAngle: number): this
+    rotate(...args: number[]): this {
+        if (args.length === 2) {
+            const [time, angle] = args as [number, number]
+            this._push<RotateCommand>({ type: 'R', easing: Easing.Linear, startTime: time, endTime: time, startAngle: angle, endAngle: angle })
+        } else if (args.length === 4) {
+            const [startTime, endTime, startAngle, endAngle] = args as [number, number, number, number]
+            this._push<RotateCommand>({ type: 'R', easing: Easing.Linear, startTime, endTime, startAngle, endAngle })
+        } else {
+            const [easing, startTime, endTime, startAngle, endAngle] = args as [Easing, number, number, number, number]
+            this._push<RotateCommand>({ type: 'R', easing, startTime, endTime, startAngle, endAngle })
+        }
         return this
     }
 
-    color(easing: Easing, startTime: number, endTime: number, startR: number, startG: number, startB: number, endR: number, endG: number, endB: number): this {
-        this._push<ColorCommand>({ type: 'C', easing, startTime, endTime, startR, startG, startB, endR, endG, endB })
+    // color(time, r, g, b)
+    color(time: number, r: number, g: number, b: number): this
+    // color(startTime, endTime, startR, startG, startB, endR, endG, endB)
+    color(startTime: number, endTime: number, startR: number, startG: number, startB: number, endR: number, endG: number, endB: number): this
+    // color(easing, startTime, endTime, startR, startG, startB, endR, endG, endB)
+    color(easing: Easing, startTime: number, endTime: number, startR: number, startG: number, startB: number, endR: number, endG: number, endB: number): this
+    color(...args: number[]): this {
+        if (args.length === 4) {
+            const [time, r, g, b] = args as [number, number, number, number]
+            this._push<ColorCommand>({ type: 'C', easing: Easing.Linear, startTime: time, endTime: time, startR: r, startG: g, startB: b, endR: r, endG: g, endB: b })
+        } else if (args.length === 8) {
+            const [startTime, endTime, startR, startG, startB, endR, endG, endB] = args as [number, number, number, number, number, number, number, number]
+            this._push<ColorCommand>({ type: 'C', easing: Easing.Linear, startTime, endTime, startR, startG, startB, endR, endG, endB })
+        } else {
+            const [easing, startTime, endTime, startR, startG, startB, endR, endG, endB] = args as [Easing, number, number, number, number, number, number, number, number]
+            this._push<ColorCommand>({ type: 'C', easing, startTime, endTime, startR, startG, startB, endR, endG, endB })
+        }
         return this
     }
 
@@ -106,50 +226,170 @@ export class SpriteBuilder {
     // ── Commands ────────────────────────────────────────────────────────────────
 
     /** _F — Fade opacity */
-    fade(easing: Easing, startTime: number, endTime: number, startOpacity: number, endOpacity: number): this {
-        this._push<FadeCommand>({ type: 'F', easing, startTime, endTime, startOpacity, endOpacity })
+    // fade(time, value)
+    fade(time: number, value: number): this
+    // fade(startTime, endTime, startOpacity, endOpacity)
+    fade(startTime: number, endTime: number, startOpacity: number, endOpacity: number): this
+    // fade(easing, startTime, endTime, startOpacity, endOpacity)
+    fade(easing: Easing, startTime: number, endTime: number, startOpacity: number, endOpacity: number): this
+    fade(...args: number[]): this {
+        if (args.length === 2) {
+            const [time, value] = args as [number, number]
+            this._push<FadeCommand>({ type: 'F', easing: Easing.Linear, startTime: time, endTime: time, startOpacity: value, endOpacity: value })
+        } else if (args.length === 4) {
+            const [startTime, endTime, startOpacity, endOpacity] = args as [number, number, number, number]
+            this._push<FadeCommand>({ type: 'F', easing: Easing.Linear, startTime, endTime, startOpacity, endOpacity })
+        } else {
+            const [easing, startTime, endTime, startOpacity, endOpacity] = args as [Easing, number, number, number, number]
+            this._push<FadeCommand>({ type: 'F', easing, startTime, endTime, startOpacity, endOpacity })
+        }
         return this
     }
 
     /** _M — Move (both axes) */
-    move(easing: Easing, startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this {
-        this._push<MoveCommand>({ type: 'M', easing, startTime, endTime, startX, startY, endX, endY })
+    // move(time, x, y)
+    move(time: number, x: number, y: number): this
+    // move(startTime, endTime, startX, startY, endX, endY)
+    move(startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this
+    // move(easing, startTime, endTime, startX, startY, endX, endY)
+    move(easing: Easing, startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this
+    move(...args: number[]): this {
+        if (args.length === 3) {
+            const [time, x, y] = args as [number, number, number]
+            this._push<MoveCommand>({ type: 'M', easing: Easing.Linear, startTime: time, endTime: time, startX: x, startY: y, endX: x, endY: y })
+        } else if (args.length === 6) {
+            const [startTime, endTime, startX, startY, endX, endY] = args as [number, number, number, number, number, number]
+            this._push<MoveCommand>({ type: 'M', easing: Easing.Linear, startTime, endTime, startX, startY, endX, endY })
+        } else {
+            const [easing, startTime, endTime, startX, startY, endX, endY] = args as [Easing, number, number, number, number, number, number]
+            this._push<MoveCommand>({ type: 'M', easing, startTime, endTime, startX, startY, endX, endY })
+        }
         return this
     }
 
     /** _MX — Move X axis only */
-    moveX(easing: Easing, startTime: number, endTime: number, startX: number, endX: number): this {
-        this._push<MoveXCommand>({ type: 'MX', easing, startTime, endTime, startX, endX })
+    // moveX(time, x)
+    moveX(time: number, x: number): this
+    // moveX(startTime, endTime, startX, endX)
+    moveX(startTime: number, endTime: number, startX: number, endX: number): this
+    // moveX(easing, startTime, endTime, startX, endX)
+    moveX(easing: Easing, startTime: number, endTime: number, startX: number, endX: number): this
+    moveX(...args: number[]): this {
+        if (args.length === 2) {
+            const [time, x] = args as [number, number]
+            this._push<MoveXCommand>({ type: 'MX', easing: Easing.Linear, startTime: time, endTime: time, startX: x, endX: x })
+        } else if (args.length === 4) {
+            const [startTime, endTime, startX, endX] = args as [number, number, number, number]
+            this._push<MoveXCommand>({ type: 'MX', easing: Easing.Linear, startTime, endTime, startX, endX })
+        } else {
+            const [easing, startTime, endTime, startX, endX] = args as [Easing, number, number, number, number]
+            this._push<MoveXCommand>({ type: 'MX', easing, startTime, endTime, startX, endX })
+        }
         return this
     }
 
     /** _MY — Move Y axis only */
-    moveY(easing: Easing, startTime: number, endTime: number, startY: number, endY: number): this {
-        this._push<MoveYCommand>({ type: 'MY', easing, startTime, endTime, startY, endY })
+    // moveY(time, y)
+    moveY(time: number, y: number): this
+    // moveY(startTime, endTime, startY, endY)
+    moveY(startTime: number, endTime: number, startY: number, endY: number): this
+    // moveY(easing, startTime, endTime, startY, endY)
+    moveY(easing: Easing, startTime: number, endTime: number, startY: number, endY: number): this
+    moveY(...args: number[]): this {
+        if (args.length === 2) {
+            const [time, y] = args as [number, number]
+            this._push<MoveYCommand>({ type: 'MY', easing: Easing.Linear, startTime: time, endTime: time, startY: y, endY: y })
+        } else if (args.length === 4) {
+            const [startTime, endTime, startY, endY] = args as [number, number, number, number]
+            this._push<MoveYCommand>({ type: 'MY', easing: Easing.Linear, startTime, endTime, startY, endY })
+        } else {
+            const [easing, startTime, endTime, startY, endY] = args as [Easing, number, number, number, number]
+            this._push<MoveYCommand>({ type: 'MY', easing, startTime, endTime, startY, endY })
+        }
         return this
     }
 
     /** _S — Uniform scale */
-    scale(easing: Easing, startTime: number, endTime: number, startScale: number, endScale: number): this {
-        this._push<ScaleCommand>({ type: 'S', easing, startTime, endTime, startScale, endScale })
+    // scale(time, value)
+    scale(time: number, value: number): this
+    // scale(startTime, endTime, startScale, endScale)
+    scale(startTime: number, endTime: number, startScale: number, endScale: number): this
+    // scale(easing, startTime, endTime, startScale, endScale)
+    scale(easing: Easing, startTime: number, endTime: number, startScale: number, endScale: number): this
+    scale(...args: number[]): this {
+        if (args.length === 2) {
+            const [time, value] = args as [number, number]
+            this._push<ScaleCommand>({ type: 'S', easing: Easing.Linear, startTime: time, endTime: time, startScale: value, endScale: value })
+        } else if (args.length === 4) {
+            const [startTime, endTime, startScale, endScale] = args as [number, number, number, number]
+            this._push<ScaleCommand>({ type: 'S', easing: Easing.Linear, startTime, endTime, startScale, endScale })
+        } else {
+            const [easing, startTime, endTime, startScale, endScale] = args as [Easing, number, number, number, number]
+            this._push<ScaleCommand>({ type: 'S', easing, startTime, endTime, startScale, endScale })
+        }
         return this
     }
 
     /** _V — Vector (non-uniform) scale */
-    scaleVec(easing: Easing, startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this {
-        this._push<VectorScaleCommand>({ type: 'V', easing, startTime, endTime, startX, startY, endX, endY })
+    // scaleVec(time, x, y)
+    scaleVec(time: number, x: number, y: number): this
+    // scaleVec(startTime, endTime, startX, startY, endX, endY)
+    scaleVec(startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this
+    // scaleVec(easing, startTime, endTime, startX, startY, endX, endY)
+    scaleVec(easing: Easing, startTime: number, endTime: number, startX: number, startY: number, endX: number, endY: number): this
+    scaleVec(...args: number[]): this {
+        if (args.length === 3) {
+            const [time, x, y] = args as [number, number, number]
+            this._push<VectorScaleCommand>({ type: 'V', easing: Easing.Linear, startTime: time, endTime: time, startX: x, startY: y, endX: x, endY: y })
+        } else if (args.length === 6) {
+            const [startTime, endTime, startX, startY, endX, endY] = args as [number, number, number, number, number, number]
+            this._push<VectorScaleCommand>({ type: 'V', easing: Easing.Linear, startTime, endTime, startX, startY, endX, endY })
+        } else {
+            const [easing, startTime, endTime, startX, startY, endX, endY] = args as [Easing, number, number, number, number, number, number]
+            this._push<VectorScaleCommand>({ type: 'V', easing, startTime, endTime, startX, startY, endX, endY })
+        }
         return this
     }
 
     /** _R — Rotate (radians) */
-    rotate(easing: Easing, startTime: number, endTime: number, startAngle: number, endAngle: number): this {
-        this._push<RotateCommand>({ type: 'R', easing, startTime, endTime, startAngle, endAngle })
+    // rotate(time, angle)
+    rotate(time: number, angle: number): this
+    // rotate(startTime, endTime, startAngle, endAngle)
+    rotate(startTime: number, endTime: number, startAngle: number, endAngle: number): this
+    // rotate(easing, startTime, endTime, startAngle, endAngle)
+    rotate(easing: Easing, startTime: number, endTime: number, startAngle: number, endAngle: number): this
+    rotate(...args: number[]): this {
+        if (args.length === 2) {
+            const [time, angle] = args as [number, number]
+            this._push<RotateCommand>({ type: 'R', easing: Easing.Linear, startTime: time, endTime: time, startAngle: angle, endAngle: angle })
+        } else if (args.length === 4) {
+            const [startTime, endTime, startAngle, endAngle] = args as [number, number, number, number]
+            this._push<RotateCommand>({ type: 'R', easing: Easing.Linear, startTime, endTime, startAngle, endAngle })
+        } else {
+            const [easing, startTime, endTime, startAngle, endAngle] = args as [Easing, number, number, number, number]
+            this._push<RotateCommand>({ type: 'R', easing, startTime, endTime, startAngle, endAngle })
+        }
         return this
     }
 
     /** _C — Colour tint (0–255 per channel) */
-    color(easing: Easing, startTime: number, endTime: number, startR: number, startG: number, startB: number, endR: number, endG: number, endB: number): this {
-        this._push<ColorCommand>({ type: 'C', easing, startTime, endTime, startR, startG, startB, endR, endG, endB })
+    // color(time, r, g, b)
+    color(time: number, r: number, g: number, b: number): this
+    // color(startTime, endTime, startR, startG, startB, endR, endG, endB)
+    color(startTime: number, endTime: number, startR: number, startG: number, startB: number, endR: number, endG: number, endB: number): this
+    // color(easing, startTime, endTime, startR, startG, startB, endR, endG, endB)
+    color(easing: Easing, startTime: number, endTime: number, startR: number, startG: number, startB: number, endR: number, endG: number, endB: number): this
+    color(...args: number[]): this {
+        if (args.length === 4) {
+            const [time, r, g, b] = args as [number, number, number, number]
+            this._push<ColorCommand>({ type: 'C', easing: Easing.Linear, startTime: time, endTime: time, startR: r, startG: g, startB: b, endR: r, endG: g, endB: b })
+        } else if (args.length === 8) {
+            const [startTime, endTime, startR, startG, startB, endR, endG, endB] = args as [number, number, number, number, number, number, number, number]
+            this._push<ColorCommand>({ type: 'C', easing: Easing.Linear, startTime, endTime, startR, startG, startB, endR, endG, endB })
+        } else {
+            const [easing, startTime, endTime, startR, startG, startB, endR, endG, endB] = args as [Easing, number, number, number, number, number, number, number, number]
+            this._push<ColorCommand>({ type: 'C', easing, startTime, endTime, startR, startG, startB, endR, endG, endB })
+        }
         return this
     }
 

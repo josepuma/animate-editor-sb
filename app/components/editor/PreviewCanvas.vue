@@ -9,6 +9,8 @@ const props = defineProps<{
     sprites: StoryboardSprite[]
     currentMs: number
     getFileHandle: (path: string) => Promise<FileSystemFileHandle | null>
+    /** Increment to trigger a full renderer reset (new project loaded). */
+    resetKey: number
 }>()
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -32,10 +34,7 @@ onMounted(async () => {
     isReady.value = true
 
     if (props.sprites.length > 0) {
-        isLoadingTextures.value = true
-        await renderer.loadTextures(props.sprites, props.getFileHandle)
-        isLoadingTextures.value = false
-        renderer.render(props.currentMs)
+        await reloadTextures(props.sprites)
     }
 })
 
@@ -43,26 +42,74 @@ onUnmounted(() => {
     renderer.destroy()
 })
 
+// ─── Texture reload (mutex) ───────────────────────────────────────────────────
+// updateSprites() reads files from disk and takes time. If sprites change while
+// a load is already in progress, we serialize: the in-flight load runs to
+// completion, then immediately picks up the latest pending request.
+// pendingReset ensures the renderer cache is cleared between projects even if a
+// load is in flight when openProject() fires.
+
+let textureLoading = false
+let texturePending: StoryboardSprite[] | null = null
+let pendingReset = false
+
+async function reloadTextures(sprites: StoryboardSprite[]) {
+    if (textureLoading) {
+        texturePending = sprites  // overwrite — only the latest matters
+        return
+    }
+
+    // Apply any deferred project reset before the next incremental load
+    if (pendingReset) {
+        pendingReset = false
+        renderer.reset()
+    }
+
+    textureLoading = true
+    isLoadingTextures.value = sprites.length > 0
+    await renderer.updateSprites(sprites, props.getFileHandle)
+    isLoadingTextures.value = false
+    renderer.render(props.currentMs)
+    textureLoading = false
+
+    if (texturePending !== null) {
+        const next = texturePending
+        texturePending = null
+        await reloadTextures(next)
+    }
+}
+
 // ─── Watchers ─────────────────────────────────────────────────────────────────
+
+// When resetKey increments (new project opened) clear the renderer cache.
+// If a load is in flight, defer the reset until it finishes.
+watch(
+    () => props.resetKey,
+    () => {
+        if (textureLoading) {
+            pendingReset = true
+        } else {
+            renderer.reset()
+        }
+    },
+)
 
 // When sprites change (new script run / new .osb loaded) reload textures
 watch(
     () => props.sprites,
-    async (sprites) => {
+    (sprites) => {
         if (!isReady.value) return
-        isLoadingTextures.value = true
-        await renderer.loadTextures(sprites, props.getFileHandle)
-        isLoadingTextures.value = false
-        renderer.render(props.currentMs)
+        reloadTextures(sprites)
     },
     { deep: false },
 )
 
 // When audio timestamp changes, re-render
+// Skip during texture load to prevent creating PixiJS sprites with Texture.EMPTY
 watch(
     () => props.currentMs,
     (ms) => {
-        if (!isReady.value || !props.sprites.length) return
+        if (!isReady.value || !props.sprites.length || textureLoading) return
         renderer.render(ms)
     },
 )

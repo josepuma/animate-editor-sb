@@ -33,14 +33,15 @@ const newScriptName       = ref('scripts/main.ts')
 const DEFAULT_SCRIPT = `// Storyboard script
 // Globals: sprite(), beat(), bpm, offset, Easing, Layer, Origin
 
-sprite('sb/logo.png', Layer.Foreground, Origin.Centre)
+/*sprite('sb/logo.png', Layer.Foreground, Origin.Centre)
   .fade(Easing.SineOut, beat(0), beat(2), 0, 1)
-  .scale(Easing.QuadOut, beat(0), beat(2), 0.8, 1)
+  .scale(Easing.QuadOut, beat(0), beat(2), 0.8, 1)*/
 `
-const code           = ref(DEFAULT_SCRIPT)
-const selectedScript = ref<string | null>(null)
-const isSaving       = ref(false)
-const activeMode     = ref<'osb' | 'script'>('osb')
+const code             = ref(DEFAULT_SCRIPT)
+const selectedScript   = ref<string | null>(null)
+const isSaving         = ref(false)
+const activeMode       = ref<'osb' | 'script'>('osb')
+const previewResetKey  = ref(0)
 
 // ─── Derived ──────────────────────────────────────────────────────────────────
 
@@ -77,6 +78,7 @@ async function openProject() {
     projectConfig.value = null
     audio.unload()
     scripting.clear()
+    previewResetKey.value++  // tell PreviewCanvas to reset the renderer cache
 
     const ok = await fs.openProject()
     if (!ok) return
@@ -105,9 +107,20 @@ async function openProject() {
         if (handle) await audio.loadFromHandle(handle)
     }
 
-    // Auto-load first .ts script (loadScript already runs it)
+    // Run ALL .ts scripts concurrently — per-script runSeqMap means they
+    // don't cancel each other. The renderer updates incrementally as each finishes.
     const scripts = fs.listFiles('.ts')
-    if (scripts.length > 0) await loadScript(scripts[0]!.path)
+    if (scripts.length > 0) {
+        activeMode.value = 'script'
+        await Promise.all(
+            scripts.map(async (s) => {
+                const text = await fs.readTextFile(s.path)
+                if (text !== null) {
+                    await scripting.run(s.path, text, scriptBpm.value, scriptOffset.value)
+                }
+            }),
+        )
+    }
 }
 
 async function loadOsb(path: string) {
@@ -167,6 +180,22 @@ async function createNewScript() {
     newScriptName.value = 'scripts/main.ts'
 }
 
+/**
+ * Opens a script for editing without re-running it.
+ * Scripts are already running from openProject(); re-running on every click
+ * would cause unnecessary preview reloads.
+ */
+async function openScript(path: string) {
+    const text = await fs.readTextFile(path)
+    if (text === null) return
+    code.value = text
+    selectedScript.value = path
+}
+
+/**
+ * Opens a script AND runs it immediately.
+ * Used only when creating a new script that has never run.
+ */
 async function loadScript(path: string) {
     const text = await fs.readTextFile(path)
     if (text === null) return
@@ -332,7 +361,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                             :key="f.path"
                             class="w-full text-left px-3 py-1.5 text-xs truncate transition-colors hover:bg-accent hover:text-accent-foreground"
                             :class="selectedScript === f.path ? 'bg-accent text-accent-foreground' : ''"
-                            @click="loadScript(f.path)"
+                            @click="openScript(f.path)"
                         ) {{ f.name }}
                     p.px-3.py-1.text-xs.text-muted-foreground(v-else) No .ts files
                     Separator.my-2
@@ -376,6 +405,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                         :sprites="displaySprites"
                         :current-ms="audio.currentMs.value"
                         :get-file-handle="fs.getFileHandle"
+                        :reset-key="previewResetKey"
                     )
                     .absolute.inset-0.flex.items-center.justify-center.text-white.text-sm(
                         class="bg-black/60"

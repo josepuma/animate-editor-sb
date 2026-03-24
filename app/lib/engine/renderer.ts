@@ -119,8 +119,12 @@ export class StoryboardRenderer {
         if (!this.fpsText.visible) this.lastRenderTime = 0
     }
 
-    destroy(): void {
-        this.pixiSprites.forEach(s => s.destroy())
+    /**
+     * Clears all sprites, textures and blob URLs without destroying the PixiJS app.
+     * Call before loading a new project to prevent the texture cache bleeding across projects.
+     */
+    reset(): void {
+        this.pixiSprites.forEach(s => { this.spritesLayer.removeChild(s); s.destroy() })
         this.pixiSprites.clear()
         this.spriteIndex.clear()
         this.blobUrls.forEach(url => URL.revokeObjectURL(url))
@@ -128,6 +132,10 @@ export class StoryboardRenderer {
         this.textureCache.forEach(t => t.destroy())
         this.textureCache.clear()
         this.prepared = []
+    }
+
+    destroy(): void {
+        this.reset()
         this.app.destroy(true)
     }
 
@@ -161,44 +169,41 @@ export class StoryboardRenderer {
         })
     }
 
-    // ── Texture loading ───────────────────────────────────────────────────────
+    // ── Sprite update (incremental) ───────────────────────────────────────────
 
     /**
-     * Loads textures for a list of sprites.
-     * `getFileHandle` resolves a project-relative path to a FileSystemFileHandle.
+     * Incrementally updates sprites and textures.
+     * - Only loads file paths not already in the texture cache (no reload of unchanged images).
+     * - Removes PixiJS sprites for IDs no longer present.
+     * - Re-orders the display list to match layer order.
+     * Does NOT clear existing sprites/textures — call reset() first for a full project change.
      */
-    async loadTextures(
+    async updateSprites(
         sprites: StoryboardSprite[],
         getFileHandle: (path: string) => Promise<FileSystemFileHandle | null>,
     ): Promise<void> {
-        // Clear previous project's state before loading new one
-        this.pixiSprites.forEach(s => { this.spritesLayer.removeChild(s); s.destroy() })
-        this.pixiSprites.clear()
+        // 1. Rebuild sprite index
         this.spriteIndex.clear()
-        this.blobUrls.forEach(url => URL.revokeObjectURL(url))
-        this.blobUrls.clear()
-        this.textureCache.forEach(t => t.destroy())
-        this.textureCache.clear()
-
-        // Index all sprites first
         for (const sprite of sprites) {
             this.spriteIndex.set(sprite.id, sprite)
         }
 
-        // Load textures
+        // 2. Load only file paths not already cached
+        const seenPaths = new Set<string>()
         for (const sprite of sprites) {
-            if (this.blobUrls.has(sprite.filePath)) continue
-
+            if (seenPaths.has(sprite.filePath) || this.textureCache.has(sprite.filePath)) {
+                seenPaths.add(sprite.filePath)
+                continue
+            }
+            seenPaths.add(sprite.filePath)
             const handle = await getFileHandle(sprite.filePath)
             if (!handle) {
                 console.warn('[renderer] file not found:', sprite.filePath)
                 continue
             }
-
             const file = await handle.getFile()
             const blobUrl = URL.createObjectURL(file)
             this.blobUrls.set(sprite.filePath, blobUrl)
-
             try {
                 const texture = await loadTextureFromUrl(blobUrl)
                 this.textureCache.set(sprite.filePath, texture)
@@ -207,15 +212,36 @@ export class StoryboardRenderer {
             }
         }
 
+        // 3. Remove PixiJS sprites for IDs no longer in the list
+        const activeIds = new Set(sprites.map(s => s.id))
+        for (const [id, pSprite] of [...this.pixiSprites]) {
+            if (!activeIds.has(id)) {
+                this.spritesLayer.removeChild(pSprite)
+                pSprite.destroy()
+                this.pixiSprites.delete(id)
+            }
+        }
+
+        // 4. Update timeline data
         this.prepared = prepareStoryboard(sprites)
 
-        // Pre-create PixiJS sprites sorted by layer (bottom → top).
-        // Within the same layer, preserve the original .osb file order.
+        // 5. Ensure all sprites have correct texture + anchor, sorted by layer
         const sorted = [...sprites].sort((a, b) =>
             LAYER_RENDER_ORDER[a.layer] - LAYER_RENDER_ORDER[b.layer]
         )
         for (const sprite of sorted) {
-            this.getOrCreateSprite(sprite.id)
+            const pixiSprite = this.getOrCreateSprite(sprite.id)
+            const texture = this.textureCache.get(sprite.filePath) ?? Texture.EMPTY
+            pixiSprite.texture = texture
+            const anchor = ORIGIN_ANCHOR[sprite.origin]
+            pixiSprite.anchor.set(anchor[0], anchor[1])
+        }
+
+        // 6. Re-order display list to match layer sort
+        //    addChild on an existing child moves it to the end — calling in sorted order re-sorts.
+        for (const sprite of sorted) {
+            const pixiSprite = this.pixiSprites.get(sprite.id)
+            if (pixiSprite) this.spritesLayer.addChild(pixiSprite)
         }
     }
 
