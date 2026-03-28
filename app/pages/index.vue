@@ -9,6 +9,7 @@ import type { ProjectConfig } from '~/types/project'
 const fs        = useFileSystem()
 const audio     = useAudio()
 const scripting = useScripting()
+const timing    = useTiming()
 
 // ─── Project config ───────────────────────────────────────────────────────────
 
@@ -122,11 +123,9 @@ async function scanImageDimensions() {
     imageDims.value = dims
 }
 
-// ─── Slider drag ──────────────────────────────────────────────────────────────
+// ─── Beat divisor options ────────────────────────────────────────────────────
 
-const isDragging = ref(false)
-const dragMs     = ref(0)
-const seekValue  = computed(() => [isDragging.value ? dragMs.value : audio.currentMs.value])
+const DIVISOR_OPTIONS = [1, 2, 4, 8, 16] as const
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
@@ -173,6 +172,22 @@ async function openProject() {
     if (audios.length > 0) {
         const handle = await fs.getFileHandle(audios[0]!.path)
         if (handle) await audio.loadFromHandle(handle)
+    }
+
+    // Auto-detect timing from .osu files
+    timing.clear()
+    const osuFiles = fs.listFiles('.osu')
+    if (osuFiles.length > 0) {
+        const osuContent = await fs.readTextFile(osuFiles[0]!.path)
+        if (osuContent) {
+            timing.loadFromOsu(osuContent)
+            const bpm = timing.primaryBpm.value
+            if (bpm !== null) {
+                scriptBpm.value = Math.round(bpm)
+                const firstPoint = timing.timingData.value?.uninheritedPoints[0]
+                if (firstPoint) scriptOffset.value = Math.round(firstPoint.time)
+            }
+        }
     }
 
     // Pre-scan image dimensions so scripts can access sprite.width / sprite.height
@@ -331,28 +346,13 @@ function formatMs(ms: number): string {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-function onSliderPointerDown() {
-    dragMs.value = audio.currentMs.value
-    isDragging.value = true
-}
-
-function onSliderUpdate(val: number[]) {
-    dragMs.value = val[0] ?? 0
-}
-
-function onSliderPointerUp() {
-    if (!isDragging.value) return
-    isDragging.value = false
-    audio.seek(dragMs.value)
-}
-
 // ─── Keyboard shortcuts ───────────────────────────────────────────────────────
 
 const SEEK_STEP_MS = 5000
 
 function onKeyDown(e: KeyboardEvent) {
     const tag = (e.target as HTMLElement).tagName
-    if (tag === 'INPUT' || tag === 'TEXTAREA') return
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
     if ((e.target as HTMLElement).closest?.('.monaco-editor')) return
 
     if (e.metaKey || e.ctrlKey) {
@@ -366,20 +366,34 @@ function onKeyDown(e: KeyboardEvent) {
         audio.isPlaying.value ? audio.pause() : audio.play()
     } else if (e.code === 'ArrowRight') {
         e.preventDefault()
-        audio.seek(audio.currentMs.value + SEEK_STEP_MS)
+        if (timing.hasTimingData.value) {
+            audio.seek(timing.nextBeat(audio.currentMs.value))
+        } else {
+            audio.seek(audio.currentMs.value + SEEK_STEP_MS)
+        }
     } else if (e.code === 'ArrowLeft') {
         e.preventDefault()
-        audio.seek(audio.currentMs.value - SEEK_STEP_MS)
+        if (timing.hasTimingData.value) {
+            audio.seek(timing.prevBeat(audio.currentMs.value))
+        } else {
+            audio.seek(audio.currentMs.value - SEEK_STEP_MS)
+        }
     }
+}
+
+function onTimelineSeek(ms: number) {
+    audio.seek(ms)
+}
+
+function onDivisorChange(e: Event) {
+    timing.beatDivisor.value = Number((e.target as HTMLSelectElement).value)
 }
 
 onMounted(() => {
     window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('pointerup', onSliderPointerUp)
 })
 onUnmounted(() => {
     window.removeEventListener('keydown', onKeyDown)
-    window.removeEventListener('pointerup', onSliderPointerUp)
     audio.destroy()
     scripting.destroy()
 })
@@ -519,27 +533,44 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                             class="bg-destructive/10"
                         ) {{ loadError }}
 
-                //- Audio controls
-                .shrink-0.border-t.border-border.px-4.py-2.flex.items-center.gap-3
-                    Button(
-                        size="sm"
-                        variant="ghost"
-                        class="size-8 p-0"
-                        :disabled="!hasAudio"
-                        @click="audio.isPlaying.value ? audio.pause() : audio.play()"
+                //- Timeline + Audio controls
+                .shrink-0.border-t.border-border.flex.flex-col
+                    EditorTimeline(
+                        :current-ms="audio.currentMs.value"
+                        :duration-ms="audio.durationMs.value"
+                        :has-audio="hasAudio"
+                        :timing-data="timing.timingData.value"
+                        :beat-divisor="timing.beatDivisor.value"
+                        :get-beat-lines="timing.getBeatLines"
+                        :kiai-sections="timing.timingData.value?.kiaiSections ?? []"
+                        :breaks="timing.timingData.value?.breaks ?? []"
+                        @seek="onTimelineSeek"
                     )
-                        Icon(:name="audio.isPlaying.value ? 'lucide:pause' : 'lucide:play'" size="14")
-                    span.text-xs.tabular-nums.text-muted-foreground.w-24.shrink-0
-                        | {{ formatMs(audio.currentMs.value) }} / {{ formatMs(audio.durationMs.value) }}
-                    Slider.flex-1(
-                        :min="0"
-                        :max="audio.durationMs.value"
-                        :step="1"
-                        :model-value="seekValue"
-                        :disabled="!hasAudio"
-                        @pointerdown="onSliderPointerDown"
-                        @update:model-value="onSliderUpdate"
-                    )
+                    //- Transport bar
+                    .flex.items-center.gap-2.px-3.h-8.border-t.border-border
+                        Button(
+                            size="sm"
+                            variant="ghost"
+                            class="size-7 p-0"
+                            :disabled="!hasAudio"
+                            @click="audio.isPlaying.value ? audio.pause() : audio.play()"
+                        )
+                            Icon(:name="audio.isPlaying.value ? 'lucide:pause' : 'lucide:play'" size="13")
+                        span.text-xs.tabular-nums.text-muted-foreground.shrink-0
+                            | {{ formatMs(audio.currentMs.value) }} / {{ formatMs(audio.durationMs.value) }}
+                        .flex-1
+                        //- Beat divisor selector
+                        .flex.items-center.gap-1.text-xs.text-muted-foreground(v-if="timing.hasTimingData.value")
+                            span.shrink-0 1/
+                            select.bg-transparent.border.border-border.rounded.px-1.text-foreground.text-xs(
+                                class="py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
+                                :value="timing.beatDivisor.value"
+                                @change="onDivisorChange"
+                            )
+                                option(v-for="d in DIVISOR_OPTIONS" :key="d" :value="d") {{ d }}
+                        //- BPM display
+                        span.text-xs.tabular-nums.text-muted-foreground.shrink-0(v-if="timing.primaryBpm.value")
+                            | {{ Math.round(timing.primaryBpm.value) }} BPM
 
         //- ── Right: script editor — visible only when a script is selected ──────
         .flex.flex-col.border-l.border-border.shrink-0(v-if="selectedScript !== null" class="w-2/5 min-w-64 max-w-2xl")
