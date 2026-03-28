@@ -169,6 +169,24 @@ export class StoryboardRenderer {
         })
     }
 
+    // ── Reorder (same sprites, new order) ─────────────────────────────────────
+
+    /**
+     * Re-orders the display list without loading new textures.
+     * Use when the same sprites are present but their render order changed.
+     * Synchronous and non-blocking.
+     */
+    reorder(sprites: StoryboardSprite[]): void {
+        this.prepared = prepareStoryboard(sprites)
+        const sorted = [...sprites].sort((a, b) =>
+            LAYER_RENDER_ORDER[a.layer] - LAYER_RENDER_ORDER[b.layer]
+        )
+        for (const s of sorted) {
+            const ps = this.pixiSprites.get(s.id)
+            if (ps) this.spritesLayer.addChild(ps)
+        }
+    }
+
     // ── Sprite update (incremental) ───────────────────────────────────────────
 
     /**

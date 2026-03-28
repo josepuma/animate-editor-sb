@@ -31,7 +31,7 @@ export function useFileSystem() {
         try {
             const handle = await window.showDirectoryPicker({ mode: 'readwrite' })
             rootHandle.value = handle
-            fileTree.value = await buildTree(handle, '')
+            fileTree.value = await buildTree(handle, '', true)
             return true
         } catch (err) {
             // User cancelled the picker
@@ -97,7 +97,7 @@ export function useFileSystem() {
     /** Re-scans the project folder and updates the file tree. */
     async function refresh(): Promise<void> {
         if (!rootHandle.value) return
-        fileTree.value = await buildTree(rootHandle.value, '')
+        fileTree.value = await buildTree(rootHandle.value, '', true)
     }
 
     async function writeTextFile(relativePath: string, content: string): Promise<boolean> {
@@ -119,7 +119,7 @@ export function useFileSystem() {
             await writable.write(content)
             await writable.close()
             // Refresh the file tree so new files appear in the sidebar
-            fileTree.value = await buildTree(rootHandle.value, '')
+            fileTree.value = await buildTree(rootHandle.value, '', true)
             return true
         } catch (err) {
             console.error('[useFileSystem] writeTextFile failed', err)
@@ -145,8 +145,11 @@ export function useFileSystem() {
 async function buildTree(
     handle: FileSystemDirectoryHandle,
     parentPath: string,
+    isRoot = false,
 ): Promise<ProjectDirHandle> {
-    const path = parentPath ? `${parentPath}/${handle.name}` : handle.name
+    // Root node gets path '' so all child paths are truly project-relative
+    // (e.g. "scripts/bg.ts" instead of "myProject/scripts/bg.ts").
+    const path = isRoot ? '' : (parentPath ? `${parentPath}/${handle.name}` : handle.name)
     const children: (ProjectFileHandle | ProjectDirHandle)[] = []
 
     // FileSystemDirectoryHandle.values() is part of the File System Access API
@@ -156,7 +159,7 @@ async function buildTree(
         if (entry.kind === 'file') {
             children.push({
                 name: entry.name,
-                path: `${path}/${entry.name}`,
+                path: path ? `${path}/${entry.name}` : entry.name,
                 handle: entry as FileSystemFileHandle,
             })
         } else if (entry.kind === 'directory') {

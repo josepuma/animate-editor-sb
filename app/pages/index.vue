@@ -49,17 +49,22 @@ const previewResetKey  = ref(0)
 const scriptOrder = ref<string[]>([])
 
 // Keep scriptOrder in sync when scripts are added/removed.
-// New scripts not yet in the order get appended at the top (renders on top by default).
+// IMPORTANT: filter based on files on DISK (tsFiles), not on spritesByScript.
+// spritesByScript is populated incrementally as scripts finish running — using it
+// to filter would drop scripts that are still compiling during openProject().
 watch(
     () => scripting.spritesByScript.value,
     (map) => {
-        const present = Object.keys(map)
-        // Remove paths no longer present
-        const filtered = scriptOrder.value.filter(p => present.includes(p))
-        // Append any new paths at the end (renders on top)
-        const newPaths = present.filter(p => !filtered.includes(p))
+        const present  = new Set(Object.keys(map))
+        const onDisk   = new Set(fs.listFiles('.ts').map(f => f.path))
+        // Keep entries that still exist on disk (preserves order of scripts not yet run)
+        const filtered = scriptOrder.value.filter(p => onDisk.has(p))
+        // Append scripts that ran but aren't in the order yet (new scripts)
+        const newPaths = [...present].filter(p => !filtered.includes(p))
         if (filtered.length !== scriptOrder.value.length || newPaths.length > 0) {
             scriptOrder.value = [...filtered, ...newPaths]
+            // Persist new scripts into config immediately so their position survives reload
+            if (newPaths.length > 0) saveProjectConfig()
         }
     },
     { deep: false },
@@ -122,7 +127,13 @@ async function openProject() {
             projectConfig.value = cfg
             scriptBpm.value    = cfg.bpm ?? 180
             scriptOffset.value = cfg.offset ?? 0
-            scriptOrder.value  = cfg.scriptOrder ?? []
+            // Migrate old paths that included the root folder name prefix
+            const rootName = fs.rootHandle.value?.name ?? ''
+            const rawOrder = cfg.scriptOrder ?? []
+            const migrated = rootName
+                ? rawOrder.map(p => p.startsWith(rootName + '/') ? p.slice(rootName.length + 1) : p)
+                : rawOrder
+            scriptOrder.value = [...new Set(migrated)]
         } catch {
             console.warn('[index] Could not parse animate.json')
         }

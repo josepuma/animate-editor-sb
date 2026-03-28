@@ -94,12 +94,24 @@ watch(
     },
 )
 
-// When sprites change (new script run / new .osb loaded) reload textures
+function isSameSprites(a: StoryboardSprite[], b: StoryboardSprite[]): boolean {
+    if (a.length !== b.length) return false
+    const setA = new Set(a.map(s => s.id))
+    return b.every(s => setA.has(s.id))
+}
+
+// When sprites change (new script run / new .osb loaded) reload textures.
+// If only the order changed (same IDs), use the fast synchronous reorder path.
 watch(
     () => props.sprites,
-    (sprites) => {
+    (newSprites, oldSprites) => {
         if (!isReady.value) return
-        reloadTextures(sprites)
+        if (oldSprites && isSameSprites(newSprites, oldSprites)) {
+            renderer.reorder(newSprites)
+            renderer.render(props.currentMs)
+            return
+        }
+        reloadTextures(newSprites)
     },
     { deep: false },
 )
