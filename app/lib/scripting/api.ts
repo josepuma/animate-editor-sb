@@ -210,7 +210,12 @@ let _idCounter = 0
 export class SpriteBuilder {
     private readonly _sprite: StoryboardSprite
 
-    constructor(filePath: string, layer: Layer, origin: Origin, x = 320, y = 240) {
+    /** Image width in pixels (0 if dimensions unknown) */
+    readonly width: number
+    /** Image height in pixels (0 if dimensions unknown) */
+    readonly height: number
+
+    constructor(filePath: string, layer: Layer, origin: Origin, x = 320, y = 240, imgWidth = 0, imgHeight = 0) {
         this._sprite = {
             id: `sprite_${++_idCounter}`,
             layer,
@@ -221,6 +226,8 @@ export class SpriteBuilder {
             commands: [],
             loops: [],
         }
+        this.width = imgWidth
+        this.height = imgHeight
     }
 
     // ── Commands ────────────────────────────────────────────────────────────────
@@ -473,7 +480,12 @@ export interface ScriptContext {
  * scripts never collide in the renderer's sprite map.
  * The array is returned after the script runs.
  */
-export function createScriptContext(scriptId: string, bpm: number, offset: number): {
+export function createScriptContext(
+    scriptId: string,
+    bpm: number,
+    offset: number,
+    imageDimensions: Record<string, { width: number; height: number }> = {},
+): {
     context: ScriptContext
     getSprites: () => StoryboardSprite[]
 } {
@@ -483,7 +495,8 @@ export function createScriptContext(scriptId: string, bpm: number, offset: numbe
 
     const context: ScriptContext = {
         sprite(filePath, layer = Layer.Foreground, origin = Origin.Centre, x = 320, y = 240) {
-            const builder = new SpriteBuilder(filePath, layer, origin, x, y)
+            const dims = imageDimensions[filePath]
+            const builder = new SpriteBuilder(filePath, layer, origin, x, y, dims?.width ?? 0, dims?.height ?? 0)
             // Namespace the id so sprites from different scripts never share an id
             const sp = builder.build()
             sp.id = `${scriptId}::sprite_${_idCounter}`

@@ -18,6 +18,7 @@ interface RunMessage {
     code: string
     bpm: number
     offset: number
+    imageDimensions: Record<string, { width: number; height: number }>
 }
 
 interface ResultMessage {
@@ -41,7 +42,7 @@ self.onmessage = async (event: MessageEvent<WorkerInMessage>) => {
     if (msg.type !== 'run') return
 
     try {
-        const sprites = await executeScript(msg.scriptId, msg.code, msg.bpm, msg.offset)
+        const sprites = await executeScript(msg.scriptId, msg.code, msg.bpm, msg.offset, msg.imageDimensions)
         const out: ResultMessage = { type: 'result', sprites }
         self.postMessage(out)
     } catch (err) {
@@ -60,8 +61,9 @@ async function executeScript(
     code: string,
     bpm: number,
     offset: number,
+    imageDimensions: Record<string, { width: number; height: number }>,
 ): Promise<StoryboardSprite[]> {
-    const { context, getSprites } = createScriptContext(scriptId, bpm, offset)
+    const { context, getSprites } = createScriptContext(scriptId, bpm, offset, imageDimensions)
 
     // Build the function that wraps user code.
     // We inject context bindings as named parameters so the user can write:

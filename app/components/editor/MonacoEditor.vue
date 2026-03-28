@@ -150,6 +150,11 @@ interface LoopBuilder {
 }
 
 interface SpriteBuilder {
+  /** Image width in pixels (0 if unknown) */
+  readonly width: number
+  /** Image height in pixels (0 if unknown) */
+  readonly height: number
+
   /** Fade — instant: fade(time, value) */
   fade(time: number, value: number): this
   /** Fade — linear: fade(startTime, endTime, startOpacity, endOpacity) */

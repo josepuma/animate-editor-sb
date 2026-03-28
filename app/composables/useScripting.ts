@@ -36,7 +36,13 @@ export function useScripting() {
      * Rapid saves to the same script cancel the previous run of that script,
      * but concurrent runs of different scripts are fully independent.
      */
-    async function run(scriptId: string, tsSource: string, bpm: number, offset: number): Promise<void> {
+    async function run(
+        scriptId: string,
+        tsSource: string,
+        bpm: number,
+        offset: number,
+        imageDimensions: Record<string, { width: number; height: number }> = {},
+    ): Promise<void> {
         const seq = (runSeqMap.get(scriptId) ?? 0) + 1
         runSeqMap.set(scriptId, seq)
 
@@ -61,7 +67,7 @@ export function useScripting() {
 
         // 2. Execute in a Web Worker (per-script worker, cancels previous run of same script)
         try {
-            const result = await runInWorker(scriptId, code, bpm, offset)
+            const result = await runInWorker(scriptId, code, bpm, offset, imageDimensions)
             if (runSeqMap.get(scriptId) !== seq) return
             spritesByScript.value = { ...spritesByScript.value, [scriptId]: result }
         } catch (err) {
@@ -101,6 +107,7 @@ export function useScripting() {
         code: string,
         bpm: number,
         offset: number,
+        imageDimensions: Record<string, { width: number; height: number }>,
     ): Promise<StoryboardSprite[]> {
         return new Promise((resolve, reject) => {
             // Terminate any previous worker for this specific script
@@ -138,7 +145,7 @@ export function useScripting() {
                 workerMap.delete(scriptId)
             }
 
-            const msg: WorkerInMessage = { type: 'run', scriptId, code, bpm, offset }
+            const msg: WorkerInMessage = { type: 'run', scriptId, code, bpm, offset, imageDimensions }
             w.postMessage(msg)
         })
     }

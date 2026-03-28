@@ -97,6 +97,31 @@ const scriptLabel = computed(() =>
         : 'unsaved',
 )
 
+// ─── Image dimensions cache ──────────────────────────────────────────────────
+// Pre-scanned on project open so scripts can access sprite.width / sprite.height.
+
+const imageDims = ref<Record<string, { width: number; height: number }>>({})
+
+const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp']
+
+async function scanImageDimensions() {
+    const images = fs.listFiles(...IMAGE_EXTS)
+    const dims: Record<string, { width: number; height: number }> = {}
+    await Promise.all(
+        images.map(async (img) => {
+            try {
+                const handle = await fs.getFileHandle(img.path)
+                if (!handle) return
+                const file = await handle.getFile()
+                const bitmap = await createImageBitmap(file)
+                dims[img.path] = { width: bitmap.width, height: bitmap.height }
+                bitmap.close()
+            } catch { /* skip unreadable images */ }
+        }),
+    )
+    imageDims.value = dims
+}
+
 // ─── Slider drag ──────────────────────────────────────────────────────────────
 
 const isDragging = ref(false)
@@ -150,6 +175,9 @@ async function openProject() {
         if (handle) await audio.loadFromHandle(handle)
     }
 
+    // Pre-scan image dimensions so scripts can access sprite.width / sprite.height
+    await scanImageDimensions()
+
     // Run ALL .ts scripts concurrently — per-script runSeqMap means they
     // don't cancel each other. The renderer updates incrementally as each finishes.
     const scripts = fs.listFiles('.ts')
@@ -159,7 +187,7 @@ async function openProject() {
             scripts.map(async (s) => {
                 const text = await fs.readTextFile(s.path)
                 if (text !== null) {
-                    await scripting.run(s.path, text, scriptBpm.value, scriptOffset.value)
+                    await scripting.run(s.path, text, scriptBpm.value, scriptOffset.value, JSON.parse(JSON.stringify(imageDims.value)))
                 }
             }),
         )
@@ -261,7 +289,7 @@ async function saveScript() {
 
 async function runScript() {
     const scriptId = selectedScript.value ?? 'default'
-    await scripting.run(scriptId, code.value, scriptBpm.value, scriptOffset.value)
+    await scripting.run(scriptId, code.value, scriptBpm.value, scriptOffset.value, JSON.parse(JSON.stringify(imageDims.value)))
     if (scripting.errors.value.length === 0) {
         activeMode.value = 'script'
     }
