@@ -539,6 +539,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                         :current-ms="audio.currentMs.value"
                         :duration-ms="audio.durationMs.value"
                         :has-audio="hasAudio"
+                        :is-playing="audio.isPlaying.value"
                         :timing-data="timing.timingData.value"
                         :beat-divisor="timing.beatDivisor.value"
                         :get-beat-lines="timing.getBeatLines"

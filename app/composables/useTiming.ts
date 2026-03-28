@@ -77,7 +77,11 @@ export function useTiming() {
 
         const interval = tp.beatLength / beatDivisor.value
         const elapsed = ms - tp.time
-        const nextMs = Math.ceil(elapsed / interval + 0.001) * interval + tp.time
+        // Snap to current beat, then add one interval
+        const currentBeatIdx = Math.round(elapsed / interval)
+        const currentBeatMs = currentBeatIdx * interval + tp.time
+        // If we're already on or past this beat, go to the next one
+        const nextMs = currentBeatMs <= ms + 0.5 ? currentBeatMs + interval : currentBeatMs
 
         // Clamp to next timing point boundary if applicable
         const points = timingData.value!.uninheritedPoints

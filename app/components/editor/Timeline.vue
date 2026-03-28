@@ -9,6 +9,7 @@ const props = defineProps<{
     currentMs: number
     durationMs: number
     hasAudio: boolean
+    isPlaying: boolean
     timingData: BeatmapTimingData | null
     beatDivisor: number
     getBeatLines: (startMs: number, endMs: number) => BeatLine[]
@@ -40,8 +41,6 @@ let canvasWidth = 0
 let canvasHeight = TIMELINE_HEIGHT
 let dpr = 1
 let rafId = 0
-let isPlaying = false
-let lastPlayingState = false
 
 const viewportStartMs = computed(() =>
     viewportCenterMs.value - (canvasWidth / 2) * msPerPx.value,
@@ -298,16 +297,11 @@ function computeLabelInterval(msPerPx: number): number {
 
 // ─── Watchers ─────────────────────────────────────────────────────────────────
 
-// Detect play/pause transitions to re-enable follow
+// Re-enable follow when playback starts
 watch(
-    () => props.currentMs,
-    (newMs, oldMs) => {
-        const playing = Math.abs(newMs - oldMs) > 0 && Math.abs(newMs - oldMs) < 100
-        if (playing && !lastPlayingState) {
-            // Playback just started — re-enable follow
-            followPlayback.value = true
-        }
-        lastPlayingState = playing
+    () => props.isPlaying,
+    (playing) => {
+        if (playing) followPlayback.value = true
     },
 )
 
