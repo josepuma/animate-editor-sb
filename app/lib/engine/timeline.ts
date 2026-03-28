@@ -143,31 +143,72 @@ function prepareLoop(loop: LoopGroup): PreparedLoop | null {
 
 // ─── Per-frame resolution ─────────────────────────────────────────────────────
 
-export function resolveStoryboard(prepared: PreparedSprite[], timeMs: number): SpriteRenderState[] {
-    const result: SpriteRenderState[] = []
-    for (const p of prepared) {
-        if (timeMs < p.activeStart || timeMs > p.activeEnd) continue
-        const state = resolveSprite(p, timeMs)
-        if (state !== null) result.push(state)
+// Reusable state pool — avoids allocating new objects every frame.
+// The pool grows lazily; objects are recycled across frames.
+let statePool: SpriteRenderState[] = []
+let statePoolIndex = 0
+
+/**
+ * Returns a SpriteRenderState from the pool, growing the pool if needed.
+ * Call resetStatePool() at the start of each frame.
+ */
+function acquireState(): SpriteRenderState {
+    if (statePoolIndex < statePool.length) {
+        return statePool[statePoolIndex++]!
     }
-    return result
+    const s: SpriteRenderState = {
+        spriteId: '', x: 0, y: 0, scaleX: 1, scaleY: 1,
+        rotation: 0, opacity: 1, r: 255, g: 255, b: 255,
+        visible: true, additive: false, flipH: false, flipV: false,
+    }
+    statePool.push(s)
+    statePoolIndex++
+    return s
 }
 
-function resolveSprite(p: PreparedSprite, timeMs: number): SpriteRenderState | null {
+/**
+ * Resolves all active sprites at the given timestamp.
+ * Returns a slice of the internal pool — valid until the next call.
+ */
+export function resolveStoryboard(prepared: PreparedSprite[], timeMs: number): SpriteRenderState[] {
+    // Reset pool index for this frame
+    statePoolIndex = 0
+
+    let count = 0
+    for (let i = 0; i < prepared.length; i++) {
+        const p = prepared[i]!
+        if (timeMs < p.activeStart || timeMs > p.activeEnd) continue
+        const state = acquireState()
+        if (resolveSprite(p, timeMs, state)) {
+            count++
+        } else {
+            // Didn't produce a valid state — rewind pool index
+            statePoolIndex--
+        }
+    }
+
+    // Return a view of the pool (no allocation if count is stable across frames)
+    return statePool.slice(0, count)
+}
+
+function resolveSprite(p: PreparedSprite, timeMs: number, out: SpriteRenderState): boolean {
     // ── Position ──
-    // defaultX/Y used only when there are no M commands at all.
     let x = p.defaultX
     let y = p.defaultY
 
     if (p.M.length > 0) {
         const m = resolveCommand(p.M, timeMs)
-        x = easedValue(m, timeMs, c => c.startX, c => c.endX)
-        y = easedValue(m, timeMs, c => c.startY, c => c.endY)
+        x = easedValue(m, timeMs, m.startX, m.endX)
+        y = easedValue(m, timeMs, m.startY, m.endY)
     }
-    if (p.MX.length > 0)
-        x = easedValue(resolveCommand(p.MX, timeMs), timeMs, c => c.startX, c => c.endX)
-    if (p.MY.length > 0)
-        y = easedValue(resolveCommand(p.MY, timeMs), timeMs, c => c.startY, c => c.endY)
+    if (p.MX.length > 0) {
+        const mx = resolveCommand(p.MX, timeMs)
+        x = easedValue(mx, timeMs, mx.startX, mx.endX)
+    }
+    if (p.MY.length > 0) {
+        const my = resolveCommand(p.MY, timeMs)
+        y = easedValue(my, timeMs, my.startY, my.endY)
+    }
 
     // ── Scale ──
     let scaleX = 1
@@ -175,43 +216,44 @@ function resolveSprite(p: PreparedSprite, timeMs: number): SpriteRenderState | n
 
     if (p.S.length > 0) {
         const s = resolveCommand(p.S, timeMs)
-        scaleX = scaleY = easedValue(s, timeMs, c => c.startScale, c => c.endScale)
+        scaleX = scaleY = easedValue(s, timeMs, s.startScale, s.endScale)
     }
     if (p.V.length > 0) {
         const v = resolveCommand(p.V, timeMs)
-        scaleX = easedValue(v, timeMs, c => c.startX, c => c.endX)
-        scaleY = easedValue(v, timeMs, c => c.startY, c => c.endY)
+        scaleX = easedValue(v, timeMs, v.startX, v.endX)
+        scaleY = easedValue(v, timeMs, v.startY, v.endY)
     }
 
     // ── Rotation ──
-    let rotation = p.R.length > 0
-        ? easedValue(resolveCommand(p.R, timeMs), timeMs, c => c.startAngle, c => c.endAngle)
-        : 0
+    let rotation = 0
+    if (p.R.length > 0) {
+        const r = resolveCommand(p.R, timeMs)
+        rotation = easedValue(r, timeMs, r.startAngle, r.endAngle)
+    }
 
     // ── Opacity ──
-    // No F commands → always visible. Otherwise use startOpacity of first command
-    let opacity = p.F.length > 0
-        ? easedValue(resolveCommand(p.F, timeMs), timeMs, c => c.startOpacity, c => c.endOpacity)
-        : 1
+    let opacity = 1
+    if (p.F.length > 0) {
+        const f = resolveCommand(p.F, timeMs)
+        opacity = easedValue(f, timeMs, f.startOpacity, f.endOpacity)
+    }
 
     // ── Color ──
-    let r = 255
-    let g = 255
-    let b = 255
+    let r = 255, g = 255, b = 255
 
     if (p.C.length > 0) {
         const col = resolveCommand(p.C, timeMs)
-        r = easedValue(col, timeMs, c => c.startR, c => c.endR)
-        g = easedValue(col, timeMs, c => c.startG, c => c.endG)
-        b = easedValue(col, timeMs, c => c.startB, c => c.endB)
+        r = easedValue(col, timeMs, col.startR, col.endR)
+        g = easedValue(col, timeMs, col.startG, col.endG)
+        b = easedValue(col, timeMs, col.startB, col.endB)
     }
 
     // ── Parameters (direct) ──
     let additive = false, flipH = false, flipV = false
 
-    for (const param of p.P) {
+    for (let i = 0; i < p.P.length; i++) {
+        const param = p.P[i]!
         if (param.startTime > timeMs) break
-        // blank endTime → hold until sprite dies
         const effectiveEnd = param.startTime === param.endTime ? p.activeEnd : param.endTime
         if (effectiveEnd < timeMs) continue
         if (param.parameter === 'A') additive = true
@@ -220,20 +262,16 @@ function resolveSprite(p: PreparedSprite, timeMs: number): SpriteRenderState | n
     }
 
     // ── Loop overrides ────────────────────────────────────────────────────────
-    // For each active loop: relT = position within the current iteration (relative times).
-    // Loop commands override direct commands for any property they define.
-    // We also track the most recently ended loop so we can hold its terminal state
-    // for loop-only properties between loops (preventing default values from bleeding through).
     let hasActiveLoop = false
     let lastEndedLoop: PreparedLoop | null = null
     let lastEndedLoopEnd = -Infinity
 
-    for (const loop of p.loops) {
+    for (let li = 0; li < p.loops.length; li++) {
+        const loop = p.loops[li]!
         const loopEnd = loop.startTime + loop.loopCount * loop.loopDuration
         if (timeMs < loop.startTime) continue
 
         if (timeMs >= loopEnd) {
-            // Loop has ended — track the most recently ended one
             if (loopEnd > lastEndedLoopEnd) {
                 lastEndedLoop = loop
                 lastEndedLoopEnd = loopEnd
@@ -241,45 +279,53 @@ function resolveSprite(p: PreparedSprite, timeMs: number): SpriteRenderState | n
             continue
         }
 
-        // Active loop
         hasActiveLoop = true
-
-        // relT ∈ [0, loopDuration) — position within this iteration
         const relT = (timeMs - loop.startTime) % loop.loopDuration
 
         if (loop.M.length > 0) {
             const m = resolveCommand(loop.M, relT)
-            x = easedValue(m, relT, c => c.startX, c => c.endX)
-            y = easedValue(m, relT, c => c.startY, c => c.endY)
+            x = easedValue(m, relT, m.startX, m.endX)
+            y = easedValue(m, relT, m.startY, m.endY)
         }
-        if (loop.MX.length > 0) x = easedValue(resolveCommand(loop.MX, relT), relT, c => c.startX, c => c.endX)
-        if (loop.MY.length > 0) y = easedValue(resolveCommand(loop.MY, relT), relT, c => c.startY, c => c.endY)
+        if (loop.MX.length > 0) {
+            const mx = resolveCommand(loop.MX, relT)
+            x = easedValue(mx, relT, mx.startX, mx.endX)
+        }
+        if (loop.MY.length > 0) {
+            const my = resolveCommand(loop.MY, relT)
+            y = easedValue(my, relT, my.startY, my.endY)
+        }
 
         if (loop.S.length > 0) {
-            scaleX = scaleY = easedValue(resolveCommand(loop.S, relT), relT, c => c.startScale, c => c.endScale)
+            const s = resolveCommand(loop.S, relT)
+            scaleX = scaleY = easedValue(s, relT, s.startScale, s.endScale)
         }
         if (loop.V.length > 0) {
             const v = resolveCommand(loop.V, relT)
-            scaleX = easedValue(v, relT, c => c.startX, c => c.endX)
-            scaleY = easedValue(v, relT, c => c.startY, c => c.endY)
+            scaleX = easedValue(v, relT, v.startX, v.endX)
+            scaleY = easedValue(v, relT, v.startY, v.endY)
         }
 
-        if (loop.R.length > 0)
-            rotation = easedValue(resolveCommand(loop.R, relT), relT, c => c.startAngle, c => c.endAngle)
+        if (loop.R.length > 0) {
+            const rc = resolveCommand(loop.R, relT)
+            rotation = easedValue(rc, relT, rc.startAngle, rc.endAngle)
+        }
 
-        if (loop.F.length > 0)
-            opacity = easedValue(resolveCommand(loop.F, relT), relT, c => c.startOpacity, c => c.endOpacity)
+        if (loop.F.length > 0) {
+            const fc = resolveCommand(loop.F, relT)
+            opacity = easedValue(fc, relT, fc.startOpacity, fc.endOpacity)
+        }
 
         if (loop.C.length > 0) {
             const col = resolveCommand(loop.C, relT)
-            r = easedValue(col, relT, c => c.startR, c => c.endR)
-            g = easedValue(col, relT, c => c.startG, c => c.endG)
-            b = easedValue(col, relT, c => c.startB, c => c.endB)
+            r = easedValue(col, relT, col.startR, col.endR)
+            g = easedValue(col, relT, col.startG, col.endG)
+            b = easedValue(col, relT, col.startB, col.endB)
         }
 
-        for (const param of loop.P) {
+        for (let i = 0; i < loop.P.length; i++) {
+            const param = loop.P[i]!
             if (param.startTime > relT) break
-            // blank endTime inside loop → hold until end of this iteration
             const effectiveEnd = param.startTime === param.endTime ? loop.loopDuration : param.endTime
             if (effectiveEnd < relT) continue
             if (param.parameter === 'A') additive = true
@@ -289,55 +335,68 @@ function resolveSprite(p: PreparedSprite, timeMs: number): SpriteRenderState | n
     }
 
     // If no loop is active but one has ended, hold its terminal state for loop-only properties.
-    // This prevents default values (opacity=1, scale=1, etc.) from bleeding through between loops.
     if (!hasActiveLoop && lastEndedLoop !== null) {
         const tl = lastEndedLoop
-        const termT = tl.loopDuration // evaluate at end-of-iteration to get terminal values
+        const termT = tl.loopDuration
 
         if (p.M.length === 0 && tl.M.length > 0) {
             const m = resolveCommand(tl.M, termT)
-            x = easedValue(m, termT, c => c.startX, c => c.endX)
-            y = easedValue(m, termT, c => c.startY, c => c.endY)
+            x = easedValue(m, termT, m.startX, m.endX)
+            y = easedValue(m, termT, m.startY, m.endY)
         }
-        if (p.MX.length === 0 && tl.MX.length > 0)
-            x = easedValue(resolveCommand(tl.MX, termT), termT, c => c.startX, c => c.endX)
-        if (p.MY.length === 0 && tl.MY.length > 0)
-            y = easedValue(resolveCommand(tl.MY, termT), termT, c => c.startY, c => c.endY)
+        if (p.MX.length === 0 && tl.MX.length > 0) {
+            const mx = resolveCommand(tl.MX, termT)
+            x = easedValue(mx, termT, mx.startX, mx.endX)
+        }
+        if (p.MY.length === 0 && tl.MY.length > 0) {
+            const my = resolveCommand(tl.MY, termT)
+            y = easedValue(my, termT, my.startY, my.endY)
+        }
 
-        if (p.S.length === 0 && tl.S.length > 0)
-            scaleX = scaleY = easedValue(resolveCommand(tl.S, termT), termT, c => c.startScale, c => c.endScale)
+        if (p.S.length === 0 && tl.S.length > 0) {
+            const s = resolveCommand(tl.S, termT)
+            scaleX = scaleY = easedValue(s, termT, s.startScale, s.endScale)
+        }
         if (p.V.length === 0 && tl.V.length > 0) {
             const v = resolveCommand(tl.V, termT)
-            scaleX = easedValue(v, termT, c => c.startX, c => c.endX)
-            scaleY = easedValue(v, termT, c => c.startY, c => c.endY)
+            scaleX = easedValue(v, termT, v.startX, v.endX)
+            scaleY = easedValue(v, termT, v.startY, v.endY)
         }
 
-        if (p.R.length === 0 && tl.R.length > 0)
-            rotation = easedValue(resolveCommand(tl.R, termT), termT, c => c.startAngle, c => c.endAngle)
+        if (p.R.length === 0 && tl.R.length > 0) {
+            const rc = resolveCommand(tl.R, termT)
+            rotation = easedValue(rc, termT, rc.startAngle, rc.endAngle)
+        }
 
-        if (p.F.length === 0 && tl.F.length > 0)
-            opacity = easedValue(resolveCommand(tl.F, termT), termT, c => c.startOpacity, c => c.endOpacity)
+        if (p.F.length === 0 && tl.F.length > 0) {
+            const fc = resolveCommand(tl.F, termT)
+            opacity = easedValue(fc, termT, fc.startOpacity, fc.endOpacity)
+        }
 
         if (p.C.length === 0 && tl.C.length > 0) {
             const col = resolveCommand(tl.C, termT)
-            r = easedValue(col, termT, c => c.startR, c => c.endR)
-            g = easedValue(col, termT, c => c.startG, c => c.endG)
-            b = easedValue(col, termT, c => c.startB, c => c.endB)
+            r = easedValue(col, termT, col.startR, col.endR)
+            g = easedValue(col, termT, col.startG, col.endG)
+            b = easedValue(col, termT, col.startB, col.endB)
         }
     }
 
-    return {
-        spriteId: p.id,
-        x, y,
-        scaleX, scaleY,
-        rotation,
-        opacity,
-        r, g, b,
-        visible: opacity > 0,
-        additive,
-        flipH,
-        flipV,
-    }
+    out.spriteId = p.id
+    out.x = x
+    out.y = y
+    out.scaleX = scaleX
+    out.scaleY = scaleY
+    out.rotation = rotation
+    out.opacity = opacity
+    out.r = r
+    out.g = g
+    out.b = b
+    out.visible = opacity > 0
+    out.additive = additive
+    out.flipH = flipH
+    out.flipV = flipV
+
+    return true
 }
 
 // ─── Internals ────────────────────────────────────────────────────────────────
@@ -348,8 +407,28 @@ function sortedGroup<T extends Command>(commands: Command[], type: T['type']): T
 }
 
 /**
- * Resolves the active command at timeMs, handling overlapping commands correctly.
- * Commands must be sorted by startTime. Assumes timeMs >= commands[0].startTime.
+ * Binary search to find the rightmost command whose startTime <= timeMs.
+ * Returns the index, or -1 if all commands start after timeMs.
+ */
+function upperBound(commands: Command[], timeMs: number): number {
+    let lo = 0
+    let hi = commands.length - 1
+    let result = -1
+    while (lo <= hi) {
+        const mid = (lo + hi) >>> 1
+        if (commands[mid]!.startTime <= timeMs) {
+            result = mid
+            lo = mid + 1
+        } else {
+            hi = mid - 1
+        }
+    }
+    return result
+}
+
+/**
+ * Resolves the active command at timeMs using binary search.
+ * Commands must be sorted by startTime.
  *
  * Priority rules:
  * - Among commands active at timeMs (startTime <= t <= endTime), pick the one
@@ -357,35 +436,55 @@ function sortedGroup<T extends Command>(commands: Command[], type: T['type']): T
  * - If no command is active, hold the value of the command with the latest endTime.
  */
 function resolveCommand<T extends Command>(commands: T[], timeMs: number): T {
+    // Binary search: find rightmost command with startTime <= timeMs
+    const ub = upperBound(commands as Command[], timeMs)
+
+    if (ub === -1) {
+        // All commands start after timeMs → use first command (hold its start value)
+        return commands[0]!
+    }
+
+    // Scan backwards from ub to find the best active or ended command.
+    // Because commands are sorted by startTime, the highest-priority active command
+    // is the one nearest ub that is still active (endTime >= timeMs).
     let bestActive: T | undefined
     let bestEnded: T | undefined
 
-    for (const cmd of commands) {
-        if (cmd.startTime > timeMs) break // sorted by startTime → can early-exit
+    for (let i = ub; i >= 0; i--) {
+        const cmd = commands[i]!
         if (timeMs <= cmd.endTime) {
-            bestActive = cmd // last assigned = highest startTime among active
-        } else if (
-            bestEnded === undefined ||
-            cmd.endTime > bestEnded.endTime ||
-            // Same endTime → prefer the command with higher startTime (most recently started)
-            (cmd.endTime === bestEnded.endTime && cmd.startTime > bestEnded.startTime)
-        ) {
-            bestEnded = cmd // track the most recently ended command
+            // Active — this has the highest startTime among active (first found scanning back)
+            bestActive = cmd
+            break
+        }
+        // Ended — track the one with the highest endTime
+        if (bestEnded === undefined || cmd.endTime > bestEnded.endTime ||
+            (cmd.endTime === bestEnded.endTime && cmd.startTime > bestEnded.startTime)) {
+            bestEnded = cmd
         }
     }
+
+    // If we didn't find bestEnded yet and there are commands after ub that ended,
+    // they can't exist (startTime > timeMs means they haven't started).
+    // But we may have missed ended commands before the scan range if we broke early.
+    // Since we scan all the way to 0 unless we find an active command, this is correct.
 
     return (bestActive ?? bestEnded ?? commands[0])!
 }
 
+/**
+ * Inlined eased interpolation — avoids function-call overhead for hot path.
+ * Accepts pre-extracted start/end values instead of accessor functions.
+ */
 function easedValue<T extends Command>(
     command: T,
     timeMs: number,
-    getStart: (c: T) => number,
-    getEnd: (c: T) => number,
+    startVal: number,
+    endVal: number,
 ): number {
     const { startTime, endTime, easing } = command
-    if (timeMs < startTime) return getStart(command) // before command → hold start value
-    if (startTime === endTime) return getEnd(command)  // instant command → end value
+    if (timeMs < startTime) return startVal
+    if (startTime === endTime) return endVal
     const t = Math.min(1, (timeMs - startTime) / (endTime - startTime))
-    return easedLerp(getStart(command), getEnd(command), t, easing)
+    return easedLerp(startVal, endVal, t, easing)
 }
