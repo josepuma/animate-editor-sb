@@ -385,6 +385,13 @@ function onTimelineSeek(ms: number) {
     audio.seek(ms)
 }
 
+const copiedMs = ref(false)
+async function copyCurrentMs() {
+    await navigator.clipboard.writeText(String(Math.round(audio.currentMs.value)))
+    copiedMs.value = true
+    setTimeout(() => { copiedMs.value = false }, 1500)
+}
+
 function onDivisorChange(e: Event) {
     timing.beatDivisor.value = Number((e.target as HTMLSelectElement).value)
 }
@@ -560,6 +567,18 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                         span.text-xs.tabular-nums.text-muted-foreground.shrink-0
                             | {{ formatMs(audio.currentMs.value) }} / {{ formatMs(audio.durationMs.value) }}
                         .flex-1
+                        //- Tools
+                        Button(
+                            size="sm"
+                            variant="ghost"
+                            class="h-6 px-2 text-xs"
+                            :disabled="!hasAudio"
+                            title="Copy current position in ms"
+                            @click="copyCurrentMs"
+                        )
+                            Icon.mr-1(:name="copiedMs ? 'lucide:check' : 'lucide:copy'" size="11")
+                            | {{ copiedMs ? 'Copied' : 'Copy ms' }}
+                        Separator(orientation="vertical" class="h-4")
                         //- Beat divisor selector
                         .flex.items-center.gap-1.text-xs.text-muted-foreground(v-if="timing.hasTimingData.value")
                             span.shrink-0 1/
