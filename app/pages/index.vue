@@ -394,7 +394,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
         Menubar.border-0.rounded-none.shadow-none.h-full.px-2.gap-0(class="bg-transparent")
 
             MenubarMenu
-                MenubarTrigger.font-semibold.text-sm.px-2 animate editor
+                MenubarTrigger.font-semibold.text-sm.px-2 anedir
 
             MenubarMenu
                 MenubarTrigger.text-sm.px-2 File
@@ -402,8 +402,8 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                     MenubarItem(@click="openProject")
                         | Open Project
                         MenubarShortcut Ctrl+O
-                    MenubarSeparator
-                    MenubarItem(:disabled="!hasProject" @click="fs.refresh()")
+                    //-MenubarSeparator
+                    //-MenubarItem(:disabled="!hasProject" @click="fs.refresh()")
                         | Refresh Files
 
             MenubarMenu
@@ -411,15 +411,8 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                 MenubarContent
                     MenubarItem(:disabled="!hasProject" @click="newScriptDialogOpen = true")
                         | New Script
-                    MenubarSeparator
-                    MenubarItem(:disabled="!hasProject || !selectedScript || isSaving" @click="saveScript")
-                        | Save
-                        MenubarShortcut Ctrl+S
-                    MenubarItem(:disabled="!hasProject || scripting.isRunning.value" @click="runScript")
-                        | Run
-                        MenubarShortcut Ctrl+↵
 
-            MenubarMenu
+            //-MenubarMenu
                 MenubarTrigger.text-sm.px-2 Audio
                 MenubarContent
                     MenubarItem(:disabled="!hasProject" @click="loadAudioFile") Load Audio File…
