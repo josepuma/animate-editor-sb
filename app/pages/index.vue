@@ -26,8 +26,15 @@ const isLoadingOsb = ref(false)
 
 // ─── Dialog state ─────────────────────────────────────────────────────────────
 
-const newScriptDialogOpen = ref(false)
-const newScriptName       = ref('scripts/main.ts')
+const newScriptDialogOpen   = ref(false)
+const newScriptName         = ref('scripts/main.ts')
+const isCreatingScript      = ref(false)
+
+const newProjectDialogOpen  = ref(false)
+const newProjectName        = ref('')
+const newProjectBpm         = ref(180)
+const newProjectOffset      = ref(0)
+const isCreatingProject     = ref(false)
 
 // ─── Script editor state ──────────────────────────────────────────────────────
 
@@ -128,6 +135,55 @@ async function scanImageDimensions() {
 const DIVISOR_OPTIONS = [1, 2, 4, 8, 16] as const
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
+
+async function createProject() {
+    if (isCreatingProject.value) return
+    isCreatingProject.value = true
+
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const handle = await (window as any).showDirectoryPicker({ mode: 'readwrite' }) as FileSystemDirectoryHandle
+
+        // Reset editor state
+        loadError.value = null
+        osbSprites.value = []
+        selectedOsb.value = null
+        selectedScript.value = null
+        projectConfig.value = null
+        scriptOrder.value = []
+        audio.unload()
+        scripting.clear()
+        previewResetKey.value++
+
+        // Mount the selected folder as the project root
+        await fs.mountHandle(handle)
+
+        // Build the config from dialog fields
+        const name = newProjectName.value.trim() || handle.name
+        const cfg: ProjectConfig = {
+            name,
+            audioFile: '',
+            width: 640,
+            height: 480,
+            bpm: newProjectBpm.value,
+            offset: newProjectOffset.value,
+        }
+        projectConfig.value = cfg
+        scriptBpm.value    = cfg.bpm
+        scriptOffset.value = cfg.offset
+
+        await fs.writeTextFile('animate.json', JSON.stringify(cfg, null, 2))
+
+        newProjectDialogOpen.value = false
+        newProjectName.value       = ''
+        newProjectBpm.value        = 180
+        newProjectOffset.value     = 0
+    } catch (err) {
+        if ((err as DOMException).name !== 'AbortError') console.error(err)
+    } finally {
+        isCreatingProject.value = false
+    }
+}
 
 async function openProject() {
     loadError.value = null
@@ -256,14 +312,19 @@ async function loadAudioFile() {
 
 async function createNewScript() {
     const path = newScriptName.value.trim()
-    if (!path) return
-    const existing = await fs.readTextFile(path)
-    if (existing === null) {
-        await fs.writeTextFile(path, DEFAULT_SCRIPT)
+    if (!path || isCreatingScript.value) return
+    isCreatingScript.value = true
+    try {
+        const existing = await fs.readTextFile(path)
+        if (existing === null) {
+            await fs.writeTextFile(path, DEFAULT_SCRIPT)
+        }
+        await loadScript(path)
+        newScriptDialogOpen.value = false
+        newScriptName.value = 'scripts/main.ts'
+    } finally {
+        isCreatingScript.value = false
     }
-    await loadScript(path)
-    newScriptDialogOpen.value = false
-    newScriptName.value = 'scripts/main.ts'
 }
 
 /**
@@ -420,6 +481,9 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
             MenubarMenu
                 MenubarTrigger.text-sm.px-2 File
                 MenubarContent
+                    MenubarItem(@click="newProjectDialogOpen = true")
+                        | New Project…
+                    MenubarSeparator
                     MenubarItem(@click="openProject")
                         | Open Project
                         MenubarShortcut Ctrl+O
@@ -514,153 +578,202 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                         ) {{ f.name }}
                     p.px-3.py-1.text-xs.text-muted-foreground(v-else) No audio files
 
-        //- ── Center: preview + audio ──────────────────────────────────────────
-        .flex-1.flex.flex-col.min-h-0.min-w-0
+        //- ── Center + Script editor (resizable when script open) ───────────────
+        ResizablePanelGroup.flex-1.min-h-0(id="main-panels" direction="horizontal")
 
-            //- Empty state
-            .flex-1.flex.flex-col.items-center.justify-center.gap-4.text-muted-foreground(v-if="!hasProject")
-                p.text-sm Open an osu! project folder to get started
-                Button(@click="openProject") Open Project
+            //- Center panel: preview + audio
+            ResizablePanel(id="panel-preview" :default-size="60" :min-size="30")
+                .flex.flex-col.h-full
 
-            template(v-else)
-                //- Canvas
-                .flex-1.min-h-0.relative.bg-black
-                    EditorPreviewCanvas(
-                        :sprites="displaySprites"
-                        :current-ms="audio.currentMs.value"
-                        :get-file-handle="fs.getFileHandle"
-                        :reset-key="previewResetKey"
-                    )
-                    .absolute.inset-0.flex.items-center.justify-center.text-white.text-sm(
-                        class="bg-black/60"
-                        v-if="isLoadingOsb"
-                    ) Loading storyboard…
-                    .absolute.inset-0.flex.items-center.justify-center.p-6(v-if="loadError")
-                        pre.border.border-destructive.text-destructive.text-xs.rounded.p-4.max-w-md.overflow-auto(
-                            class="bg-destructive/10"
-                        ) {{ loadError }}
+                    //- Empty state
+                    .flex-1.flex.flex-col.items-center.justify-center.gap-4.text-muted-foreground(v-if="!hasProject")
+                        p.text-sm Open an existing project or create a new one to get started
+                        .flex.gap-2
+                            Button(variant="outline" @click="newProjectDialogOpen = true")
+                                Icon.mr-2(name="lucide:folder-plus" size="14")
+                                | New Project
+                            Button(@click="openProject")
+                                Icon.mr-2(name="lucide:folder-open" size="14")
+                                | Open Project
 
-                //- Timeline + Audio controls
-                .shrink-0.border-t.border-border.flex.flex-col
-                    EditorTimeline(
-                        :current-ms="audio.currentMs.value"
-                        :duration-ms="audio.durationMs.value"
-                        :has-audio="hasAudio"
-                        :is-playing="audio.isPlaying.value"
-                        :timing-data="timing.timingData.value"
-                        :beat-divisor="timing.beatDivisor.value"
-                        :get-beat-lines="timing.getBeatLines"
-                        :kiai-sections="timing.timingData.value?.kiaiSections ?? []"
-                        :breaks="timing.timingData.value?.breaks ?? []"
-                        @seek="onTimelineSeek"
-                    )
-                    //- Transport bar
-                    .flex.items-center.gap-2.px-3.h-8.border-t.border-border
-                        Button(
-                            size="sm"
-                            variant="ghost"
-                            class="size-7 p-0"
-                            :disabled="!hasAudio"
-                            @click="audio.isPlaying.value ? audio.pause() : audio.play()"
-                        )
-                            Icon(:name="audio.isPlaying.value ? 'lucide:pause' : 'lucide:play'" size="13")
-                        span.text-xs.tabular-nums.text-muted-foreground.shrink-0
-                            | {{ formatMs(audio.currentMs.value) }} / {{ formatMs(audio.durationMs.value) }}
-                        .flex-1
-                        //- Tools
-                        Button(
-                            size="sm"
-                            variant="ghost"
-                            class="h-6 px-2 text-xs"
-                            :disabled="!hasAudio"
-                            title="Copy current position in ms"
-                            @click="copyCurrentMs"
-                        )
-                            Icon.mr-1(:name="copiedMs ? 'lucide:check' : 'lucide:copy'" size="11")
-                            | {{ copiedMs ? 'Copied' : 'Copy ms' }}
-                        Separator(orientation="vertical" class="h-4")
-                        //- Beat divisor selector
-                        .flex.items-center.gap-1.text-xs.text-muted-foreground(v-if="timing.hasTimingData.value")
-                            span.shrink-0 1/
-                            select.bg-transparent.border.border-border.rounded.px-1.text-foreground.text-xs(
-                                class="py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
-                                :value="timing.beatDivisor.value"
-                                @change="onDivisorChange"
+                    template(v-else)
+                        //- Canvas
+                        .flex-1.min-h-0.relative.bg-black
+                            EditorPreviewCanvas(
+                                :sprites="displaySprites"
+                                :current-ms="audio.currentMs.value"
+                                :get-file-handle="fs.getFileHandle"
+                                :reset-key="previewResetKey"
                             )
-                                option(v-for="d in DIVISOR_OPTIONS" :key="d" :value="d") {{ d }}
-                        //- BPM display
-                        span.text-xs.tabular-nums.text-muted-foreground.shrink-0(v-if="timing.primaryBpm.value")
-                            | {{ Math.round(timing.primaryBpm.value) }} BPM
+                            .absolute.inset-0.flex.items-center.justify-center.text-white.text-sm(
+                                class="bg-black/60"
+                                v-if="isLoadingOsb"
+                            ) Loading storyboard…
+                            .absolute.inset-0.flex.items-center.justify-center.p-6(v-if="loadError")
+                                pre.border.border-destructive.text-destructive.text-xs.rounded.p-4.max-w-md.overflow-auto(
+                                    class="bg-destructive/10"
+                                ) {{ loadError }}
 
-        //- ── Right: script editor — visible only when a script is selected ──────
-        .flex.flex-col.border-l.border-border.shrink-0(v-if="selectedScript !== null" class="w-2/5 min-w-64 max-w-2xl")
+                        //- Timeline + Audio controls
+                        .shrink-0.border-t.border-border.flex.flex-col
+                            EditorTimeline(
+                                :current-ms="audio.currentMs.value"
+                                :duration-ms="audio.durationMs.value"
+                                :has-audio="hasAudio"
+                                :is-playing="audio.isPlaying.value"
+                                :timing-data="timing.timingData.value"
+                                :beat-divisor="timing.beatDivisor.value"
+                                :get-beat-lines="timing.getBeatLines"
+                                :kiai-sections="timing.timingData.value?.kiaiSections ?? []"
+                                :breaks="timing.timingData.value?.breaks ?? []"
+                                @seek="onTimelineSeek"
+                            )
+                            //- Transport bar
+                            .flex.items-center.gap-2.px-3.h-8.border-t.border-border
+                                Button(
+                                    size="sm"
+                                    variant="ghost"
+                                    class="size-7 p-0"
+                                    :disabled="!hasAudio"
+                                    @click="audio.isPlaying.value ? audio.pause() : audio.play()"
+                                )
+                                    Icon(:name="audio.isPlaying.value ? 'lucide:pause' : 'lucide:play'" size="13")
+                                span.text-xs.tabular-nums.text-muted-foreground.shrink-0
+                                    | {{ formatMs(audio.currentMs.value) }} / {{ formatMs(audio.durationMs.value) }}
+                                .flex-1
+                                //- Tools
+                                Button(
+                                    size="sm"
+                                    variant="ghost"
+                                    class="h-6 px-2 text-xs"
+                                    :disabled="!hasAudio"
+                                    title="Copy current position in ms"
+                                    @click="copyCurrentMs"
+                                )
+                                    Icon.mr-1(:name="copiedMs ? 'lucide:check' : 'lucide:copy'" size="11")
+                                    | {{ copiedMs ? 'Copied' : 'Copy ms' }}
+                                Separator(orientation="vertical" class="h-4")
+                                //- Beat divisor selector
+                                .flex.items-center.gap-1.text-xs.text-muted-foreground(v-if="timing.hasTimingData.value")
+                                    span.shrink-0 1/
+                                    select.bg-transparent.border.border-border.rounded.px-1.text-foreground.text-xs(
+                                        class="py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
+                                        :value="timing.beatDivisor.value"
+                                        @change="onDivisorChange"
+                                    )
+                                        option(v-for="d in DIVISOR_OPTIONS" :key="d" :value="d") {{ d }}
+                                //- BPM display
+                                span.text-xs.tabular-nums.text-muted-foreground.shrink-0(v-if="timing.primaryBpm.value")
+                                    | {{ Math.round(timing.primaryBpm.value) }} BPM
 
-            //- Editor toolbar
-            .flex.items-center.gap-1.px-2.h-9.border-b.border-border.shrink-0.text-xs
+            //- ── Right: script editor ─────────────────────────────────────────
+            template(v-if="selectedScript !== null")
+                ResizableHandle(with-handle)
 
-                span.font-mono.text-muted-foreground.truncate.max-w-28 {{ scriptLabel }}
-                Separator(orientation="vertical" class="h-4 mx-1")
+                ResizablePanel(id="panel-editor" :default-size="40" :min-size="20" :max-size="70")
+                    .flex.flex-col.h-full.border-l.border-border
 
-                .flex.items-center.gap-1.text-muted-foreground
-                    span BPM
-                    input.w-14.bg-transparent.border.border-border.rounded.px-1.text-foreground(
-                        class="py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
-                        type="number"
-                        :value="scriptBpm"
-                        min="1"
-                        max="999"
-                        @change="onBpmChange"
+                        //- Editor toolbar
+                        .flex.items-center.gap-1.px-2.h-9.border-b.border-border.shrink-0.text-xs
+
+                            span.font-mono.text-muted-foreground.truncate.max-w-28 {{ scriptLabel }}
+                            Separator(orientation="vertical" class="h-4 mx-1")
+
+                            .flex.items-center.gap-1.text-muted-foreground
+                                span BPM
+                                input.w-14.bg-transparent.border.border-border.rounded.px-1.text-foreground(
+                                    class="py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
+                                    type="number"
+                                    :value="scriptBpm"
+                                    min="1"
+                                    max="999"
+                                    @change="onBpmChange"
+                                )
+                                span ms
+                                input.w-16.bg-transparent.border.border-border.rounded.px-1.text-foreground(
+                                    class="py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
+                                    type="number"
+                                    :value="scriptOffset"
+                                    @change="onOffsetChange"
+                                )
+
+                            .flex-1
+
+                            Button(
+                                size="sm"
+                                variant="ghost"
+                                class="h-6 px-2 text-xs"
+                                :disabled="isSaving || scripting.isRunning.value"
+                                title="Save (Ctrl+S)"
+                                @click="saveScript"
+                            )
+                                Icon.mr-1(v-if="isSaving || scripting.isRunning.value" name="lucide:loader-circle" size="12" class="animate-spin")
+                                Icon.mr-1(v-else name="lucide:save" size="12")
+                                | Save
+
+                            Button(
+                                size="sm"
+                                variant="ghost"
+                                class="size-6 p-0 ml-1"
+                                title="Close editor"
+                                @click="selectedScript = null"
+                            )
+                                Icon(name="lucide:x" size="12")
+
+                        //- Monaco editor
+                        .flex-1.min-h-0
+                            EditorMonacoEditor(v-model="code" @save="saveScript")
+
+                        //- Script errors
+                        .shrink-0.border-t.border-border.max-h-40.overflow-auto(
+                            v-if="scripting.errors.value.length"
+                        )
+                            .px-3.py-2.flex.items-center.gap-2.text-xs.font-medium.text-destructive
+                                Icon(name="lucide:circle-x" size="12")
+                                | {{ scripting.errors.value.length }} error{{ scripting.errors.value.length > 1 ? 's' : '' }}
+                            .px-3.pb-2.flex.flex-col.gap-1
+                                .text-xs.font-mono(
+                                    class="text-destructive/80"
+                                    v-for="(err, i) in scripting.errors.value"
+                                    :key="i"
+                                )
+                                    span.opacity-60.mr-1 [{{ err.phase }}]
+                                    | {{ err.message }}
+
+    //- ── New Project Dialog ───────────────────────────────────────────────────
+    Dialog(v-model:open="newProjectDialogOpen")
+        DialogContent(class="sm:max-w-md")
+            DialogHeader
+                DialogTitle New Project
+                DialogDescription
+                    | Choose an empty folder where your project files will be stored.
+            .grid.gap-3.py-2
+                .grid.gap-1
+                    label.text-sm.font-medium(for="new-project-name") Project name
+                    Input#new-project-name(
+                        v-model="newProjectName"
+                        placeholder="My Storyboard"
                     )
-                    span ms
-                    input.w-16.bg-transparent.border.border-border.rounded.px-1.text-foreground(
-                        class="py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
-                        type="number"
-                        :value="scriptOffset"
-                        @change="onOffsetChange"
-                    )
-
-                .flex-1
-
-                Button(
-                    size="sm"
-                    variant="ghost"
-                    class="h-6 px-2 text-xs"
-                    :disabled="isSaving || scripting.isRunning.value"
-                    title="Save (Ctrl+S)"
-                    @click="saveScript"
-                )
-                    Icon.mr-1(v-if="isSaving || scripting.isRunning.value" name="lucide:loader-circle" size="12" class="animate-spin")
-                    Icon.mr-1(v-else name="lucide:save" size="12")
-                    | Save
-
-                Button(
-                    size="sm"
-                    variant="ghost"
-                    class="size-6 p-0 ml-1"
-                    title="Close editor"
-                    @click="selectedScript = null"
-                )
-                    Icon(name="lucide:x" size="12")
-
-            //- Monaco editor
-            .flex-1.min-h-0
-                EditorMonacoEditor(v-model="code")
-
-            //- Script errors
-            .shrink-0.border-t.border-border.max-h-40.overflow-auto(
-                v-if="scripting.errors.value.length"
-            )
-                .px-3.py-2.flex.items-center.gap-2.text-xs.font-medium.text-destructive
-                    Icon(name="lucide:circle-x" size="12")
-                    | {{ scripting.errors.value.length }} error{{ scripting.errors.value.length > 1 ? 's' : '' }}
-                .px-3.pb-2.flex.flex-col.gap-1
-                    .text-xs.font-mono(
-                        class="text-destructive/80"
-                        v-for="(err, i) in scripting.errors.value"
-                        :key="i"
-                    )
-                        span.opacity-60.mr-1 [{{ err.phase }}]
-                        | {{ err.message }}
+                .grid.grid-cols-2.gap-3
+                    .grid.gap-1
+                        label.text-sm.font-medium(for="new-project-bpm") BPM
+                        Input#new-project-bpm(
+                            type="number"
+                            v-model.number="newProjectBpm"
+                            min="1"
+                            max="999"
+                        )
+                    .grid.gap-1
+                        label.text-sm.font-medium(for="new-project-offset") Offset (ms)
+                        Input#new-project-offset(
+                            type="number"
+                            v-model.number="newProjectOffset"
+                        )
+            DialogFooter
+                Button(variant="outline" @click="newProjectDialogOpen = false") Cancel
+                Button(:disabled="isCreatingProject" @click="createProject")
+                    Icon.mr-2(v-if="isCreatingProject" name="lucide:loader-circle" size="13" class="animate-spin")
+                    | Choose Folder & Create
 
     //- ── New Script Dialog ────────────────────────────────────────────────────
     Dialog(v-model:open="newScriptDialogOpen")
@@ -677,6 +790,8 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                     @keydown.enter="createNewScript"
                 )
             DialogFooter
-                Button(variant="outline" @click="newScriptDialogOpen = false") Cancel
-                Button(@click="createNewScript") Create
+                Button(variant="outline" :disabled="isCreatingScript" @click="newScriptDialogOpen = false") Cancel
+                Button(:disabled="isCreatingScript" @click="createNewScript")
+                    Icon.mr-2(v-if="isCreatingScript" name="lucide:loader-circle" size="13" class="animate-spin")
+                    | {{ isCreatingScript ? 'Creating…' : 'Create' }}
 </template>

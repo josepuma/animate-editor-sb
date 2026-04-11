@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { StoryboardRenderer } from '~/lib/engine/renderer'
+import { StoryboardRenderer, OSU_WIDTH, OSU_HEIGHT, OSU_X_OFFSET } from '~/lib/engine/renderer'
 import type { StoryboardSprite } from '~/types'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -19,11 +19,52 @@ const containerRef = ref<HTMLDivElement | null>(null)
 const renderer = new StoryboardRenderer()
 const isReady = ref(false)
 const fpsVisible = ref(false)
+const gridVisible = ref(false)
 const isLoadingTextures = ref(false)
+
+// ─── Cursor position in osu! storyboard coordinates ──────────────────────────
+
+const cursorPos = ref<{ x: number; y: number; cx: number; cy: number } | null>(null)
+
+function onMouseMove(e: MouseEvent) {
+    const container = containerRef.value
+    const canvas = renderer.canvas
+    if (!container) return
+    const canvasRect    = canvas.getBoundingClientRect()
+    const containerRect = container.getBoundingClientRect()
+    const px = e.clientX - canvasRect.left
+    const py = e.clientY - canvasRect.top
+    // Out of canvas bounds → hide
+    if (px < 0 || py < 0 || px > canvasRect.width || py > canvasRect.height) {
+        cursorPos.value = null
+        return
+    }
+    // Map canvas pixels → osu! storyboard coordinates
+    const sbX = Math.round((px / canvasRect.width)  * OSU_WIDTH  - OSU_X_OFFSET)
+    const sbY = Math.round((py / canvasRect.height) * OSU_HEIGHT)
+    // Badge position relative to the container, offset up-left from cursor
+    const cx = e.clientX - containerRect.left
+    const cy = e.clientY - containerRect.top
+    cursorPos.value = { x: sbX, y: sbY, cx, cy }
+}
+
+function onMouseLeave() {
+    cursorPos.value = null
+}
+
+async function onCanvasClick() {
+    if (!cursorPos.value) return
+    await navigator.clipboard.writeText(`${cursorPos.value.x}, ${cursorPos.value.y}`)
+}
 
 function toggleFps() {
     renderer.toggleFps()
     fpsVisible.value = !fpsVisible.value
+}
+
+function toggleGrid() {
+    renderer.toggleGrid()
+    gridVisible.value = !gridVisible.value
 }
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
@@ -128,17 +169,29 @@ watch(
 </script>
 
 <template>
-    <div ref="containerRef" class="relative w-full h-full overflow-hidden bg-black">
-        <button
-            class="absolute top-2 right-2 z-10 px-2 py-0.5 text-xs font-mono rounded transition-colors"
-            :class="fpsVisible ? 'bg-white/20 text-white' : 'bg-black/40 text-white/50 hover:text-white/80'"
-            @click="toggleFps"
-        >fps</button>
+    <div ref="containerRef" class="relative w-full h-full overflow-hidden bg-black" @mousemove="onMouseMove" @mouseleave="onMouseLeave" @click="onCanvasClick">
+        <div class="absolute top-2 right-2 z-10 flex gap-1">
+            <button
+                class="px-2 py-0.5 text-xs font-mono rounded transition-colors"
+                :class="gridVisible ? 'bg-white/20 text-white' : 'bg-black/40 text-white/50 hover:text-white/80'"
+                @click="toggleGrid"
+            >grid</button>
+            <button
+                class="px-2 py-0.5 text-xs font-mono rounded transition-colors"
+                :class="fpsVisible ? 'bg-white/20 text-white' : 'bg-black/40 text-white/50 hover:text-white/80'"
+                @click="toggleFps"
+            >fps</button>
+        </div>
         <div
             v-if="isLoadingTextures"
             class="absolute inset-0 flex items-center justify-center pointer-events-none"
         >
             <div class="size-8 rounded-full border-2 border-white/20 border-t-white animate-spin" />
         </div>
+        <button
+            v-if="cursorPos"
+            class="absolute z-10 px-2 py-0.5 text-xs font-mono rounded tabular-nums transition-colors bg-black/60 text-white/80 hover:bg-white/20 hover:text-white -translate-x-full -translate-y-full pointer-events-none"
+            :style="{ left: cursorPos.cx - 8 + 'px', top: cursorPos.cy - 8 + 'px' }"
+        >x: {{ cursorPos.x }}, y: {{ cursorPos.y }}</button>
     </div>
 </template>

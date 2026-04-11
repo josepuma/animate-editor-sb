@@ -1,4 +1,4 @@
-import { Application, Sprite, Texture, Container, Text } from 'pixi.js'
+import { Application, Sprite, Texture, Container, Text, Graphics } from 'pixi.js'
 import type { SpriteRenderState, StoryboardSprite } from '~/types'
 import { Origin, Layer } from '~/types'
 import { prepareStoryboard, resolveStoryboard } from './timeline'
@@ -77,6 +77,9 @@ export class StoryboardRenderer {
     private fpsSmooth = 60
     private lastRenderTime = 0
 
+    /** Grid overlay */
+    private gridGraphics!: Graphics
+
     get canvas(): HTMLCanvasElement {
         return this.app.canvas as HTMLCanvasElement
     }
@@ -101,6 +104,10 @@ export class StoryboardRenderer {
         container.appendChild(this.canvas)
         this.fitToContainer(container)
 
+        this.gridGraphics = new Graphics()
+        this.gridGraphics.visible = false
+        this.stage.addChild(this.gridGraphics) // layer 1: grid overlay
+
         this.fpsText = new Text({
             text: '',
             style: { fontFamily: 'monospace', fontSize: 14, fill: 0xffffff, stroke: { color: 0x000000, width: 3 } },
@@ -108,7 +115,9 @@ export class StoryboardRenderer {
         this.fpsText.x = 6
         this.fpsText.y = 6
         this.fpsText.visible = false
-        this.stage.addChild(this.fpsText) // layer 1: always on top
+        this.stage.addChild(this.fpsText) // layer 2: always on top
+
+        this.drawGrid()
 
         const ro = new ResizeObserver(() => this.fitToContainer(container))
         ro.observe(container)
@@ -117,6 +126,56 @@ export class StoryboardRenderer {
     toggleFps(): void {
         this.fpsText.visible = !this.fpsText.visible
         if (!this.fpsText.visible) this.lastRenderTime = 0
+    }
+
+    toggleGrid(): void {
+        this.gridGraphics.visible = !this.gridGraphics.visible
+    }
+
+    private drawGrid(): void {
+        const g = this.gridGraphics
+        const cx = OSU_WIDTH / 2   // 427 — canvas centre x (storyboard 320 + offset 107)
+        const cy = OSU_HEIGHT / 2  // 240 — canvas centre y
+        const STEP = 10            // grid cell size in storyboard px (matches osu! editor)
+        const AXIS_COLOR  = 0xffffff
+        const GRID_COLOR  = 0xffffff
+        const AXIS_ALPHA  = 0.55
+        const GRID_ALPHA  = 0.1
+        const AXIS_WIDTH  = 0.2
+        const GRID_WIDTH  = 0.5
+
+        g.clear()
+
+        // ── Minor grid lines ──────────────────────────────────────────────────
+        // Vertical lines left of centre
+        for (let x = cx - STEP; x >= 0; x -= STEP) {
+            g.moveTo(x, 0).lineTo(x, OSU_HEIGHT)
+                .stroke({ color: GRID_COLOR, alpha: GRID_ALPHA, width: GRID_WIDTH })
+        }
+        // Vertical lines right of centre
+        for (let x = cx + STEP; x <= OSU_WIDTH; x += STEP) {
+            g.moveTo(x, 0).lineTo(x, OSU_HEIGHT)
+                .stroke({ color: GRID_COLOR, alpha: GRID_ALPHA, width: GRID_WIDTH })
+        }
+        // Horizontal lines above centre
+        for (let y = cy - STEP; y >= 0; y -= STEP) {
+            g.moveTo(0, y).lineTo(OSU_WIDTH, y)
+                .stroke({ color: GRID_COLOR, alpha: GRID_ALPHA, width: GRID_WIDTH })
+        }
+        // Horizontal lines below centre
+        for (let y = cy + STEP; y <= OSU_HEIGHT; y += STEP) {
+            g.moveTo(0, y).lineTo(OSU_WIDTH, y)
+                .stroke({ color: GRID_COLOR, alpha: GRID_ALPHA, width: GRID_WIDTH })
+        }
+
+        // ── Centre axes ───────────────────────────────────────────────────────
+        g.moveTo(cx, 0).lineTo(cx, OSU_HEIGHT)
+            .stroke({ color: AXIS_COLOR, alpha: AXIS_ALPHA, width: AXIS_WIDTH })
+        g.moveTo(0, cy).lineTo(OSU_WIDTH, cy)
+            .stroke({ color: AXIS_COLOR, alpha: AXIS_ALPHA, width: AXIS_WIDTH })
+
+        // ── Centre crosshair dot ──────────────────────────────────────────────
+        g.circle(cx, cy, 3).fill({ color: AXIS_COLOR, alpha: 0.8 })
     }
 
     /**

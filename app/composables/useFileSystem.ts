@@ -30,12 +30,21 @@ export function useFileSystem() {
 
         try {
             const handle = await window.showDirectoryPicker({ mode: 'readwrite' })
+            return await mountHandle(handle)
+        } catch (err) {
+            // User cancelled the picker
+            if ((err as DOMException).name !== 'AbortError') console.error(err)
+            return false
+        }
+    }
+
+    async function mountHandle(handle: FileSystemDirectoryHandle): Promise<boolean> {
+        try {
             rootHandle.value = handle
             fileTree.value = await buildTree(handle, '', true)
             return true
         } catch (err) {
-            // User cancelled the picker
-            if ((err as DOMException).name !== 'AbortError') console.error(err)
+            console.error('[useFileSystem] mountHandle failed', err)
             return false
         }
     }
@@ -132,6 +141,7 @@ export function useFileSystem() {
         rootHandle: readonly(rootHandle),
         fileTree: readonly(fileTree),
         openProject,
+        mountHandle,
         getFileHandle,
         readTextFile,
         writeTextFile,

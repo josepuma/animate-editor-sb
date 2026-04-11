@@ -12,6 +12,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
     'update:modelValue': [value: string]
+    'save': []
 }>()
 
 // ─── Refs ─────────────────────────────────────────────────────────────────────
@@ -338,6 +339,13 @@ async function initEditor() {
         const value = editor!.getValue()
         if (debounceTimer) clearTimeout(debounceTimer)
         debounceTimer = setTimeout(() => emit('update:modelValue', value), 300)
+    })
+
+    editor.addAction({
+        id: 'save-script',
+        label: 'Save Script',
+        keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS],
+        run: () => emit('save'),
     })
 }
 
