@@ -1,4 +1,6 @@
-import type { StoryboardSprite, Command, Storyboard } from '~/types'
+import type { StoryboardSprite, Command, Storyboard, TextSpriteMap } from '~/types'
+import { TEXT_SPRITE_PREFIX } from '~/types'
+import { rasterizeChar, mergeStyle } from '~/lib/scripting/textRasterizer'
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -49,17 +51,76 @@ export function downloadOsb(storyboard: Storyboard, filename = 'storyboard.osb')
 /**
  * Writes the .osb file directly to the user's project folder
  * via the File System Access API.
+ * If `textSpriteMap` is provided, rasterizes text sprites to PNG files under
+ * `sb/_text/` before writing the .osb, and remaps their synthetic filePaths.
  */
 export async function saveOsb(
     storyboard: Storyboard,
     rootHandle: FileSystemDirectoryHandle,
     filename = 'storyboard.osb',
+    textSpriteMap: TextSpriteMap = {},
 ): Promise<void> {
-    const content = exportOsb(storyboard)
+    const pathMap = await prepareTextSprites(textSpriteMap, rootHandle)
+
+    // Remap text sprite filePaths to their real on-disk paths
+    const remappedSprites = storyboard.sprites.map((sprite) => {
+        if (sprite.filePath.startsWith(TEXT_SPRITE_PREFIX)) {
+            const realPath = pathMap[sprite.filePath]
+            if (realPath) return { ...sprite, filePath: realPath }
+        }
+        return sprite
+    })
+
+    const content = exportOsb({ ...storyboard, sprites: remappedSprites })
     const fileHandle = await rootHandle.getFileHandle(filename, { create: true })
     const writable = await fileHandle.createWritable()
     await writable.write(content)
     await writable.close()
+}
+
+// ─── Text sprite preparation ──────────────────────────────────────────────────
+
+/**
+ * Rasterizes all text sprite definitions to PNG files under `sb/_text/`.
+ * Returns a map from synthetic filePath key → real relative path.
+ * Skips files that already exist on disk (idempotent re-export).
+ */
+async function prepareTextSprites(
+    textSpriteMap: TextSpriteMap,
+    rootHandle: FileSystemDirectoryHandle,
+): Promise<Record<string, string>> {
+    const pathMap: Record<string, string> = {}
+    const entries = Object.entries(textSpriteMap)
+    if (entries.length === 0) return pathMap
+
+    // Ensure sb/_text/ directory exists
+    const sbDir = await rootHandle.getDirectoryHandle('sb', { create: true })
+    const textDir = await sbDir.getDirectoryHandle('_text', { create: true })
+
+    for (const [key, def] of entries) {
+        const hash = key.slice(TEXT_SPRITE_PREFIX.length)
+        const fileName = `${hash}.png`
+        const relativePath = `sb/_text/${fileName}`
+        pathMap[key] = relativePath
+
+        // Skip if already written
+        try {
+            await textDir.getFileHandle(fileName)
+            continue
+        } catch {
+            // File does not exist — proceed to write
+        }
+
+        const canvas = rasterizeChar(def.char, mergeStyle(def.style))
+        const blob = await canvas.convertToBlob({ type: 'image/png' })
+
+        const fileHandle = await textDir.getFileHandle(fileName, { create: true })
+        const writable = await fileHandle.createWritable()
+        await writable.write(blob)
+        await writable.close()
+    }
+
+    return pathMap
 }
 
 // ─── Internals ────────────────────────────────────────────────────────────────

@@ -616,6 +616,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                                 :current-ms="audio.currentMs.value"
                                 :get-file-handle="fs.getFileHandle"
                                 :reset-key="previewResetKey"
+                                :text-sprite-map="scripting.textSprites.value"
                             )
                             .absolute.inset-0.flex.items-center.justify-center.text-white.text-sm(
                                 class="bg-black/60"

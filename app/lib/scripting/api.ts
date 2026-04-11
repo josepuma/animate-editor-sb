@@ -12,7 +12,12 @@ import type {
     RotateCommand,
     ColorCommand,
     ParameterCommand,
+    TextSpriteStyle,
+    TextSpriteMap,
 } from '~/types'
+import { textCharKey, measureChar, mergeStyle } from '~/lib/scripting/textRasterizer'
+import type { Color, GradientStep } from '~/types/color'
+import { hex, hsl } from '~/types/color'
 
 // ─── LoopBuilder ──────────────────────────────────────────────────────────────
 
@@ -183,18 +188,33 @@ export class LoopBuilder {
         return this
     }
 
-    flipH(startTime: number, endTime: number): this {
-        this._push<ParameterCommand>({ type: 'P', easing: Easing.Linear, startTime, endTime, parameter: 'H' })
+    // flipH(time)
+    flipH(time: number): this
+    // flipH(startTime, endTime)
+    flipH(startTime: number, endTime: number): this
+    flipH(startTime: number, endTime?: number): this {
+        const end = endTime ?? startTime
+        this._push<ParameterCommand>({ type: 'P', easing: Easing.Linear, startTime, endTime: end, parameter: 'H' })
         return this
     }
 
-    flipV(startTime: number, endTime: number): this {
-        this._push<ParameterCommand>({ type: 'P', easing: Easing.Linear, startTime, endTime, parameter: 'V' })
+    // flipV(time)
+    flipV(time: number): this
+    // flipV(startTime, endTime)
+    flipV(startTime: number, endTime: number): this
+    flipV(startTime: number, endTime?: number): this {
+        const end = endTime ?? startTime
+        this._push<ParameterCommand>({ type: 'P', easing: Easing.Linear, startTime, endTime: end, parameter: 'V' })
         return this
     }
 
-    additive(startTime: number, endTime: number): this {
-        this._push<ParameterCommand>({ type: 'P', easing: Easing.Linear, startTime, endTime, parameter: 'A' })
+    // additive(time)
+    additive(time: number): this
+    // additive(startTime, endTime)
+    additive(startTime: number, endTime: number): this
+    additive(startTime: number, endTime?: number): this {
+        const end = endTime ?? startTime
+        this._push<ParameterCommand>({ type: 'P', easing: Easing.Linear, startTime, endTime: end, parameter: 'A' })
         return this
     }
 
@@ -208,12 +228,16 @@ export class LoopBuilder {
 let _idCounter = 0
 
 export class SpriteBuilder {
-    private readonly _sprite: StoryboardSprite
+    readonly _sprite: StoryboardSprite
 
     /** Image width in pixels (0 if dimensions unknown) */
     readonly width: number
     /** Image height in pixels (0 if dimensions unknown) */
     readonly height: number
+    /** Default X position of this sprite */
+    get defaultX(): number { return this._sprite.defaultX }
+    /** Default Y position of this sprite */
+    get defaultY(): number { return this._sprite.defaultY }
 
     constructor(filePath: string, layer: Layer, origin: Origin, x = 320, y = 240, imgWidth = 0, imgHeight = 0) {
         this._sprite = {
@@ -401,20 +425,35 @@ export class SpriteBuilder {
     }
 
     /** _P,H — Horizontal flip for the given time range */
-    flipH(startTime: number, endTime: number): this {
-        this._push<ParameterCommand>({ type: 'P', easing: Easing.Linear, startTime, endTime, parameter: 'H' })
+    // flipH(time)
+    flipH(time: number): this
+    // flipH(startTime, endTime)
+    flipH(startTime: number, endTime: number): this
+    flipH(startTime: number, endTime?: number): this {
+        const end = endTime ?? startTime
+        this._push<ParameterCommand>({ type: 'P', easing: Easing.Linear, startTime, endTime: end, parameter: 'H' })
         return this
     }
 
     /** _P,V — Vertical flip for the given time range */
-    flipV(startTime: number, endTime: number): this {
-        this._push<ParameterCommand>({ type: 'P', easing: Easing.Linear, startTime, endTime, parameter: 'V' })
+    // flipV(time)
+    flipV(time: number): this
+    // flipV(startTime, endTime)
+    flipV(startTime: number, endTime: number): this
+    flipV(startTime: number, endTime?: number): this {
+        const end = endTime ?? startTime
+        this._push<ParameterCommand>({ type: 'P', easing: Easing.Linear, startTime, endTime: end, parameter: 'V' })
         return this
     }
 
     /** _P,A — Additive blend mode for the given time range */
-    additive(startTime: number, endTime: number): this {
-        this._push<ParameterCommand>({ type: 'P', easing: Easing.Linear, startTime, endTime, parameter: 'A' })
+    // additive(time)
+    additive(time: number): this
+    // additive(startTime, endTime)
+    additive(startTime: number, endTime: number): this
+    additive(startTime: number, endTime?: number): this {
+        const end = endTime ?? startTime
+        this._push<ParameterCommand>({ type: 'P', easing: Easing.Linear, startTime, endTime: end, parameter: 'A' })
         return this
     }
 
@@ -449,6 +488,19 @@ export class SpriteBuilder {
     }
 }
 
+// ─── TextBuilder ─────────────────────────────────────────────────────────────
+
+/**
+ * A SpriteBuilder for a single rasterized character.
+ * Behaves exactly like SpriteBuilder — supports all commands (fade, move, scale, etc.).
+ * The filePath is a synthetic `__text__:<hash>` key resolved at render/export time.
+ */
+export class TextBuilder extends SpriteBuilder {
+    constructor(key: string, layer: Layer, origin: Origin, x: number, y: number, charWidth: number, charHeight: number) {
+        super(key, layer, origin, x, y, charWidth, charHeight)
+    }
+}
+
 // ─── Script context ───────────────────────────────────────────────────────────
 
 /**
@@ -458,6 +510,13 @@ export class SpriteBuilder {
 export interface ScriptContext {
     /** Create a new sprite and register it for rendering */
     sprite(filePath: string, layer?: Layer, origin?: Origin, x?: number, y?: number): SpriteBuilder
+    /**
+     * Rasterizes a single character into a SpriteBuilder.
+     * Returns null for whitespace characters.
+     * Use `.width` / `.height` on the returned builder for layout calculations.
+     */
+    text(content: string, style: Partial<TextSpriteStyle>, layer?: Layer, origin?: Origin, x?: number, y?: number): TextBuilder
+    text(content: string, layer?: Layer, origin?: Origin, x?: number, y?: number): TextBuilder
     /** BPM of the current beatmap (from project config) */
     bpm: number
     /** Audio offset in ms */
@@ -468,6 +527,14 @@ export interface ScriptContext {
     random(min: number, max: number): number
     /** Random integer in [min, max] (inclusive) */
     randomInt(min: number, max: number): number
+    /** Converts a hex color string (#RGB or #RRGGBB) to a Color object */
+    hex(value: string): Color
+    /** Converts HSL values (h: 0-360, s: 0-100, l: 0-100) to a Color object */
+    hsl(h: number, s: number, l: number): Color
+    /** * Returns a random color by interpolating through a list of gradient steps.
+     * @param steps Array of {pos, color} where pos is 0.0 to 1.0
+     */
+    randomGradientColor(steps: GradientStep[]): Color
     /** Enums — available directly in scripts */
     Layer: typeof Layer
     Origin: typeof Origin
@@ -488,9 +555,11 @@ export function createScriptContext(
 ): {
     context: ScriptContext
     getSprites: () => StoryboardSprite[]
+    getTextSprites: () => TextSpriteMap
 } {
     _idCounter = 0
     const sprites: StoryboardSprite[] = []
+    const textSprites: TextSpriteMap = {}
     const msPerBeat = bpm > 0 ? (60_000 / bpm) : 500
 
     const context: ScriptContext = {
@@ -505,18 +574,99 @@ export function createScriptContext(
             // the sprite reference in the array stays in sync since it's the same object.
             return builder
         },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        text(content: string, ...args: any[]): TextBuilder {
+            // Overload resolution:
+            //   text(content, style, layer?, origin?, x?, y?)
+            //   text(content, layer?,  origin?, x?, y?)
+            let resolvedStyle: Partial<TextSpriteStyle> | undefined
+            let resolvedLayer: Layer = Layer.Foreground
+            let resolvedOrigin: Origin = Origin.Centre
+            let resolvedX = 320
+            let resolvedY = 240
+
+            if (args.length > 0 && args[0] !== undefined && typeof args[0] === 'object') {
+                resolvedStyle = args[0]
+                resolvedLayer  = args[1] ?? Layer.Foreground
+                resolvedOrigin = args[2] ?? Origin.Centre
+                resolvedX      = args[3] ?? 320
+                resolvedY      = args[4] ?? 240
+            } else {
+                resolvedLayer  = args[0] ?? Layer.Foreground
+                resolvedOrigin = args[1] ?? Origin.Centre
+                resolvedX      = args[2] ?? 320
+                resolvedY      = args[3] ?? 240
+            }
+
+            // Use the first character of the string (or a space if empty)
+            const char = content[0] ?? ' '
+
+            const merged = mergeStyle(resolvedStyle)
+            const key = textCharKey(char, merged)
+            if (!textSprites[key]) textSprites[key] = { char, style: merged }
+
+            const { canvasWidth, canvasHeight } = measureChar(char, merged)
+            const builder = new TextBuilder(key, resolvedLayer, resolvedOrigin, resolvedX, resolvedY, canvasWidth, canvasHeight)
+            builder._sprite.id = `${scriptId}::text_${++_idCounter}`
+            sprites.push(builder._sprite)
+            return builder
+        },
         bpm,
         offset,
         beat: (beats: number) => beats * msPerBeat + offset,
         random: (min: number, max: number) => Math.random() * (max - min) + min,
         randomInt: (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min,
+        hex,
+        hsl,
+        randomGradientColor: (steps: GradientStep[]): Color => {
+            // 1. Verificación de seguridad y extracción del primer elemento
+            const firstStep = steps[0];
+
+            if (!firstStep) {
+                // Si el array está vacío, devolvemos blanco
+                return { r: 255, g: 255, b: 255 };
+            }
+
+            if (steps.length === 1) {
+                return firstStep.color;
+            }
+
+            // 2. Ordenar
+            const sorted = [...steps].sort((a, b) => a.pos - b.pos);
+            const t = Math.random();
+
+            // 3. Referencias seguras (ya validamos que hay al menos uno)
+            const first = sorted[0]!; // El "!" le dice a TS: "Confía en mí, no es nulo"
+            const last = sorted[sorted.length - 1]!;
+
+            if (t <= first.pos) return first.color;
+            if (t >= last.pos) return last.color;
+
+            for (let i = 0; i < sorted.length - 1; i++) {
+                const start = sorted[i]!;
+                const end = sorted[i + 1]!;
+
+                if (t >= start.pos && t <= end.pos) {
+                    const localT = (t - start.pos) / (end.pos - start.pos);
+
+                    return {
+                        r: Math.round(start.color.r + (end.color.r - start.color.r) * localT),
+                        g: Math.round(start.color.g + (end.color.g - start.color.g) * localT),
+                        b: Math.round(start.color.b + (end.color.b - start.color.b) * localT)
+                    };
+                }
+            }
+
+            return first.color;
+        },
         Layer,
         Origin,
-        Easing,
+        Easing
     }
 
     return {
         context,
         getSprites: () => sprites,
+        getTextSprites: () => textSprites,
     }
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { StoryboardRenderer, OSU_WIDTH, OSU_HEIGHT, OSU_X_OFFSET } from '~/lib/engine/renderer'
-import type { StoryboardSprite } from '~/types'
+import type { StoryboardSprite, TextSpriteMap } from '~/types'
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -11,6 +11,8 @@ const props = defineProps<{
     getFileHandle: (path: string) => Promise<FileSystemFileHandle | null>
     /** Increment to trigger a full renderer reset (new project loaded). */
     resetKey: number
+    /** Text sprite definitions — populated when scripts use text(). */
+    textSpriteMap?: TextSpriteMap
 }>()
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -108,7 +110,7 @@ async function reloadTextures(sprites: StoryboardSprite[]) {
 
     textureLoading = true
     isLoadingTextures.value = sprites.length > 0
-    await renderer.updateSprites(sprites, props.getFileHandle)
+    await renderer.updateSprites(sprites, props.getFileHandle, props.textSpriteMap ?? {})
     isLoadingTextures.value = false
     renderer.render(props.currentMs)
     textureLoading = false
@@ -153,6 +155,17 @@ watch(
             return
         }
         reloadTextures(newSprites)
+    },
+    { deep: false },
+)
+
+// When textSpriteMap changes, evict stale text textures and reload
+// (e.g. user changed font/size in script — hash changes, old entry lingers in cache)
+watch(
+    () => props.textSpriteMap,
+    () => {
+        if (!isReady.value) return
+        reloadTextures(props.sprites)
     },
     { deep: false },
 )

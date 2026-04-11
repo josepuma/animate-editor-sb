@@ -3,12 +3,12 @@
  *
  * Message flow:
  *   Main → Worker:  { type: 'run', code: string, bpm: number, offset: number }
- *   Worker → Main:  { type: 'result', sprites: StoryboardSprite[] }
+ *   Worker → Main:  { type: 'result', sprites: StoryboardSprite[], textSprites: TextSpriteMap }
  *                   { type: 'error',  message: string }
  */
 
 import { createScriptContext } from '~/lib/scripting/api'
-import type { StoryboardSprite } from '~/types'
+import type { StoryboardSprite, TextSpriteMap } from '~/types'
 
 // ─── Message types ────────────────────────────────────────────────────────────
 
@@ -24,6 +24,7 @@ interface RunMessage {
 interface ResultMessage {
     type: 'result'
     sprites: StoryboardSprite[]
+    textSprites: TextSpriteMap
 }
 
 interface ErrorMessage {
@@ -42,8 +43,8 @@ self.onmessage = async (event: MessageEvent<WorkerInMessage>) => {
     if (msg.type !== 'run') return
 
     try {
-        const sprites = await executeScript(msg.scriptId, msg.code, msg.bpm, msg.offset, msg.imageDimensions)
-        const out: ResultMessage = { type: 'result', sprites }
+        const { sprites, textSprites } = await executeScript(msg.scriptId, msg.code, msg.bpm, msg.offset, msg.imageDimensions)
+        const out: ResultMessage = { type: 'result', sprites, textSprites }
         self.postMessage(out)
     } catch (err) {
         const out: ErrorMessage = {
@@ -62,20 +63,21 @@ async function executeScript(
     bpm: number,
     offset: number,
     imageDimensions: Record<string, { width: number; height: number }>,
-): Promise<StoryboardSprite[]> {
-    const { context, getSprites } = createScriptContext(scriptId, bpm, offset, imageDimensions)
+): Promise<{ sprites: StoryboardSprite[]; textSprites: TextSpriteMap }> {
+    const { context, getSprites, getTextSprites } = createScriptContext(scriptId, bpm, offset, imageDimensions)
 
     // Build the function that wraps user code.
     // We inject context bindings as named parameters so the user can write:
     //   sprite('logo.png').fade(Easing.SineOut, 0, 500, 0, 1)
     // without any import statements.
     const fn = new Function(
-        'sprite', 'beat', 'bpm', 'offset', 'Layer', 'Origin', 'Easing', 'random', 'randomInt',
+        'sprite', 'text', 'beat', 'bpm', 'offset', 'Layer', 'Origin', 'Easing', 'random', 'randomInt', 'randomGradientColor',
         `"use strict";\n${code}`,
     )
 
     await fn(
         context.sprite,
+        context.text,
         context.beat,
         context.bpm,
         context.offset,
@@ -84,9 +86,11 @@ async function executeScript(
         context.Easing,
         context.random,
         context.randomInt,
+        context.randomGradientColor,
+
     )
 
-    return getSprites()
+    return { sprites: getSprites(), textSprites: getTextSprites() }
 }
 
 export type { WorkerInMessage, WorkerOutMessage }

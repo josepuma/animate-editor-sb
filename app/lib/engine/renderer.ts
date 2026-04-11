@@ -1,8 +1,9 @@
 import { Application, Sprite, Texture, Container, Text, Graphics } from 'pixi.js'
-import type { SpriteRenderState, StoryboardSprite } from '~/types'
-import { Origin, Layer } from '~/types'
+import type { SpriteRenderState, StoryboardSprite, TextSpriteMap } from '~/types'
+import { Origin, Layer, TEXT_SPRITE_PREFIX } from '~/types'
 import { prepareStoryboard, resolveStoryboard } from './timeline'
 import type { PreparedSprite } from './timeline'
+import { rasterizeChar, mergeStyle } from '~/lib/scripting/textRasterizer'
 
 // ─── osu! canvas constants (16:9) ────────────────────────────────────────────
 //
@@ -258,6 +259,7 @@ export class StoryboardRenderer {
     async updateSprites(
         sprites: StoryboardSprite[],
         getFileHandle: (path: string) => Promise<FileSystemFileHandle | null>,
+        textSpriteMap: TextSpriteMap = {},
     ): Promise<void> {
         // 1. Rebuild sprite index
         this.spriteIndex.clear()
@@ -268,24 +270,46 @@ export class StoryboardRenderer {
         // 2. Load only file paths not already cached
         const seenPaths = new Set<string>()
         for (const sprite of sprites) {
-            if (seenPaths.has(sprite.filePath) || this.textureCache.has(sprite.filePath)) {
-                seenPaths.add(sprite.filePath)
+            const fp = sprite.filePath
+            if (seenPaths.has(fp) || this.textureCache.has(fp)) {
+                seenPaths.add(fp)
                 continue
             }
-            seenPaths.add(sprite.filePath)
-            const handle = await getFileHandle(sprite.filePath)
+            seenPaths.add(fp)
+
+            // Text sprites: rasterize from canvas instead of loading a file
+            if (fp.startsWith(TEXT_SPRITE_PREFIX)) {
+                const def = textSpriteMap[fp]
+                if (!def) {
+                    console.warn('[renderer] text sprite definition not found:', fp)
+                    continue
+                }
+                try {
+                    const canvas = rasterizeChar(def.char, mergeStyle(def.style))
+                    const blob = await canvas.convertToBlob({ type: 'image/png' })
+                    const blobUrl = URL.createObjectURL(blob)
+                    this.blobUrls.set(fp, blobUrl)
+                    const texture = await loadTextureFromUrl(blobUrl)
+                    this.textureCache.set(fp, texture)
+                } catch (err) {
+                    console.warn('[renderer] text rasterize failed', fp, err)
+                }
+                continue
+            }
+
+            const handle = await getFileHandle(fp)
             if (!handle) {
-                console.warn('[renderer] file not found:', sprite.filePath)
+                console.warn('[renderer] file not found:', fp)
                 continue
             }
             const file = await handle.getFile()
             const blobUrl = URL.createObjectURL(file)
-            this.blobUrls.set(sprite.filePath, blobUrl)
+            this.blobUrls.set(fp, blobUrl)
             try {
                 const texture = await loadTextureFromUrl(blobUrl)
-                this.textureCache.set(sprite.filePath, texture)
+                this.textureCache.set(fp, texture)
             } catch (err) {
-                console.warn('[renderer] texture failed', sprite.filePath, err)
+                console.warn('[renderer] texture failed', fp, err)
             }
         }
 

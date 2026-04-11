@@ -142,11 +142,17 @@ interface LoopBuilder {
   /** Color — full: color(easing, startTime, endTime, startR, startG, startB, endR, endG, endB) */
   color(easing: Easing, startTime: number, endTime: number, startR: number, startG: number, startB: number, endR: number, endG: number, endB: number): this
 
-  /** Horizontal flip for the given time range */
+  /** Horizontal flip — instant: flipH(time) */
+  flipH(time: number): this
+  /** Horizontal flip — range: flipH(startTime, endTime) */
   flipH(startTime: number, endTime: number): this
-  /** Vertical flip for the given time range */
+  /** Vertical flip — instant: flipV(time) */
+  flipV(time: number): this
+  /** Vertical flip — range: flipV(startTime, endTime) */
   flipV(startTime: number, endTime: number): this
-  /** Additive blend mode for the given time range */
+  /** Additive blend — instant: additive(time) */
+  additive(time: number): this
+  /** Additive blend — range: additive(startTime, endTime) */
   additive(startTime: number, endTime: number): this
 }
 
@@ -212,11 +218,17 @@ interface SpriteBuilder {
   /** Color — full: color(easing, startTime, endTime, startR, startG, startB, endR, endG, endB) */
   color(easing: Easing, startTime: number, endTime: number, startR: number, startG: number, startB: number, endR: number, endG: number, endB: number): this
 
-  /** Horizontal flip for the given time range */
+  /** Horizontal flip — instant: flipH(time) */
+  flipH(time: number): this
+  /** Horizontal flip — range: flipH(startTime, endTime) */
   flipH(startTime: number, endTime: number): this
-  /** Vertical flip for the given time range */
+  /** Vertical flip — instant: flipV(time) */
+  flipV(time: number): this
+  /** Vertical flip — range: flipV(startTime, endTime) */
   flipV(startTime: number, endTime: number): this
-  /** Additive blend mode for the given time range */
+  /** Additive blend — instant: additive(time) */
+  additive(time: number): this
+  /** Additive blend — range: additive(startTime, endTime) */
   additive(startTime: number, endTime: number): this
   /**
    * Loop group — commands inside repeat \`loopCount\` times starting at \`startTime\`.
@@ -269,6 +281,161 @@ declare const bpm: number
 
 /** Audio offset in milliseconds */
 declare const offset: number
+
+interface TextSpriteStyle {
+  /**
+   * Font family name.
+   * Use any system font: 'Arial', 'Impact', 'Times New Roman', etc.
+   * @default 'Arial'
+   */
+  font?: string
+  /**
+   * Font size in pixels.
+   * @default 48
+   */
+  size?: number
+  /**
+   * Fill color as a CSS color string.
+   * Accepts hex ('#ff0000'), rgb ('rgb(255,0,0)'), or named colors ('red').
+   * @default '#ffffff'
+   */
+  color?: string
+  /**
+   * Render the text in bold.
+   * @default false
+   */
+  bold?: boolean
+  /**
+   * Render the text in italic.
+   * @default false
+   */
+  italic?: boolean
+  /**
+   * Outline (stroke) color as a CSS color string.
+   * Only visible when strokeWidth > 0.
+   * @default '#000000'
+   */
+  strokeColor?: string
+  /**
+   * Outline width in pixels. 0 = no outline.
+   * @default 0
+   */
+  strokeWidth?: number
+  /**
+   * Drop shadow blur radius in pixels. 0 = no shadow.
+   * @default 0
+   */
+  shadowBlur?: number
+  /**
+   * Drop shadow color as a CSS color string.
+   * Only visible when shadowBlur > 0.
+   * @default '#000000'
+   */
+  shadowColor?: string
+  /**
+   * Drop shadow horizontal offset in pixels.
+   * @default 0
+   */
+  shadowOffsetX?: number
+  /**
+   * Drop shadow vertical offset in pixels.
+   * @default 0
+   */
+  shadowOffsetY?: number
+}
+
+/**
+ * Rasterizes a single character into a SpriteBuilder, ready to animate.
+ * Use character.width / character.height for layout calculations.
+ *
+ * @param content - The character to render (only the first character is used)
+ * @param style   - Optional text style (font, size, color, bold, italic, stroke, shadow)
+ * @param layer   - Render layer (default: Layer.Foreground)
+ * @param origin  - Anchor point (default: Origin.Centre)
+ * @param x       - Initial X position in osu! coordinates (default: 320)
+ * @param y       - Initial Y position in osu! coordinates (default: 240)
+ *
+ * @example
+ * const sentence = "HELLO"
+ * let cursor = 100
+ * sentence.split('').forEach(l => {
+ *   const ch = text(l, { font: 'Impact', size: 64, color: '#fff' }, Layer.Foreground, Origin.Centre)
+ *   ch.move(Easing.Out, 0, 300, randomInt(0, 640), randomInt(0, 480), cursor, 240)
+ *   ch.fade(Easing.Linear, 0, 100, 0, 1)
+ *   cursor += ch.width + 4
+ * })
+ */
+declare function text(
+  content: string,
+  style: TextSpriteStyle,
+  layer?: Layer,
+  origin?: Origin,
+  x?: number,
+  y?: number,
+): SpriteBuilder
+declare function text(
+  content: string,
+  layer?: Layer,
+  origin?: Origin,
+  x?: number,
+  y?: number,
+): SpriteBuilder
+
+/** RGB color value (each channel 0-255) */
+interface Color {
+  r: number
+  g: number
+  b: number
+}
+
+/** A single stop in a color gradient */
+interface GradientStep {
+  /** Position in the gradient, 0.0 (start) to 1.0 (end) */
+  pos: number
+  color: Color
+}
+
+/**
+ * Returns a random color interpolated from a gradient defined by a list of stops.
+ * Picks a random position t in [0, 1] and interpolates between the two surrounding steps.
+ *
+ * @example
+ * const c = randomGradientColor([
+ *   { pos: 0.0, color: { r: 255, g: 0,   b: 0   } },
+ *   { pos: 0.5, color: { r: 255, g: 255, b: 0   } },
+ *   { pos: 1.0, color: { r: 0,   g: 0,   b: 255 } },
+ * ])
+ * sprite('img.png').color(0, 1000, c.r, c.g, c.b, c.r, c.g, c.b)
+ */
+declare function randomGradientColor(steps: GradientStep[]): Color
+
+/**
+ * Converts a hex color string to a Color object (r, g, b in 0-255).
+ * Accepts \`#RGB\` and \`#RRGGBB\` formats, with or without the leading \`#\`.
+ *
+ * @example
+ * const { r, g, b } = hex('#ff4488')
+ * sprite('img.png').color(Easing.Linear, 0, 1000, r, g, b, r, g, b)
+ *
+ * // Also works in GradientStep
+ * randomGradientColor([
+ *   { pos: 0, color: hex('#ff0000') },
+ *   { pos: 1, color: hex('#0000ff') },
+ * ])
+ */
+declare function hex(value: string): Color
+
+/**
+ * Converts HSL values to a Color object (r, g, b in 0-255).
+ * @param h - Hue in degrees [0, 360]
+ * @param s - Saturation percentage [0, 100]
+ * @param l - Lightness percentage [0, 100]
+ *
+ * @example
+ * const c = hsl(120, 100, 50) // pure green → { r: 0, g: 255, b: 0 }
+ * sprite('img.png').color(0, 1000, c.r, c.g, c.b, c.r, c.g, c.b)
+ */
+declare function hsl(h: number, s: number, l: number): Color
 `
 
 // ─── Init ─────────────────────────────────────────────────────────────────────

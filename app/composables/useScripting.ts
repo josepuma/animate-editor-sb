@@ -1,5 +1,5 @@
 import { ref, computed, readonly } from 'vue'
-import type { StoryboardSprite } from '~/types'
+import type { StoryboardSprite, TextSpriteMap } from '~/types'
 import { compileScript } from '~/lib/scripting/compiler'
 import type { WorkerInMessage, WorkerOutMessage } from '~/workers/script-runner'
 
@@ -11,6 +11,8 @@ export function useScripting() {
     // Sprites keyed by script path — each script maintains its own sprite set.
     // Running one script never touches another script's sprites.
     const spritesByScript = ref<Record<string, StoryboardSprite[]>>({})
+    // Text sprite definitions keyed by script path — parallel to spritesByScript.
+    const textSpritesByScript = ref<Record<string, TextSpriteMap>>({})
     const isRunning = ref(false)
     const errors = ref<ScriptError[]>([])
 
@@ -26,6 +28,8 @@ export function useScripting() {
 
     // Flat view of all sprites across all scripts, in insertion order.
     const sprites = computed(() => Object.values(spritesByScript.value).flat())
+    // Merged view of all text sprite definitions across all scripts.
+    const textSprites = computed<TextSpriteMap>(() => Object.assign({}, ...Object.values(textSpritesByScript.value)))
 
     // ── Run ───────────────────────────────────────────────────────────────────
 
@@ -67,9 +71,10 @@ export function useScripting() {
 
         // 2. Execute in a Web Worker (per-script worker, cancels previous run of same script)
         try {
-            const result = await runInWorker(scriptId, code, bpm, offset, imageDimensions)
+            const { sprites: result, textSprites: resultTextSprites } = await runInWorker(scriptId, code, bpm, offset, imageDimensions)
             if (runSeqMap.get(scriptId) !== seq) return
             spritesByScript.value = { ...spritesByScript.value, [scriptId]: result }
+            textSpritesByScript.value = { ...textSpritesByScript.value, [scriptId]: resultTextSprites }
         } catch (err) {
             if (runSeqMap.get(scriptId) !== seq) return
             errors.value = [{
@@ -89,8 +94,12 @@ export function useScripting() {
             const next = { ...spritesByScript.value }
             delete next[scriptId]
             spritesByScript.value = next
+            const nextText = { ...textSpritesByScript.value }
+            delete nextText[scriptId]
+            textSpritesByScript.value = nextText
         } else {
             spritesByScript.value = {}
+            textSpritesByScript.value = {}
         }
         errors.value = []
     }
@@ -108,7 +117,7 @@ export function useScripting() {
         bpm: number,
         offset: number,
         imageDimensions: Record<string, { width: number; height: number }>,
-    ): Promise<StoryboardSprite[]> {
+    ): Promise<{ sprites: StoryboardSprite[]; textSprites: TextSpriteMap }> {
         return new Promise((resolve, reject) => {
             // Terminate any previous worker for this specific script
             workerMap.get(scriptId)?.terminate()
@@ -129,7 +138,7 @@ export function useScripting() {
                 const msg = event.data
 
                 if (msg.type === 'result') {
-                    resolve(msg.sprites)
+                    resolve({ sprites: msg.sprites, textSprites: msg.textSprites })
                 } else {
                     reject(new Error(msg.message))
                 }
@@ -152,6 +161,7 @@ export function useScripting() {
 
     return {
         sprites,
+        textSprites,
         spritesByScript: readonly(spritesByScript),
         isRunning: readonly(isRunning),
         errors: readonly(errors),
