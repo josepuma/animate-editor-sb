@@ -446,6 +446,10 @@ function onTimelineSeek(ms: number) {
     audio.seek(ms)
 }
 
+// ─── Layout ───────────────────────────────────────────────────────────────────
+
+const layoutDirection = ref<'horizontal' | 'vertical'>('vertical')
+
 const copiedMs = ref(false)
 async function copyCurrentMs() {
     await navigator.clipboard.writeText(String(Math.round(audio.currentMs.value)))
@@ -496,6 +500,14 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                 MenubarContent
                     MenubarItem(:disabled="!hasProject" @click="newScriptDialogOpen = true")
                         | New Script
+
+            MenubarMenu
+                MenubarTrigger.text-sm.px-2 View
+                MenubarContent
+                    MenubarCheckboxItem(:checked="layoutDirection === 'horizontal'" @click="layoutDirection = 'horizontal'")
+                        | Side by side
+                    MenubarCheckboxItem(:checked="layoutDirection === 'vertical'" @click="layoutDirection = 'vertical'")
+                        | Stacked
 
             //-MenubarMenu
                 MenubarTrigger.text-sm.px-2 Audio
@@ -579,10 +591,10 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                     p.px-3.py-1.text-xs.text-muted-foreground(v-else) No audio files
 
         //- ── Center + Script editor (resizable when script open) ───────────────
-        ResizablePanelGroup.flex-1.min-h-0(id="main-panels" direction="horizontal")
+        ResizablePanelGroup.flex-1.min-h-0(id="main-panels" :direction="layoutDirection")
 
             //- Center panel: preview + audio
-            ResizablePanel(id="panel-preview" :default-size="60" :min-size="30")
+            ResizablePanel(id="panel-preview" :default-size="layoutDirection === 'horizontal' ? 60 : 55" :min-size="30")
                 .flex.flex-col.h-full
 
                     //- Empty state
@@ -670,7 +682,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
             template(v-if="selectedScript !== null")
                 ResizableHandle(with-handle)
 
-                ResizablePanel(id="panel-editor" :default-size="40" :min-size="20" :max-size="70")
+                ResizablePanel(id="panel-editor" :default-size="layoutDirection === 'horizontal' ? 40 : 45" :min-size="20" :max-size="70")
                     .flex.flex-col.h-full.border-l.border-border
 
                         //- Editor toolbar
