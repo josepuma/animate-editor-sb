@@ -18,9 +18,15 @@ logs
 .DS_Store
 .fleet
 .idea
+.atl
 
 # Local env files
 .env
 .env.*
 !.env.example
+
+# Electron build artifacts
+out/
+.vite/
+dist-electron/
 

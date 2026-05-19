@@ -6,6 +6,12 @@ export default defineNuxtConfig({
   css: ['./app/assets/css/main.css'],
   modules: ['shadcn-nuxt', '@nuxt/icon'],
   ssr: false,
+  icon: {
+    clientBundle: {
+      scan: true,
+      icons: ['tabler:player-play', 'tabler:player-pause'],
+    },
+  },
   shadcn: {
     prefix: '',
     componentDir: '@/components/ui'

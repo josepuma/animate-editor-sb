@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+
 import { parseOsb } from '~/lib/parser/osb'
 import type { StoryboardSprite } from '~/types'
 import type { ProjectConfig } from '~/types/project'
@@ -482,7 +483,10 @@ function onDivisorChange(e: Event) {
     timing.beatDivisor.value = Number((e.target as HTMLSelectElement).value)
 }
 
+const isMac = ref(false)
+
 onMounted(() => {
+    isMac.value = (window as any).electronAPI?.platform === 'darwin'
     window.addEventListener('keydown', onKeyDown)
     document.addEventListener('fullscreenchange', onFullscreenChange)
 })
@@ -498,9 +502,9 @@ onUnmounted(() => {
 div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
 
     //- ── Menubar ──────────────────────────────────────────────────────────────
-    header.flex.items-center.h-9.border-b.border-border.shrink-0
+    header.flex.items-center.h-9.border-b.border-border.shrink-0(:style="{ '-webkit-app-region': 'drag', paddingLeft: isMac ? '76px' : '0' }")
 
-        Menubar.border-0.rounded-none.shadow-none.h-full.px-2.gap-0(class="bg-transparent")
+        Menubar.border-0.rounded-none.shadow-none.h-full.px-2.gap-0(class="bg-transparent" style="-webkit-app-region: no-drag;")
 
             MenubarMenu
                 MenubarTrigger.font-semibold.text-sm.px-2 anedir
@@ -533,7 +537,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                         | Stacked
                     MenubarSeparator
                     MenubarItem(:disabled="!hasProject" @click="toggleFullscreen")
-                        Icon.mr-2(name="lucide:expand" size="13")
+                        Icon.mr-2(name="tabler:maximize" size="13")
                         | Fullscreen Preview
                         MenubarShortcut F11
 
@@ -544,7 +548,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
 
         .ml-auto.flex.items-center.gap-2.pr-3.text-xs.text-muted-foreground
             template(v-if="projectName")
-                Icon(name="lucide:folder-open" size="12")
+                Icon(name="tabler:folder-open" size="12")
                 span.max-w-32.truncate {{ projectName }}
             template(v-if="activeMode === 'script' && scripting.sprites.value.length")
                 Separator(orientation="vertical" class="h-3")
@@ -583,14 +587,14 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                                     @click.stop="moveScript(path, -1)"
                                     title="Move up (render below)"
                                 )
-                                    Icon(name="lucide:chevron-up" size="12")
+                                    Icon(name="tabler:chevron-up" size="12")
                                 button(
                                     class="px-0.5 py-1 text-muted-foreground hover:text-foreground disabled:opacity-20"
                                     :disabled="scriptOrder.indexOf(path) >= scriptOrder.length - 1"
                                     @click.stop="moveScript(path, 1)"
                                     title="Move down (render on top)"
                                 )
-                                    Icon(name="lucide:chevron-down" size="12")
+                                    Icon(name="tabler:chevron-down" size="12")
                     p.px-3.py-1.text-xs.text-muted-foreground(v-else) No .ts files
                     Separator.my-2
 
@@ -630,10 +634,10 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                         p.text-sm Open an existing project or create a new one to get started
                         .flex.gap-2
                             Button(variant="outline" @click="newProjectDialogOpen = true")
-                                Icon.mr-2(name="lucide:folder-plus" size="14")
+                                Icon.mr-2(name="tabler:folder-plus" size="14")
                                 | New Project
                             Button(@click="openProject")
-                                Icon.mr-2(name="lucide:folder-open" size="14")
+                                Icon.mr-2(name="tabler:folder-open" size="14")
                                 | Open Project
 
                     template(v-else)
@@ -656,7 +660,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                                     @click="toggleFullscreen"
                                     title="Exit fullscreen (Esc)"
                                 )
-                                    Icon.mr-1(name="lucide:shrink" size="12")
+                                    Icon.mr-1(name="tabler:minimize" size="12")
                                     | Exit
 
                             .absolute.inset-0.flex.items-center.justify-center.text-white.text-sm(
@@ -691,7 +695,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                                     :disabled="!hasAudio"
                                     @click="audio.isPlaying.value ? audio.pause() : audio.play()"
                                 )
-                                    Icon(:name="audio.isPlaying.value ? 'lucide:pause' : 'lucide:play'" size="13")
+                                    Icon(:name="audio.isPlaying.value ? 'tabler:player-pause' : 'tabler:player-play'" size="13")
                                 span.text-xs.tabular-nums.text-muted-foreground.shrink-0
                                     | {{ formatMs(audio.currentMs.value) }} / {{ formatMs(audio.durationMs.value) }}
                                 .flex-1
@@ -704,7 +708,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                                     title="Copy current position in ms"
                                     @click="copyCurrentMs"
                                 )
-                                    Icon.mr-1(:name="copiedMs ? 'lucide:check' : 'lucide:copy'" size="11")
+                                    Icon.mr-1(:name="copiedMs ? 'tabler:check' : 'tabler:copy'" size="11")
                                     | {{ copiedMs ? 'Copied' : 'Copy ms' }}
                                 Separator(orientation="vertical" class="h-4")
                                 //- Beat divisor selector
@@ -761,8 +765,8 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                                 title="Save (Ctrl+S)"
                                 @click="saveScript"
                             )
-                                Icon.mr-1(v-if="isSaving || scripting.isRunning.value" name="lucide:loader-circle" size="12" class="animate-spin")
-                                Icon.mr-1(v-else name="lucide:save" size="12")
+                                Icon.mr-1(v-if="isSaving || scripting.isRunning.value" name="tabler:loader-2" size="12" class="animate-spin")
+                                Icon.mr-1(v-else name="tabler:device-floppy" size="12")
                                 | Save
 
                             Button(
@@ -772,7 +776,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                                 title="Close editor"
                                 @click="selectedScript = null"
                             )
-                                Icon(name="lucide:x" size="12")
+                                Icon(name="tabler:x" size="12")
 
                         //- Monaco editor
                         .flex-1.min-h-0
@@ -783,7 +787,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                             v-if="scripting.errors.value.length"
                         )
                             .px-3.py-2.flex.items-center.gap-2.text-xs.font-medium.text-destructive
-                                Icon(name="lucide:circle-x" size="12")
+                                Icon(name="tabler:circle-x" size="12")
                                 | {{ scripting.errors.value.length }} error{{ scripting.errors.value.length > 1 ? 's' : '' }}
                             .px-3.pb-2.flex.flex-col.gap-1
                                 .text-xs.font-mono(
@@ -826,7 +830,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
             DialogFooter
                 Button(variant="outline" @click="newProjectDialogOpen = false") Cancel
                 Button(:disabled="isCreatingProject" @click="createProject")
-                    Icon.mr-2(v-if="isCreatingProject" name="lucide:loader-circle" size="13" class="animate-spin")
+                    Icon.mr-2(v-if="isCreatingProject" name="tabler:loader-2" size="13" class="animate-spin")
                     | Choose Folder & Create
 
     //- ── New Script Dialog ────────────────────────────────────────────────────
@@ -846,6 +850,6 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
             DialogFooter
                 Button(variant="outline" :disabled="isCreatingScript" @click="newScriptDialogOpen = false") Cancel
                 Button(:disabled="isCreatingScript" @click="createNewScript")
-                    Icon.mr-2(v-if="isCreatingScript" name="lucide:loader-circle" size="13" class="animate-spin")
+                    Icon.mr-2(v-if="isCreatingScript" name="tabler:loader-2" size="13" class="animate-spin")
                     | {{ isCreatingScript ? 'Creating…' : 'Create' }}
 </template>
