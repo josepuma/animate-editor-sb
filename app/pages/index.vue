@@ -416,6 +416,8 @@ function onKeyDown(e: KeyboardEvent) {
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
     if ((e.target as HTMLElement).closest?.('.monaco-editor')) return
 
+    if (e.code === 'F11') { e.preventDefault(); toggleFullscreen(); return }
+
     if (e.metaKey || e.ctrlKey) {
         if (e.code === 'KeyS') { e.preventDefault(); saveScript(); return }
         if (e.code === 'KeyO') { e.preventDefault(); openProject(); return }
@@ -450,6 +452,25 @@ function onTimelineSeek(ms: number) {
 
 const layoutDirection = ref<'horizontal' | 'vertical'>('vertical')
 
+// ─── Fullscreen ───────────────────────────────────────────────────────────────
+
+const previewContainerRef = ref<HTMLElement | null>(null)
+const isFullscreen = ref(false)
+
+const toggleFullscreen = async (): Promise<void> => {
+    if (!previewContainerRef.value) return
+    if (!document.fullscreenElement) {
+        await previewContainerRef.value.requestFullscreen()
+    } else {
+        await document.exitFullscreen()
+    }
+}
+
+const onFullscreenChange = (): void => {
+    isFullscreen.value = !!document.fullscreenElement
+}
+
+
 const copiedMs = ref(false)
 async function copyCurrentMs() {
     await navigator.clipboard.writeText(String(Math.round(audio.currentMs.value)))
@@ -463,9 +484,11 @@ function onDivisorChange(e: Event) {
 
 onMounted(() => {
     window.addEventListener('keydown', onKeyDown)
+    document.addEventListener('fullscreenchange', onFullscreenChange)
 })
 onUnmounted(() => {
     window.removeEventListener('keydown', onKeyDown)
+    document.removeEventListener('fullscreenchange', onFullscreenChange)
     audio.destroy()
     scripting.destroy()
 })
@@ -508,6 +531,11 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
                         | Side by side
                     MenubarCheckboxItem(:checked="layoutDirection === 'vertical'" @click="layoutDirection = 'vertical'")
                         | Stacked
+                    MenubarSeparator
+                    MenubarItem(:disabled="!hasProject" @click="toggleFullscreen")
+                        Icon.mr-2(name="lucide:expand" size="13")
+                        | Fullscreen Preview
+                        MenubarShortcut F11
 
             //-MenubarMenu
                 MenubarTrigger.text-sm.px-2 Audio
@@ -610,14 +638,27 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
 
                     template(v-else)
                         //- Canvas
-                        .flex-1.min-h-0.relative.bg-black
+                        .flex-1.min-h-0.relative.bg-black(ref="previewContainerRef")
                             EditorPreviewCanvas(
                                 :sprites="displaySprites"
                                 :current-ms="audio.currentMs.value"
                                 :get-file-handle="fs.getFileHandle"
                                 :reset-key="previewResetKey"
                                 :text-sprite-map="scripting.textSprites.value"
+                                :is-fullscreen="isFullscreen"
                             )
+                            //- Fullscreen exit button
+                            .absolute.top-3.right-3(v-if="isFullscreen")
+                                Button(
+                                    size="sm"
+                                    variant="secondary"
+                                    class="h-7 px-2 text-xs opacity-60 hover:opacity-100 transition-opacity"
+                                    @click="toggleFullscreen"
+                                    title="Exit fullscreen (Esc)"
+                                )
+                                    Icon.mr-1(name="lucide:shrink" size="12")
+                                    | Exit
+
                             .absolute.inset-0.flex.items-center.justify-center.text-white.text-sm(
                                 class="bg-black/60"
                                 v-if="isLoadingOsb"

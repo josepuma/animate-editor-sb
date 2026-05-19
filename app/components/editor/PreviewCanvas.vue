@@ -13,6 +13,8 @@ const props = defineProps<{
     resetKey: number
     /** Text sprite definitions — populated when scripts use text(). */
     textSpriteMap?: TextSpriteMap
+    /** Hide UI overlays (grid/fps buttons) when in fullscreen mode. */
+    isFullscreen?: boolean
 }>()
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -183,7 +185,7 @@ watch(
 
 <template>
     <div ref="containerRef" class="relative w-full h-full overflow-hidden bg-black" @mousemove="onMouseMove" @mouseleave="onMouseLeave" @click="onCanvasClick">
-        <div class="absolute top-2 right-2 z-10 flex gap-1">
+        <div v-if="!isFullscreen" class="absolute top-2 right-2 z-10 flex gap-1">
             <button
                 class="px-2 py-0.5 text-xs font-mono rounded transition-colors"
                 :class="gridVisible ? 'bg-white/20 text-white' : 'bg-black/40 text-white/50 hover:text-white/80'"
