@@ -120,6 +120,9 @@ importers:
       typescript:
         specifier: ^6.0.2
         version: 6.0.3
+      vite-plugin-monaco-editor:
+        specifier: ^1.1.0
+        version: 1.1.0(monaco-editor@0.55.1)
       wait-on:
         specifier: ^9.0.10
         version: 9.0.10
@@ -5695,6 +5698,11 @@ packages:
     peerDependenciesMeta:
       '@nuxt/kit':
         optional: true
+
+  vite-plugin-monaco-editor@1.1.0:
+    resolution: {integrity: sha512-IvtUqZotrRoVqwT0PBBDIZPNraya3BxN/bfcNfnxZ5rkJiGcNtO5eAOWWSgT7zullIAEqQwxMU83yL9J5k7gww==}
+    peerDependencies:
+      monaco-editor: '>=0.33.0'
 
   vite-plugin-pug@0.4.1:
     resolution: {integrity: sha512-2M4qNpIgUV+zA63w566jyp3LpaIuSBMfghOzue7PYnFTms48Ux78Bp/ccRSaGRbFW9BkTxdqgi5h7xvBN7YruQ==}
@@ -12110,6 +12118,10 @@ snapshots:
       '@nuxt/kit': 4.4.6(magicast@0.5.3)
     transitivePeerDependencies:
       - supports-color
+
+  vite-plugin-monaco-editor@1.1.0(monaco-editor@0.55.1):
+    dependencies:
+      monaco-editor: 0.55.1
 
   vite-plugin-pug@0.4.1:
     dependencies:

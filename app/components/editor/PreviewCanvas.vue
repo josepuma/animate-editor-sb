@@ -32,8 +32,8 @@ const cursorPos = ref<{ x: number; y: number; cx: number; cy: number } | null>(n
 
 function onMouseMove(e: MouseEvent) {
     const container = containerRef.value
+    if (!container || !isReady.value) return
     const canvas = renderer.canvas
-    if (!container) return
     const canvasRect    = canvas.getBoundingClientRect()
     const containerRect = container.getBoundingClientRect()
     const px = e.clientX - canvasRect.left

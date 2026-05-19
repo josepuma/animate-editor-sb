@@ -20,5 +20,8 @@ export default defineNuxtConfig({
     plugins: [
       tailwindcss(),
     ],
+    optimizeDeps: {
+      exclude: ['monaco-editor'],
+    },
   },
 })

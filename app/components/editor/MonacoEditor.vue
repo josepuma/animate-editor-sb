@@ -443,20 +443,19 @@ declare function hsl(h: number, s: number, l: number): Color
 async function initEditor() {
     if (!containerRef.value) return
 
-    // Configure Monaco workers before importing the editor.
-    // Vite exposes ?worker imports as constructors.
-    const [{ default: editorWorker }, { default: tsWorker }] = await Promise.all([
-        import('monaco-editor/esm/vs/editor/editor.worker?worker'),
-        import('monaco-editor/esm/vs/language/typescript/ts.worker?worker'),
+    // ?worker&inline bundles each worker into a self-contained Blob URL at build
+    // time — no server requests needed, works in Electron dev and production.
+    const [{ default: EditorWorker }, { default: TsWorker }] = await Promise.all([
+        import('monaco-editor/esm/vs/editor/editor.worker?worker&inline'),
+        import('monaco-editor/esm/vs/language/typescript/ts.worker?worker&inline'),
     ])
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ; (self as any).MonacoEnvironment = {
-            getWorker(_: unknown, label: string) {
-                if (label === 'typescript' || label === 'javascript') return new tsWorker()
-                return new editorWorker()
-            },
-        }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(self as any).MonacoEnvironment = {
+        getWorker(_: unknown, label: string) {
+            if (label === 'typescript' || label === 'javascript') return new TsWorker()
+            return new EditorWorker()
+        },
+    }
 
     const monaco = await import('monaco-editor')
 

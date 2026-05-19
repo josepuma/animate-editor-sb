@@ -423,6 +423,7 @@ function onKeyDown(e: KeyboardEvent) {
         if (e.code === 'KeyS') { e.preventDefault(); saveScript(); return }
         if (e.code === 'KeyO') { e.preventDefault(); openProject(); return }
         if (e.code === 'Enter') { e.preventDefault(); runScript(); return }
+        if (e.code === 'KeyC') { e.preventDefault(); copyCurrentMs(); return }
     }
 
     if (e.code === 'Space') {
