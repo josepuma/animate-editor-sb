@@ -73,6 +73,9 @@ public enum Theme {
             public static let detail: CGFloat = 40
         }
 
+        /// 26 — height of an inspector field, tight enough to stack many.
+        public static let field: CGFloat = 26
+
         /// 44 — height of a floating control cluster.
         ///
         /// Every pill in a row shares this so they line up: letting each one

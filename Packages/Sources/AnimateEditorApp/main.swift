@@ -1,4 +1,5 @@
 import AppKit
+import EditorShellFeature
 import SwiftUI
 
 /// Application entry point.
@@ -20,6 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.titlebarAppearsTransparent = true
         window.contentView = NSHostingView(rootView: AppRootView())
         window.center()
+        // The editor layout has a floor below which its panels have nothing
+        // left to show; enforce it rather than degrading past that point.
+        window.contentMinSize = EditorShellView<EmptyView>.minimumWindowSize
         window.setFrameAutosaveName("MainWindow")
         window.makeKeyAndOrderFront(nil)
 

@@ -8,6 +8,11 @@ import SwiftUI
 /// The canvas is supplied by the caller so this target stays independent of
 /// playback and rendering — it owns arrangement, not behaviour.
 public struct EditorShellView<Canvas: View>: View {
+    /// Smallest window size this layout supports.
+    public static var minimumWindowSize: CGSize {
+        CGSize(width: ShellLayout.minimumWidth, height: ShellLayout.minimumHeight)
+    }
+
     @State private var shell = EditorShellModel()
 
     private let title: String
@@ -67,6 +72,11 @@ public struct EditorShellView<Canvas: View>: View {
             )
         }
         .padding(Theme.Spacing.snug)
+        .frame(
+            minWidth: ShellLayout.minimumWidth,
+            minHeight: ShellLayout.minimumHeight,
+            alignment: .top,
+        )
         .background(Theme.Palette.stage)
         // Measured on the whole window rather than inside the row: a
         // `GeometryReader` around the row would report its parent's size
@@ -203,6 +213,7 @@ public struct EditorShellView<Canvas: View>: View {
 // ─── Layout constants ────────────────────────────────────────────────────────
 
 /// Fixed measurements the workspace needs to size itself.
+@MainActor
 private enum ShellLayout {
     /// Aspect ratio of the storyboard canvas.
     static let canvasAspect: CGFloat = 854.0 / 480.0
@@ -210,4 +221,27 @@ private enum ShellLayout {
     static let railWidth: CGFloat = Theme.Size.control + Theme.Spacing.tight * 2
     /// Height of the title bar: its text plus padding.
     static let toolbarHeight: CGFloat = Theme.Size.controlSmall + Theme.Spacing.tight * 2
+
+    /// Smallest window the layout works in.
+    ///
+    /// Below this the canvas shrinks past the point where its controls fit and
+    /// the panels have nothing left to show, so the window refuses to go there
+    /// rather than degrading into something broken.
+    static let minimumCanvasWidth: CGFloat = 480
+
+    static var minimumWidth: CGFloat {
+        railWidth
+            + SidePanelView.width
+            + InspectorView.width
+            + minimumCanvasWidth
+            + Theme.Spacing.snug * 5
+    }
+
+    static var minimumHeight: CGFloat {
+        toolbarHeight
+            + minimumCanvasWidth / canvasAspect
+            // Room for a ruler and two tracks.
+            + TrackTimelineView.height(trackCount: 2)
+            + Theme.Spacing.snug * 4
+    }
 }
