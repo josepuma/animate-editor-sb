@@ -49,6 +49,7 @@ struct InspectorView: View {
             .scrollBounceBehavior(.basedOnSize)
         }
         .frame(width: Self.width)
+        .frame(maxHeight: .infinity)
         .surface(.panel)
     }
 
@@ -65,7 +66,6 @@ struct InspectorView: View {
             IconButton(
                 systemImage: "ellipsis",
                 size: Theme.Size.controlTiny,
-                prominence: .surfaced,
                 help: "Script actions",
             ) {}
         }

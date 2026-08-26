@@ -33,6 +33,9 @@ public final class PlaybackModel {
     /// Image paths the storyboard references that are not on disk.
     public private(set) var missingImagePaths: Set<String> = []
 
+    /// Peaks for drawing the audio behind the timeline, once extracted.
+    public private(set) var waveform: Waveform?
+
     public var breaks: [BreakPeriod] { timing?.breaks ?? [] }
 
     /// Kiai sections, clamped to the track — the parser leaves a section that
@@ -100,6 +103,7 @@ public final class PlaybackModel {
             try audio.load(url: audioURL)
             hasAudio = true
             audioWarning = nil
+            loadWaveform(from: audioURL)
             // The track defines how long the map is. A storyboard's last
             // command can sit far past the music — a loop left open, or a fade
             // ending at some enormous timestamp — and using that would leave
@@ -111,6 +115,18 @@ public final class PlaybackModel {
         }
 
         startPlayback()
+    }
+
+    /// Reads the track's peaks off the main thread.
+    ///
+    /// Walking a several-minute file takes long enough to stall a frame, and
+    /// the waveform is decoration: playback starts without waiting for it.
+    private func loadWaveform(from url: URL) {
+        waveform = nil
+        Task.detached(priority: .utility) {
+            guard let extracted = try? WaveformExtractor.extract(from: url) else { return }
+            await MainActor.run { self.waveform = extracted }
+        }
     }
 
     public func contentFailed(_ reason: String) {

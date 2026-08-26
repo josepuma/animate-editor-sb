@@ -128,6 +128,9 @@ public enum Theme {
         public static let accent = Color(red: 0.55, green: 0.36, blue: 0.96)
         /// A softer accent for fills behind content.
         public static let accentMuted = Color(red: 0.55, green: 0.36, blue: 0.96).opacity(0.22)
+        /// The playhead, in its own colour so it never reads as just another
+        /// accented control.
+        public static let playhead = Color(red: 0.98, green: 0.55, blue: 0.22)
         /// Something needs attention but still works.
         public static let warning = Color(red: 0.98, green: 0.68, blue: 0.25)
         /// Something failed.

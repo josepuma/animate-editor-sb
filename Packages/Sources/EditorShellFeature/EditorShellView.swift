@@ -24,6 +24,7 @@ public struct EditorShellView<Canvas: View>: View {
     private let grid: BeatGrid?
     private let breaks: [BreakPeriod]
     private let kiaiSections: [KiaiSection]
+    private let waveformPeaks: [Float]
     private let seek: (Double) -> Void
     private let canvas: Canvas
 
@@ -37,6 +38,7 @@ public struct EditorShellView<Canvas: View>: View {
         grid: BeatGrid?,
         breaks: [BreakPeriod],
         kiaiSections: [KiaiSection],
+        waveformPeaks: [Float] = [],
         seek: @escaping (Double) -> Void,
         @ViewBuilder canvas: () -> Canvas,
     ) {
@@ -49,6 +51,7 @@ public struct EditorShellView<Canvas: View>: View {
         self.grid = grid
         self.breaks = breaks
         self.kiaiSections = kiaiSections
+        self.waveformPeaks = waveformPeaks
         self.seek = seek
         self.canvas = canvas()
     }
@@ -58,16 +61,13 @@ public struct EditorShellView<Canvas: View>: View {
             toolbar
             workspace
 
-            // The workspace is only as tall as the canvas, so leftover height
-            // collects here rather than stretching the panels.
-            Spacer(minLength: 0)
-
             TrackTimelineView(
                 shell: shell,
                 currentTime: currentTime,
                 duration: duration,
                 breaks: breaks,
                 kiaiSections: kiaiSections,
+                waveformPeaks: waveformPeaks,
                 seek: seek,
             )
         }
@@ -75,27 +75,8 @@ public struct EditorShellView<Canvas: View>: View {
         .frame(
             minWidth: ShellLayout.minimumWidth,
             minHeight: ShellLayout.minimumHeight,
-            alignment: .top,
         )
         .background(Theme.Palette.stage)
-        // Measured on the whole window rather than inside the row: a
-        // `GeometryReader` around the row would report its parent's size
-        // without publishing its own, which is what left the columns
-        // mismatched.
-        .onGeometryChange(for: CGSize.self) { proxy in
-            proxy.size
-        } action: { size in
-            availableWidth = size.width - Theme.Spacing.snug * 2
-            // What the workspace may use, once the toolbar, the timeline and
-            // the gaps between them have taken theirs.
-            availableHeight = max(
-                0,
-                size.height
-                    - ShellLayout.toolbarHeight
-                    - timelineHeight
-                    - Theme.Spacing.snug * 4,
-            )
-        }
         .surfaceGroup()
         .animation(Theme.Motion.standard, value: shell.isSidePanelVisible)
         .animation(Theme.Motion.standard, value: shell.isInspectorVisible)
@@ -109,33 +90,31 @@ public struct EditorShellView<Canvas: View>: View {
 
     // ─── Workspace ───────────────────────────────────────────────────────────
 
-    /// The rail, panels and canvas, every column exactly as tall as the canvas.
+    /// The rail, panels and canvas, filling the height between the toolbar and
+    /// the timeline.
     ///
-    /// Letting each column size itself never worked: a panel that wants height
-    /// stretches the row past the picture, and chasing those one by one only
-    /// moves the problem. Instead the canvas's height is computed from the
-    /// width left over, and every column is given that height outright.
+    /// The columns run full height and the canvas floats centred in what is
+    /// left between them. Sizing the panels to the canvas instead — the obvious
+    /// reading of "they should line up" — leaves a band of empty window beneath
+    /// them whenever the picture is shorter than the space available.
     private var workspace: some View {
-        HStack(alignment: .top, spacing: Theme.Spacing.snug) {
-            let height = canvasHeight(in: availableWidth)
-
+        HStack(spacing: Theme.Spacing.snug) {
             SidebarRail(
                 items: SidePanel.allCases,
                 selection: $shell.sidePanel,
                 icon: \.systemImage,
                 label: \.title,
             )
-            .frame(height: height, alignment: .top)
+            .frame(maxHeight: .infinity, alignment: .top)
             .surface(.bar, radius: Theme.Radius.control)
 
             if shell.isSidePanelVisible {
                 SidePanelView(shell: shell)
-                    .frame(height: height, alignment: .top)
                     .transition(.move(edge: .leading).combined(with: .opacity))
             }
 
             canvas
-                .frame(height: height)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if shell.isInspectorVisible {
                 InspectorView(
@@ -148,33 +127,10 @@ public struct EditorShellView<Canvas: View>: View {
                         bpm: grid?.primaryBPM,
                     ),
                 )
-                .frame(height: height, alignment: .top)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
-    }
-
-    /// Height the track timeline needs for its ruler and rows.
-    private var timelineHeight: CGFloat {
-        TrackTimelineView.height(trackCount: shell.tracks.count)
-    }
-
-    /// Width the workspace has to lay out in, tracked from the window.
-    @State private var availableWidth: CGFloat = 0
-    @State private var availableHeight: CGFloat = 0
-
-    /// How tall the canvas will be once the fixed-width columns take theirs.
-    private func canvasHeight(in totalWidth: CGFloat) -> CGFloat {
-        let columns = ShellLayout.railWidth
-            + (shell.isSidePanelVisible ? SidePanelView.width : 0)
-            + (shell.isInspectorVisible ? InspectorView.width : 0)
-        let gaps = Theme.Spacing.snug
-            * CGFloat(1 + (shell.isSidePanelVisible ? 1 : 0) + (shell.isInspectorVisible ? 1 : 0))
-
-        let canvasWidth = max(0, totalWidth - columns - gaps)
-        // Whichever runs out first decides: a wide, short window is limited by
-        // its height rather than by the picture's proportions.
-        return min(canvasWidth / ShellLayout.canvasAspect, availableHeight)
+        .frame(maxHeight: .infinity)
     }
 
     // ─── Toolbar ─────────────────────────────────────────────────────────────

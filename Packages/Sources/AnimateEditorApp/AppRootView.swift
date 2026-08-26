@@ -21,6 +21,9 @@ struct AppRootView: View {
                 }
             }
         }
+        // The canvas is black by osu!'s convention, so the chrome around it is
+        // dark by nature; a light appearance would frame it in pale panels.
+        .preferredColorScheme(.dark)
         .alert(
             "Could not load that storyboard",
             isPresented: Binding(

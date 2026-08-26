@@ -47,6 +47,7 @@ final class HarnessAppDelegate: NSObject, NSApplicationDelegate {
 }
 
 let application = NSApplication.shared
+application.appearance = NSAppearance(named: .darkAqua)
 let delegate = HarnessAppDelegate()
 application.delegate = delegate
 application.setActivationPolicy(.regular)

@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 let application = NSApplication.shared
+application.appearance = NSAppearance(named: .darkAqua)
 let delegate = AppDelegate()
 application.delegate = delegate
 application.setActivationPolicy(.regular)

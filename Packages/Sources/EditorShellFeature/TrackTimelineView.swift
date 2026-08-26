@@ -14,11 +14,16 @@ struct TrackTimelineView: View {
     let duration: Double
     let breaks: [BreakPeriod]
     let kiaiSections: [KiaiSection]
+    let waveformPeaks: [Float]
     let seek: (Double) -> Void
+
+    /// Rises from 0 to 1 when the waveform arrives, so the marks grow into
+    /// place instead of appearing mid-playback.
+    @State private var waveformGrowth: Double = 0
 
     /// Width of the track headers.
     private static let headerWidth: CGFloat = 132
-    private static let rulerHeight: CGFloat = 26
+    private static let rulerHeight: CGFloat = 32
     /// Tall enough for a clip pill to carry a thumbnail and a label.
     private static let trackHeight: CGFloat = 52
 
@@ -27,78 +32,260 @@ struct TrackTimelineView: View {
     static func height(trackCount: Int) -> CGFloat {
         rulerHeight
             + (trackHeight + Theme.Spacing.tight) * CGFloat(max(trackCount, 1))
-            + Theme.Spacing.snug * 2
+            + Theme.Spacing.compact * 2
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            ruler
-            tracks
+        GeometryReader { proxy in
+            // What the ruler and tracks span, once the panel's own padding, the
+            // header column and the gap beside it are taken out.
+            let contentWidth = proxy.size.width
+                - Theme.Spacing.compact * 2
+                - Self.headerWidth
+                - Theme.Spacing.snug
+
+            ZStack(alignment: .topLeading) {
+                VStack(spacing: 0) {
+                    HStack(spacing: Theme.Spacing.snug) {
+                        tools
+                        ruler
+                    }
+                    tracks
+                }
+
+                // Drawn over both, so the line runs unbroken from the ruler
+                // down through every track.
+                playhead(width: contentWidth, height: proxy.size.height)
+                    .offset(x: Self.headerWidth + Theme.Spacing.snug)
+                    .allowsHitTesting(false)
+            }
+            .padding(Theme.Spacing.compact)
         }
-        .padding(Theme.Spacing.snug)
+        .frame(height: Self.height(trackCount: shell.tracks.count))
         .surface(.panel)
+    }
+
+    // ─── Tools ───────────────────────────────────────────────────────────────
+
+    /// Editing tools, in the column above the track headers.
+    ///
+    /// None of these act yet — sprite editing does not exist — but they sit
+    /// where the real controls will, so the strip's proportions are settled.
+    private var tools: some View {
+        HStack(spacing: Theme.Spacing.tight) {
+            IconButton(
+                systemImage: "plus",
+                size: Theme.Size.controlTiny,
+                help: "Add script",
+            ) {}
+
+            IconButton(
+                systemImage: "scissors",
+                size: Theme.Size.controlTiny,
+                help: "Split at playhead",
+            ) {}
+
+            IconButton(
+                systemImage: "slider.horizontal.3",
+                size: Theme.Size.controlTiny,
+                help: "Track settings",
+            ) {}
+
+            IconButton(
+                systemImage: "trash",
+                size: Theme.Size.controlTiny,
+                help: "Delete track",
+            ) {}
+        }
+        .padding(.leading, Theme.Spacing.snug)
+        .frame(width: Self.headerWidth, alignment: .leading)
     }
 
     // ─── Ruler ───────────────────────────────────────────────────────────────
 
     private var ruler: some View {
-        HStack(spacing: 0) {
-            Color.clear.frame(width: Self.headerWidth)
-
-            GeometryReader { proxy in
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
                 Canvas { context, size in
-                    drawRuler(in: context, size: size)
+                    drawRuler(in: context, size: size, growth: waveformGrowth)
                 }
-                .contentShape(.rect)
-                .gesture(
-                    DragGesture(minimumDistance: 0)
-                        .onChanged { value in
-                            seek(value.location.x / proxy.size.width * duration)
-                        },
-                )
             }
+            .contentShape(.rect)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        seek(Self.time(atX: value.location.x, width: proxy.size.width, duration: duration))
+                    },
+            )
         }
         .frame(height: Self.rulerHeight)
+        .background {
+            RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                .fill(.white.opacity(0.03))
+        }
+        .onChange(of: waveformPeaks.count, initial: true) { _, count in
+            guard count > 0 else {
+                waveformGrowth = 0
+                return
+            }
+            withAnimation(.easeOut(duration: 0.6)) { waveformGrowth = 1 }
+        }
     }
 
-    private func drawRuler(in context: GraphicsContext, size: CGSize) {
+    /// Draws the ruler: time labels with the audio's dots between them.
+    ///
+    /// One pass rather than two, because the dots have to know where the labels
+    /// land in order to leave gaps for them — a dark plate behind each label
+    /// would read as a pill sitting on the ruler.
+    private func drawRuler(in context: GraphicsContext, size: CGSize, growth: Double) {
         let interval = Self.labelInterval(duration: duration, width: size.width)
         guard interval > 0, duration > 0 else { return }
 
-        let midline = size.height / 2
+        // Inset so the first label and the last mark sit inside the well's
+        // rounded corners instead of touching them.
+        let inset = Theme.Spacing.compact
+
+        // Place the labels first, keeping the span each one occupies.
+        var labels: [(text: GraphicsContext.ResolvedText, centre: CGFloat, span: ClosedRange<CGFloat>)] = []
         var time = 0.0
 
         while time <= duration {
-            let x = time / duration * size.width
-
-            let label = context.resolve(
+            let resolved = context.resolve(
                 Text(Self.timeLabel(time))
                     .font(Theme.Typography.micro)
                     .foregroundStyle(Theme.Palette.secondary),
             )
-            let labelSize = label.measure(in: size)
-            context.draw(label, at: CGPoint(x: x, y: midline), anchor: .center)
+            let width = resolved.measure(in: size).width
+            let ideal = time / duration * size.width
+            // Nudge the ends inwards: centred on its own timestamp, the first
+            // label would hang off the left edge and read as clipped.
+            let centre = min(
+                max(ideal, inset + width / 2),
+                size.width - inset - width / 2,
+            )
 
-            // Dots bridging the gap to the next label, which is what gives the
-            // ruler its rhythm without adding another row of ticks.
-            let gapStart = x + labelSize.width / 2 + Theme.Spacing.snug
-            let gapEnd = x + interval / duration * size.width
-                - labelSize.width / 2 - Theme.Spacing.snug
-
-            if gapEnd > gapStart {
-                let spacing: CGFloat = 6
-                var dotX = gapStart
-                while dotX < gapEnd {
-                    context.fill(
-                        Path(ellipseIn: CGRect(x: dotX, y: midline - 1, width: 2, height: 2)),
-                        with: .color(.white.opacity(0.18)),
-                    )
-                    dotX += spacing
-                }
-            }
-
+            labels.append((
+                resolved,
+                centre,
+                (centre - width / 2 - Theme.Spacing.snug)...(centre + width / 2 + Theme.Spacing.snug),
+            ))
             time += interval
         }
+
+        drawDots(in: context, size: size, avoiding: labels.map(\.span), growth: growth)
+
+        for label in labels {
+            context.draw(label.text, at: CGPoint(x: label.centre, y: size.height / 2), anchor: .center)
+        }
+    }
+
+    /// The waveform, drawn as a row of dots that grow into bars with the audio.
+    ///
+    /// Width stays constant while height follows the peak, so a quiet passage
+    /// reads as the ruler's own dotted rhythm and a loud one rises into a
+    /// waveform — the two are the same row of marks, not separate decorations.
+    private func drawDots(
+        in context: GraphicsContext,
+        size: CGSize,
+        avoiding occupied: [ClosedRange<CGFloat>],
+        growth: Double,
+    ) {
+        let midline = size.height / 2
+        let spacing: CGFloat = 9
+        let width: CGFloat = 2
+        /// Height of a mark with no audio behind it: a plain round dot.
+        let minimumHeight = width
+        let maximumHeight = size.height * 0.45
+        let inset = Theme.Spacing.compact
+        var x = inset
+
+        while x < size.width - inset {
+            defer { x += spacing }
+            guard !occupied.contains(where: { $0.contains(x) }) else { continue }
+
+            // Without a waveform every mark stays a dot, which is the ruler's
+            // appearance on its own.
+            let peak: Double
+            if waveformPeaks.isEmpty {
+                peak = 0
+            } else {
+                let index = min(
+                    waveformPeaks.count - 1,
+                    Int(Double(x / size.width) * Double(waveformPeaks.count)),
+                )
+                peak = Double(waveformPeaks[index])
+            }
+
+            // `growth` runs 0 to 1 as the waveform arrives, so the marks rise
+            // out of the plain dotted ruler rather than appearing at once.
+            let full = minimumHeight + CGFloat(peak) * (maximumHeight - minimumHeight)
+            let height = minimumHeight + (full - minimumHeight) * CGFloat(growth)
+
+            let shape = Path(
+                roundedRect: CGRect(
+                    x: x - width / 2,
+                    y: midline - height / 2,
+                    width: width,
+                    height: height,
+                ),
+                cornerRadius: width / 2,
+            )
+
+            // Played marks read bright, upcoming ones stay grey — the waveform
+            // doubles as the progress bar rather than needing one of its own.
+            // The transition is a short ramp rather than a hard edge, so marks
+            // brighten as the playhead reaches them instead of flicking on.
+            let playedRatio = Self.playedRatio(
+                atX: x,
+                width: size.width,
+                currentTime: currentTime,
+                duration: duration,
+            )
+
+            if playedRatio > 0 {
+                var glow = context
+                glow.addFilter(.blur(radius: 2))
+                glow.fill(shape, with: .color(.white.opacity(0.2 * playedRatio)))
+            }
+
+            context.fill(
+                shape,
+                with: .color(.white.opacity(0.18 + 0.6 * playedRatio)),
+            )
+        }
+    }
+
+    /// The time a point along the ruler corresponds to.
+    ///
+    /// Uses the same inset span the marks are drawn across, so a click lands on
+    /// the mark under the pointer.
+    static func time(atX x: CGFloat, width: CGFloat, duration: Double) -> Double {
+        let inset = Theme.Spacing.compact
+        let span = max(1, width - inset * 2)
+        let ratio = min(max(0, (x - inset) / span), 1)
+        return Double(ratio) * duration
+    }
+
+    /// How fully a mark at `x` counts as played, from 0 to 1.
+    ///
+    /// A ramp a few marks wide rather than a step: switching each mark at the
+    /// exact moment the playhead crosses it makes the row flicker.
+    static func playedRatio(
+        atX x: CGFloat,
+        width: CGFloat,
+        currentTime: Double,
+        duration: Double,
+    ) -> Double {
+        guard duration > 0, width > 0 else { return 0 }
+
+        let inset = Double(Theme.Spacing.compact)
+        let span = Swift.max(1, Double(width) - inset * 2)
+        let playheadX = inset + currentTime / duration * span
+        let fade: Double = 24
+
+        if Double(x) <= playheadX - fade { return 1 }
+        if Double(x) >= playheadX { return 0 }
+        return (playheadX - Double(x)) / fade
     }
 
     // ─── Tracks ──────────────────────────────────────────────────────────────
@@ -129,9 +316,6 @@ struct TrackTimelineView: View {
                     .offset(x: Self.headerWidth)
                     .allowsHitTesting(false)
 
-                playhead(width: trackWidth, height: proxy.size.height)
-                    .offset(x: Self.headerWidth)
-                    .allowsHitTesting(false)
             }
             .contentShape(.rect)
             .gesture(
@@ -179,15 +363,19 @@ struct TrackTimelineView: View {
     }
 
     private func playhead(width: CGFloat, height: CGFloat) -> some View {
-        let x = duration > 0 ? currentTime / duration * width : 0
+        // Mapped across the same inset span the ruler's marks use, so the line
+        // lands on the mark it is passing rather than beside it.
+        let inset = Theme.Spacing.compact
+        let span = max(1, width - inset * 2)
+        let x = duration > 0 ? inset + currentTime / duration * span : inset
 
         return ZStack(alignment: .top) {
             Rectangle()
-                .fill(Theme.Palette.accent)
-                .frame(width: 2)
-                .elevated(Theme.Elevation.low)
+                .fill(Theme.Palette.playhead)
+                .frame(width: 1.5)
+                .shadow(color: Theme.Palette.playhead.opacity(0.6), radius: 4)
 
-            PlayheadHandle()
+            PlayheadHandle(tint: Theme.Palette.playhead)
                 .offset(y: -Theme.Spacing.snug)
         }
         .frame(height: height, alignment: .top)

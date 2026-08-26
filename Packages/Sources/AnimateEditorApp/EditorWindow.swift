@@ -26,6 +26,7 @@ struct EditorWindow: View {
             grid: timeline.grid,
             breaks: playback.breaks,
             kiaiSections: playback.kiaiSections,
+            waveformPeaks: playback.waveform?.peaks ?? [],
             seek: { playback.seek(to: $0) },
             canvas: { view.canvas },
         )

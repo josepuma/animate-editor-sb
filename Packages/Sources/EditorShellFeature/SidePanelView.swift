@@ -22,6 +22,7 @@ struct SidePanelView: View {
         }
         .padding(Theme.Spacing.compact)
         .frame(width: Self.width, alignment: .top)
+        .frame(maxHeight: .infinity, alignment: .top)
         .surface(.panel)
     }
 
