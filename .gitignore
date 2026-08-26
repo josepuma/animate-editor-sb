@@ -1,32 +1,52 @@
-# Nuxt dev/build outputs
+# ─── Web app (Nuxt) ──────────────────────────────────────────────────────────
 .output
 .data
 .nuxt
 .nitro
 .cache
 dist
-CLAUDE.md
 
 # Node dependencies
 node_modules
-
-# Logs
-logs
-*.log
-
-# Misc
-.DS_Store
-.fleet
-.idea
-.atl
-
-# Local env files
-.env
-.env.*
-!.env.example
 
 # Electron build artifacts
 out/
 .vite/
 dist-electron/
 
+# ─── Swift / Xcode ───────────────────────────────────────────────────────────
+.build/
+.swiftpm/
+Package.resolved
+DerivedData/
+*.xcuserstate
+*.xcuserdatad/
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Xcode project user state (the projects themselves are versioned)
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# ─── Logs ────────────────────────────────────────────────────────────────────
+logs
+*.log
+
+# ─── Misc ────────────────────────────────────────────────────────────────────
+.DS_Store
+.fleet
+.idea
+.atl
+CLAUDE.md
+
+# ─── Local env files ─────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example

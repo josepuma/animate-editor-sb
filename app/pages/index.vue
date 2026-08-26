@@ -115,20 +115,22 @@ const IMAGE_EXTS = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp']
 
 async function scanImageDimensions() {
     const images = fs.listFiles(...IMAGE_EXTS)
-    const dims: Record<string, { width: number; height: number }> = {}
+    const uncached = images.filter(img => !imageDims.value[img.path])
+    if (uncached.length === 0) return
+    const updates: Record<string, { width: number; height: number }> = {}
     await Promise.all(
-        images.map(async (img) => {
+        uncached.map(async (img) => {
             try {
                 const handle = await fs.getFileHandle(img.path)
                 if (!handle) return
                 const file = await handle.getFile()
                 const bitmap = await createImageBitmap(file)
-                dims[img.path] = { width: bitmap.width, height: bitmap.height }
+                updates[img.path] = { width: bitmap.width, height: bitmap.height }
                 bitmap.close()
             } catch { /* skip unreadable images */ }
         }),
     )
-    imageDims.value = dims
+    imageDims.value = { ...imageDims.value, ...updates }
 }
 
 // ─── Beat divisor options ────────────────────────────────────────────────────
@@ -352,9 +354,10 @@ async function loadScript(path: string) {
     await runScript()
 }
 
-async function saveScript() {
+async function saveScript(latestCode?: string) {
     if (!hasProject.value || isSaving.value) return
     isSaving.value = true
+    if (latestCode !== undefined) code.value = latestCode
     const path = selectedScript.value ?? 'scripts/main.ts'
     const ok = await fs.writeTextFile(path, code.value)
     if (ok) {
@@ -366,6 +369,7 @@ async function saveScript() {
 
 async function runScript() {
     const scriptId = selectedScript.value ?? 'default'
+    await scanImageDimensions()
     await scripting.run(scriptId, code.value, scriptBpm.value, scriptOffset.value, JSON.parse(JSON.stringify(imageDims.value)))
     if (scripting.errors.value.length === 0) {
         activeMode.value = 'script'
@@ -781,7 +785,7 @@ div.flex.flex-col.h-screen.bg-background.text-foreground.overflow-hidden
 
                         //- Monaco editor
                         .flex-1.min-h-0
-                            EditorMonacoEditor(v-model="code" @save="saveScript")
+                            EditorMonacoEditor(v-model="code" @save="saveScript($event)")
 
                         //- Script errors
                         .shrink-0.border-t.border-border.max-h-40.overflow-auto(

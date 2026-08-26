@@ -1,0 +1,64 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:animate-editor-sb}/StoryboardKit",
+            "name": "Debug StoryboardPreview (StoryboardKit)",
+            "target": "StoryboardPreview",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug StoryboardPreview (StoryboardKit)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:animate-editor-sb}/StoryboardKit",
+            "name": "Release StoryboardPreview (StoryboardKit)",
+            "target": "StoryboardPreview",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release StoryboardPreview (StoryboardKit)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:animate-editor-sb}/Packages",
+            "name": "Debug AnimateEditor (Packages)",
+            "target": "AnimateEditor",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug AnimateEditor (Packages)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:animate-editor-sb}/Packages",
+            "name": "Release AnimateEditor (Packages)",
+            "target": "AnimateEditor",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release AnimateEditor (Packages)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:animate-editor-sb}/Packages",
+            "name": "Debug RendererHarness (Packages)",
+            "target": "RendererHarness",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug RendererHarness (Packages)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:animate-editor-sb}/Packages",
+            "name": "Release RendererHarness (Packages)",
+            "target": "RendererHarness",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release RendererHarness (Packages)"
+        }
+    ]
+}

@@ -1,0 +1,215 @@
+import Foundation
+import Testing
+
+@testable import StoryboardPersistence
+
+private struct TemporaryFolder: ~Copyable {
+    let url: URL
+
+    init(files: [String: String]) throws {
+        url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("loader-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+
+        for (relativePath, contents) in files {
+            let fileURL = url.appendingPathComponent(relativePath)
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true,
+            )
+            try contents.write(to: fileURL, atomically: true, encoding: .utf8)
+        }
+    }
+
+    deinit {
+        try? FileManager.default.removeItem(at: url)
+    }
+}
+
+private let osbWithTwoSprites = """
+[Events]
+Sprite,Foreground,Centre,"sb/a.png",320,240
+_F,0,0,1000,0,1
+Sprite,Background,Centre,"sb/b.png",320,240
+_F,0,0,1000,0,1
+"""
+
+private let osuWithOneSprite = """
+[General]
+AudioFilename: audio.mp3
+
+[Events]
+Sprite,Overlay,Centre,"sb/c.png",320,240
+_F,0,0,1000,0,1
+
+[TimingPoints]
+0,500,4,2,0,100,1,0
+"""
+
+@Suite("BeatmapStoryboardLoader")
+struct BeatmapStoryboardLoaderTests {
+    @Test("loads sprites from a .osb")
+    func loadsFromOsb() throws {
+        let temporary = try TemporaryFolder(files: [
+            "map.osb": osbWithTwoSprites,
+            "sb/a.png": "x",
+            "sb/b.png": "x",
+        ])
+        let result = try BeatmapStoryboardLoader.load(from: BeatmapFolder(url: temporary.url))
+
+        #expect(result.spriteCount == 2)
+        #expect(result.osbPath == "map.osb")
+        #expect(result.missingImagePaths.isEmpty)
+    }
+
+    @Test("loads sprites from a .osu when no .osb exists")
+    func loadsFromOsuOnly() throws {
+        let temporary = try TemporaryFolder(files: [
+            "easy.osu": osuWithOneSprite,
+            "sb/c.png": "x",
+        ])
+        let result = try BeatmapStoryboardLoader.load(from: BeatmapFolder(url: temporary.url))
+
+        #expect(result.spriteCount == 1)
+        #expect(result.osbPath == nil)
+        #expect(result.osuPaths == ["easy.osu"])
+    }
+
+    @Test("merges .osb and .osu events")
+    func mergesBothSources() throws {
+        let temporary = try TemporaryFolder(files: [
+            "map.osb": osbWithTwoSprites,
+            "easy.osu": osuWithOneSprite,
+            "sb/a.png": "x",
+            "sb/b.png": "x",
+            "sb/c.png": "x",
+        ])
+        let result = try BeatmapStoryboardLoader.load(from: BeatmapFolder(url: temporary.url))
+
+        #expect(result.spriteCount == 3)
+        #expect(result.osbPath == "map.osb")
+        #expect(result.osuPaths == ["easy.osu"])
+    }
+
+    @Test("sprite ids stay unique after merging")
+    func idsAreUniqueAfterMerge() throws {
+        let temporary = try TemporaryFolder(files: [
+            "map.osb": osbWithTwoSprites,
+            "easy.osu": osuWithOneSprite,
+            "sb/a.png": "x",
+            "sb/b.png": "x",
+            "sb/c.png": "x",
+        ])
+        let result = try BeatmapStoryboardLoader.load(from: BeatmapFolder(url: temporary.url))
+
+        // Each parser numbers sprites from zero, so ids must be reassigned.
+        #expect(Set(result.sprites.map(\.id)).count == result.spriteCount)
+    }
+
+    @Test("reports images the folder is missing")
+    func reportsMissingImages() throws {
+        let temporary = try TemporaryFolder(files: [
+            "map.osb": osbWithTwoSprites,
+            "sb/a.png": "x",
+            // sb/b.png is deliberately absent.
+        ])
+        let result = try BeatmapStoryboardLoader.load(from: BeatmapFolder(url: temporary.url))
+
+        #expect(result.spriteCount == 2)
+        #expect(result.missingImagePaths == ["sb/b.png"])
+    }
+
+    @Test("a .osu with no events does not count as a source")
+    func osuWithoutEventsIsIgnored() throws {
+        let temporary = try TemporaryFolder(files: [
+            "map.osb": osbWithTwoSprites,
+            "empty.osu": "[General]\nAudioFilename: a.mp3\n",
+            "sb/a.png": "x",
+            "sb/b.png": "x",
+        ])
+        let result = try BeatmapStoryboardLoader.load(from: BeatmapFolder(url: temporary.url))
+
+        #expect(result.osuPaths.isEmpty)
+    }
+
+    @Test("a folder with no storyboard throws")
+    func noStoryboardThrows() throws {
+        let temporary = try TemporaryFolder(files: ["audio.mp3": "x"])
+        let folder = try BeatmapFolder(url: temporary.url)
+
+        #expect(throws: BeatmapFolderError.self) {
+            try BeatmapStoryboardLoader.load(from: folder)
+        }
+    }
+
+    // ─── Audio and timing ────────────────────────────────────────────────────
+
+    @Test("resolves the audio file named by the .osu")
+    func resolvesAudioFromOsu() throws {
+        let temporary = try TemporaryFolder(files: [
+            "map.osb": osbWithTwoSprites,
+            "easy.osu": osuWithOneSprite,
+            "audio.mp3": "x",
+            "sb/a.png": "x",
+            "sb/b.png": "x",
+            "sb/c.png": "x",
+        ])
+        let result = try BeatmapStoryboardLoader.load(from: BeatmapFolder(url: temporary.url))
+
+        #expect(result.audioURL?.lastPathComponent == "audio.mp3")
+        #expect(result.timing?.audioFilename == "audio.mp3")
+    }
+
+    @Test("falls back to scanning for audio when the .osu names none")
+    func fallsBackToScanningForAudio() throws {
+        let temporary = try TemporaryFolder(files: [
+            "map.osb": osbWithTwoSprites,
+            "song.ogg": "x",
+            "sb/a.png": "x",
+            "sb/b.png": "x",
+        ])
+        let result = try BeatmapStoryboardLoader.load(from: BeatmapFolder(url: temporary.url))
+
+        #expect(result.audioURL?.lastPathComponent == "song.ogg")
+    }
+
+    @Test("a folder with no audio still loads")
+    func loadsWithoutAudio() throws {
+        let temporary = try TemporaryFolder(files: [
+            "map.osb": osbWithTwoSprites,
+            "sb/a.png": "x",
+            "sb/b.png": "x",
+        ])
+        let result = try BeatmapStoryboardLoader.load(from: BeatmapFolder(url: temporary.url))
+
+        #expect(result.audioURL == nil)
+        #expect(result.spriteCount == 2)
+    }
+
+    @Test("reads timing from the .osu")
+    func readsTiming() throws {
+        let temporary = try TemporaryFolder(files: [
+            "easy.osu": osuWithOneSprite,
+            "audio.mp3": "x",
+            "sb/c.png": "x",
+        ])
+        let result = try BeatmapStoryboardLoader.load(from: BeatmapFolder(url: temporary.url))
+
+        #expect(result.timing?.uninheritedPoints.first?.bpm == 120)
+    }
+
+    @Test("audio resolves regardless of filename case")
+    func audioResolvesCaseInsensitively() throws {
+        let temporary = try TemporaryFolder(files: [
+            "map.osb": osbWithTwoSprites,
+            // The .osu names "audio.mp3"; the file on disk is capitalised.
+            "easy.osu": "[General]\nAudioFilename: audio.mp3\n",
+            "Audio.MP3": "x",
+            "sb/a.png": "x",
+            "sb/b.png": "x",
+        ])
+        let result = try BeatmapStoryboardLoader.load(from: BeatmapFolder(url: temporary.url))
+
+        #expect(result.audioURL?.lastPathComponent == "Audio.MP3")
+    }
+}

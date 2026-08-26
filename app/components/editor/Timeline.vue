@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import type { BeatmapTimingData, KiaiSection, BreakPeriod } from '~/types'
 import type { BeatLine } from '~/composables/useTiming'
 
@@ -322,6 +322,10 @@ function onDetailPointerUp() {
     followPlayback.value = true
 }
 
+function onDetailPointerCancel() {
+    isDragging.value = false
+}
+
 function onDetailWheel(e: WheelEvent) {
     e.preventDefault()
 
@@ -377,6 +381,10 @@ function onOverviewPointerUp() {
     followPlayback.value = true
 }
 
+function onOverviewPointerCancel() {
+    isDraggingOverview.value = false
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
@@ -426,7 +434,11 @@ function computeLabelInterval(msPerPx: number): number {
 watch(
     () => props.isPlaying,
     (playing) => {
-        if (playing) followPlayback.value = true
+        if (playing) {
+            isDragging.value = false
+            isDraggingOverview.value = false
+            followPlayback.value = true
+        }
     },
 )
 
@@ -444,6 +456,11 @@ watch(
 
 let resizeObserver: ResizeObserver | null = null
 
+const onWindowPointerUp = () => {
+    isDragging.value = false
+    isDraggingOverview.value = false
+}
+
 onMounted(() => {
     setupCanvases()
     rafId = requestAnimationFrame(tick)
@@ -457,12 +474,14 @@ onMounted(() => {
         resizeObserver.observe(wrapperRef.value)
     }
 
+    window.addEventListener('pointerup', onWindowPointerUp)
     viewportCenterMs.value = props.currentMs
 })
 
 onUnmounted(() => {
     cancelAnimationFrame(rafId)
     resizeObserver?.disconnect()
+    window.removeEventListener('pointerup', onWindowPointerUp)
 })
 </script>
 
@@ -476,6 +495,7 @@ onUnmounted(() => {
                 @pointerdown="onOverviewPointerDown"
                 @pointermove="onOverviewPointerMove"
                 @pointerup="onOverviewPointerUp"
+                @pointercancel="onOverviewPointerCancel"
             />
         </div>
         <!-- Detail: zoomed beat view -->
@@ -486,6 +506,7 @@ onUnmounted(() => {
                 @pointerdown="onDetailPointerDown"
                 @pointermove="onDetailPointerMove"
                 @pointerup="onDetailPointerUp"
+                @pointercancel="onDetailPointerCancel"
                 @wheel.prevent="onDetailWheel"
             />
         </div>
