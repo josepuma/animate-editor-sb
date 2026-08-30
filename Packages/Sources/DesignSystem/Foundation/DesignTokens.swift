@@ -42,8 +42,14 @@ public enum Theme {
         public static let bar: CGFloat = 14
         /// 18 — cards and panels.
         public static let panel: CGFloat = 18
-        /// 24 — the largest surfaces, such as the canvas.
-        public static let stage: CGFloat = 24
+        /// 18 — the canvas and other full-bleed surfaces.
+        ///
+        /// Matches `.panel` on purpose: the canvas sits beside the panels
+        /// rather than on them, so a rounder corner on the one surface sharing
+        /// their edge reads as belonging to a different family. It keeps its
+        /// own name because it answers a different question — the two are equal
+        /// today, not the same thing.
+        public static let stage: CGFloat = 18
 
         /// The radius a shape needs to sit concentrically inside another.
         ///
@@ -237,11 +243,20 @@ public enum Theme {
 
     public enum Motion {
         /// Hover and focus feedback, fast enough to feel attached to the cursor.
-        public static let quick = Animation.easeOut(duration: 0.12)
+        public static let quick = Animation.easeOut(duration: quickDuration)
         /// Panels appearing and disappearing.
-        public static let standard = Animation.easeInOut(duration: 0.22)
+        public static let standard = Animation.easeInOut(duration: standardDuration)
         /// Layout changes large enough to need following by eye.
-        public static let deliberate = Animation.easeInOut(duration: 0.35)
+        public static let deliberate = Animation.easeInOut(duration: deliberateDuration)
+
+        // Durations, for the cases that have to wait one out rather than
+        // animate. An `Animation` does not report its own length, so anything
+        // scheduling around one needs the number itself — and reading it from
+        // here is what keeps the wait and the animation in step.
+
+        public static let quickDuration: TimeInterval = 0.12
+        public static let standardDuration: TimeInterval = 0.22
+        public static let deliberateDuration: TimeInterval = 0.35
     }
 
     // ─── Elevation ───────────────────────────────────────────────────────────

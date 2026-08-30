@@ -25,9 +25,13 @@ public struct EditorShellView<Canvas: View>: View {
     private let breaks: [BreakPeriod]
     private let kiaiSections: [KiaiSection]
     private let waveformPeaks: [Float]
+    private let isCanvasFullScreen: Bool
     private let seek: (Double) -> Void
     private let canvas: Canvas
 
+    /// - Parameter isCanvasFullScreen: hides everything but the canvas. Owned
+    ///   by whoever supplies the canvas, since the control that toggles it
+    ///   lives there.
     public init(
         title: String,
         sprites: [PreparedSprite],
@@ -39,6 +43,7 @@ public struct EditorShellView<Canvas: View>: View {
         breaks: [BreakPeriod],
         kiaiSections: [KiaiSection],
         waveformPeaks: [Float] = [],
+        isCanvasFullScreen: Bool = false,
         seek: @escaping (Double) -> Void,
         @ViewBuilder canvas: () -> Canvas,
     ) {
@@ -52,6 +57,7 @@ public struct EditorShellView<Canvas: View>: View {
         self.breaks = breaks
         self.kiaiSections = kiaiSections
         self.waveformPeaks = waveformPeaks
+        self.isCanvasFullScreen = isCanvasFullScreen
         self.seek = seek
         self.canvas = canvas()
     }
@@ -60,31 +66,41 @@ public struct EditorShellView<Canvas: View>: View {
         // The timeline is its own region rather than another row in the stack,
         // so it gets more air above it than the toolbar and workspace get
         // between them. At an even gap it reads as crowding the canvas.
+        // The canvas is built once and kept in one place in the tree, whatever
+        // is around it. Placing it in both branches of an `if` makes them two
+        // different views to SwiftUI: switching would tear down the Metal view
+        // and build another, restarting the audio from zero.
+        //
+        // The canvas carries its own floating controls, so transport, scrub and
+        // volume travel with it and playback stays reachable in full screen.
         VStack(spacing: Theme.Spacing.compact) {
-            VStack(spacing: Theme.Spacing.snug) {
-                toolbar
-                workspace
-            }
+            workspace
 
-            TrackTimelineView(
-                shell: shell,
-                currentTime: currentTime,
-                duration: duration,
-                breaks: breaks,
-                kiaiSections: kiaiSections,
-                waveformPeaks: waveformPeaks,
-                seek: seek,
-            )
+            if !isCanvasFullScreen {
+                TrackTimelineView(
+                    shell: shell,
+                    currentTime: currentTime,
+                    duration: duration,
+                    breaks: breaks,
+                    kiaiSections: kiaiSections,
+                    waveformPeaks: waveformPeaks,
+                    seek: seek,
+                )
+            }
         }
-        .padding(Theme.Spacing.snug)
+        // No inset in full screen: a margin around a picture meant to fill the
+        // window reads as the window failing to fill.
+        .padding(isCanvasFullScreen ? 0 : Theme.Spacing.snug)
         .frame(
             minWidth: ShellLayout.minimumWidth,
             minHeight: ShellLayout.minimumHeight,
         )
         .background(Theme.Palette.stage)
         .surfaceGroup()
+        .toolbar { windowToolbar }
         .animation(Theme.Motion.standard, value: shell.isSidePanelVisible)
         .animation(Theme.Motion.standard, value: shell.isInspectorVisible)
+        .animation(Theme.Motion.deliberate, value: isCanvasFullScreen)
         // Sprites arrive after the renderer finishes loading, so the count is
         // the signal that content is ready. `load` ignores repeat calls for the
         // same storyboard.
@@ -104,24 +120,26 @@ public struct EditorShellView<Canvas: View>: View {
     /// them whenever the picture is shorter than the space available.
     private var workspace: some View {
         HStack(spacing: Theme.Spacing.snug) {
-            SidebarRail(
-                items: SidePanel.allCases,
-                selection: $shell.sidePanel,
-                icon: \.systemImage,
-                label: \.title,
-            )
-            .frame(maxHeight: .infinity, alignment: .top)
-            .surface(.bar, radius: Theme.Radius.control)
+            if !isCanvasFullScreen {
+                SidebarRail(
+                    items: SidePanel.allCases,
+                    selection: $shell.sidePanel,
+                    icon: \.systemImage,
+                    label: \.title,
+                )
+                .frame(maxHeight: .infinity, alignment: .top)
+                .surface(.bar, radius: Theme.Radius.control)
 
-            if shell.isSidePanelVisible {
-                SidePanelView(shell: shell)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+                if shell.isSidePanelVisible {
+                    SidePanelView(shell: shell)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
             }
 
             canvas
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if shell.isInspectorVisible {
+            if shell.isInspectorVisible, !isCanvasFullScreen {
                 InspectorView(
                     shell: shell,
                     playback: InspectorView.PlaybackSnapshot(
@@ -140,34 +158,55 @@ public struct EditorShellView<Canvas: View>: View {
 
     // ─── Toolbar ─────────────────────────────────────────────────────────────
 
-    private var toolbar: some View {
-        HStack(spacing: Theme.Spacing.compact) {
-            Text(title)
-                .font(Theme.Typography.cardTitle)
-                .foregroundStyle(Theme.Palette.primary)
-                .lineLimit(1)
+    private var titleLabel: some View {
+        Text(title)
+            .font(Theme.Typography.cardTitle)
+            .foregroundStyle(Theme.Palette.primary)
+            .lineLimit(1)
+    }
 
-            Spacer()
-
-            IconButton(
-                systemImage: "sidebar.left",
-                size: Theme.Size.controlSmall,
-                help: shell.isSidePanelVisible ? "Hide side panel" : "Show side panel",
-            ) {
-                shell.isSidePanelVisible.toggle()
+    /// What the window's own title bar shows for this editor.
+    ///
+    /// In the title bar rather than in a strip of its own: the bar is already
+    /// there for the traffic lights and the back button, and a second row
+    /// underneath it spends a band of window repeating what that space could
+    /// have carried.
+    @ToolbarContentBuilder
+    private var windowToolbar: some ToolbarContent {
+        if #available(macOS 26.0, *) {
+            ToolbarItem(placement: .principal) {
+                titleLabel
             }
-
-            IconButton(
-                systemImage: "sidebar.right",
-                size: Theme.Size.controlSmall,
-                help: shell.isInspectorVisible ? "Hide inspector" : "Show inspector",
-            ) {
-                shell.isInspectorVisible.toggle()
+            // A toolbar item is a control by default and arrives wearing its
+            // own capsule. The title is a label, not something to press.
+            .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .principal) {
+                titleLabel
             }
         }
-        .padding(.horizontal, Theme.Spacing.compact)
-        .padding(.vertical, Theme.Spacing.tight)
-        .surface(.bar, radius: Theme.Radius.control)
+
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button {
+                shell.isSidePanelVisible.toggle()
+            } label: {
+                Label(
+                    shell.isSidePanelVisible ? "Hide side panel" : "Show side panel",
+                    systemImage: "sidebar.left",
+                )
+            }
+            .help(shell.isSidePanelVisible ? "Hide side panel" : "Show side panel")
+
+            Button {
+                shell.isInspectorVisible.toggle()
+            } label: {
+                Label(
+                    shell.isInspectorVisible ? "Hide inspector" : "Show inspector",
+                    systemImage: "sidebar.right",
+                )
+            }
+            .help(shell.isInspectorVisible ? "Hide inspector" : "Show inspector")
+        }
     }
 }
 
@@ -180,8 +219,11 @@ private enum ShellLayout {
     static let canvasAspect: CGFloat = 854.0 / 480.0
     /// Width of the icon rail: one control plus its surrounding padding.
     static let railWidth: CGFloat = Theme.Size.control + Theme.Spacing.tight * 2
-    /// Height of the title bar: its text plus padding.
-    static let toolbarHeight: CGFloat = Theme.Size.controlSmall + Theme.Spacing.tight * 2
+    /// Height the window's own title bar takes off the content.
+    ///
+    /// The bar belongs to the window rather than to this layout, but the space
+    /// it occupies still has to come out of the minimum.
+    static let titleBarHeight: CGFloat = 28
 
     /// Smallest window the layout works in.
     ///
@@ -199,7 +241,7 @@ private enum ShellLayout {
     }
 
     static var minimumHeight: CGFloat {
-        toolbarHeight
+        titleBarHeight
             + minimumCanvasWidth / canvasAspect
             // Room for a ruler and two tracks.
             + TrackTimelineView.height(trackCount: 2)

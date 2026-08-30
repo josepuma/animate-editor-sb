@@ -45,13 +45,20 @@ public enum SurfaceRole {
 
 public extension View {
     /// Applies the app's surface for `role`.
+    ///
+    /// - Parameter isEnabled: draws no surface at all when false. See
+    ///   `capsuleSurface` for why glass needs withdrawing rather than fading.
     @ViewBuilder
-    func surface(_ role: SurfaceRole = .panel, radius: CGFloat? = nil) -> some View {
+    func surface(
+        _ role: SurfaceRole = .panel,
+        radius: CGFloat? = nil,
+        isEnabled: Bool = true,
+    ) -> some View {
         let shape = RoundedRectangle(
             cornerRadius: radius ?? role.defaultRadius,
             style: .continuous,
         )
-        modifier(SurfaceStyle(role: role, shape: AnyShape(shape)))
+        modifier(SurfaceStyle(role: role, shape: AnyShape(shape), isEnabled: isEnabled))
     }
 
     /// Applies the app's surface in a fully rounded capsule.
@@ -59,8 +66,20 @@ public extension View {
     /// Floating control clusters are capsules rather than rounded rectangles:
     /// a radius smaller than half the height reads as a soft-cornered box, not
     /// as a pill.
-    func capsuleSurface(_ role: SurfaceRole = .floating) -> some View {
-        modifier(SurfaceStyle(role: role, shape: AnyShape(Capsule(style: .continuous))))
+    /// - Parameter isEnabled: draws no surface at all when false.
+    ///
+    ///   Needed because glass is composed by the system rather than drawn by
+    ///   SwiftUI: inside a `surfaceGroup` it survives an `.opacity(0)` on the
+    ///   view that carries it, leaving an empty pill floating with its contents
+    ///   invisible. Fading a glass surface means not asking for one.
+    func capsuleSurface(_ role: SurfaceRole = .floating, isEnabled: Bool = true) -> some View {
+        modifier(
+            SurfaceStyle(
+                role: role,
+                shape: AnyShape(Capsule(style: .continuous)),
+                isEnabled: isEnabled,
+            ),
+        )
     }
 
     /// Groups adjacent glass surfaces so they blend into each other rather than
@@ -80,28 +99,40 @@ public extension View {
 // ─── Application ─────────────────────────────────────────────────────────────
 
 /// Draws whichever material the role asks for, in the given shape.
-private struct SurfaceStyle: ViewModifier {
+struct SurfaceStyle: ViewModifier {
     let role: SurfaceRole
     let shape: AnyShape
+    let isEnabled: Bool
 
+    @ViewBuilder
     func body(content: Content) -> some View {
         if role.isGlass {
             glass(content)
         } else {
             content
-                .background(role.opaqueFill, in: shape)
+                .background(isEnabled ? role.opaqueFill : .clear, in: shape)
                 .overlay {
                     // `stroke` rather than `strokeBorder`: erasing the shape to
                     // `AnyShape` drops `InsettableShape`, which is what carries
                     // the inset variant. Clipping to the same shape keeps the
                     // half of the line that would sit outside it.
                     shape
-                        .stroke(role.borderColor, lineWidth: Theme.Size.hairline * 2)
+                        .stroke(
+                            isEnabled ? role.borderColor : .clear,
+                            lineWidth: Theme.Size.hairline * 2,
+                        )
                         .clipShape(shape)
                 }
         }
     }
 
+    /// Glass, withdrawn when disabled.
+    ///
+    /// The `if` is on the modifier chain rather than around two different
+    /// bodies of content: SwiftUI keeps the same content view either way, so
+    /// what changes is one modifier rather than the whole subtree — which is
+    /// what lets a surrounding animation carry the change instead of the view
+    /// being swapped out from under it.
     @ViewBuilder
     private func glass(_ content: Content) -> some View {
         if #available(macOS 26.0, *) {
@@ -109,19 +140,24 @@ private struct SurfaceStyle: ViewModifier {
                 // A dark veil under the glass is what keeps white glyphs
                 // readable over a bright frame; the material alone adapts to
                 // the backdrop and disappears against light artwork.
-                .background(Color.black.opacity(role.scrimOpacity), in: shape)
-                .glassEffect(role.liquidGlass, in: shape)
+                .background(
+                    Color.black.opacity(isEnabled ? role.scrimOpacity : 0),
+                    in: shape,
+                )
+                .glassEffect(isEnabled ? role.liquidGlass : .identity, in: shape)
         } else {
             content
-                .background(.ultraThinMaterial, in: shape)
-                .background(Color.black.opacity(role.scrimOpacity), in: shape)
+                .background(
+                    isEnabled ? AnyShapeStyle(.ultraThinMaterial) : AnyShapeStyle(.clear),
+                    in: shape,
+                )
+                .background(Color.black.opacity(isEnabled ? role.scrimOpacity : 0), in: shape)
                 .overlay {
-                    // `stroke` rather than `strokeBorder`: erasing the shape to
-                    // `AnyShape` drops `InsettableShape`, which is what carries
-                    // the inset variant. Clipping to the same shape keeps the
-                    // half of the line that would sit outside it.
                     shape
-                        .stroke(role.borderColor, lineWidth: Theme.Size.hairline * 2)
+                        .stroke(
+                            isEnabled ? role.borderColor : .clear,
+                            lineWidth: Theme.Size.hairline * 2,
+                        )
                         .clipShape(shape)
                 }
         }

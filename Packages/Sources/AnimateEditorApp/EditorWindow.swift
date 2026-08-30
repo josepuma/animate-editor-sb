@@ -9,6 +9,9 @@ import SwiftUI
 /// app's job, which is what keeps either one replaceable.
 struct EditorWindow: View {
     let source: any StoryboardSource
+    /// Reported outwards so the window's own title bar can hide with the rest
+    /// of the chrome; the toolbar belongs to the window, not to either feature.
+    @Binding var isCanvasFullScreen: Bool
 
     @State private var playback = PlaybackModel()
     @State private var timeline = TimelineModel()
@@ -27,8 +30,16 @@ struct EditorWindow: View {
             breaks: playback.breaks,
             kiaiSections: playback.kiaiSections,
             waveformPeaks: playback.waveform?.peaks ?? [],
+            isCanvasFullScreen: playback.isCanvasFullScreen,
             seek: { playback.seek(to: $0) },
             canvas: { view.canvas },
         )
+        .onChange(of: playback.isCanvasFullScreen, initial: true) { _, isFullScreen in
+            isCanvasFullScreen = isFullScreen
+        }
+        // Leaving has to actually let go: the audio engine and the sprites
+        // outlive this view otherwise, so the track keeps playing behind the
+        // browser and the next beatmap loads on top of the last one.
+        .onDisappear { playback.unload() }
     }
 }

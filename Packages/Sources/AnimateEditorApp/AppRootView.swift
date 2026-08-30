@@ -9,12 +9,19 @@ import SwiftUI
 struct AppRootView: View {
     @State private var openFolder: URL?
     @State private var loadFailure: String?
+    /// Mirrors the editor's full-screen state, so the window's own bar can go
+    /// with the rest of the chrome.
+    @State private var isCanvasFullScreen = false
 
     var body: some View {
         Group {
             if let source = playbackSource {
-                EditorWindow(source: source)
+                EditorWindow(source: source, isCanvasFullScreen: $isCanvasFullScreen)
                     .toolbar { closeButton }
+                    // The bar goes in full screen too: the picture is the whole
+                    // point, and a strip of chrome above it is the one thing
+                    // the mode exists to remove.
+                    .toolbar(isCanvasFullScreen ? .hidden : .visible, for: .windowToolbar)
             } else {
                 ProjectBrowserView { url in
                     openFolder = url

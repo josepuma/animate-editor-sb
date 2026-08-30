@@ -23,6 +23,13 @@ public final class PlaybackModel {
     public private(set) var status: Status = .loading
     public private(set) var hasAudio = false
 
+    /// The canvas fills the window, hiding the panels and timeline.
+    ///
+    /// Full screen for the storyboard rather than for the window: the point is
+    /// to see the picture without the editor around it, which a full-screen
+    /// window with all its panels still showing does not give.
+    public var isCanvasFullScreen = false
+
     /// Timing and metadata from the beatmap, when it has a readable `.osu`.
     public private(set) var timing: BeatmapTimingData?
 
@@ -72,11 +79,40 @@ public final class PlaybackModel {
             if case .failed = self { return true }
             return false
         }
+
+        public var isLoading: Bool { self == .loading }
     }
 
     public init() {}
 
     // ─── Content ─────────────────────────────────────────────────────────────
+
+    /// The storyboard has started loading.
+    public func contentLoading() {
+        status = .loading
+    }
+
+    /// Releases the storyboard and stops the audio.
+    ///
+    /// Leaving the editor has to actually let go: without this the track keeps
+    /// playing behind the project browser and the sprites stay resident, so
+    /// opening a second beatmap adds to the first rather than replacing it.
+    public func unload() {
+        audio.unload()
+        sprites = []
+        spriteCount = 0
+        drawnCount = 0
+        currentTime = 0
+        duration = 1
+        isPlaying = false
+        hasAudio = false
+        audioWarning = nil
+        waveform = nil
+        timing = nil
+        missingImagePaths = []
+        isCanvasFullScreen = false
+        status = .loading
+    }
 
     public func contentLoaded(
         name: String,
@@ -93,9 +129,11 @@ public final class PlaybackModel {
         self.missingImagePaths = missingImagePaths
         status = .ready(name)
 
+        // Paused on arrival: opening a beatmap is a step towards editing it,
+        // not a request to play it, and music starting on its own is startling
+        // rather than helpful.
         guard let audioURL else {
             hasAudio = false
-            startPlayback()
             return
         }
 
@@ -113,8 +151,6 @@ public final class PlaybackModel {
             hasAudio = false
             audioWarning = String(describing: error)
         }
-
-        startPlayback()
     }
 
     /// Reads the track's peaks off the main thread.

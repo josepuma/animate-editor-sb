@@ -93,6 +93,18 @@ public final class AudioPlayer {
         segmentStartFrame = 0
     }
 
+    /// Stops and releases the track.
+    ///
+    /// `stop` alone leaves the file open and the engine running, which is right
+    /// between seeks but wrong when the project closes: the decoder's buffers
+    /// stay resident for a track nobody is going to play.
+    public func unload() {
+        stop()
+        engine.stop()
+        file = nil
+        duration = 0
+    }
+
     /// Seeks to `milliseconds`, resuming if it was already playing.
     public func seek(toMilliseconds milliseconds: Double) {
         guard let file else { return }

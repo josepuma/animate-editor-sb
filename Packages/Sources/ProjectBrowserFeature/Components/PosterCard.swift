@@ -11,19 +11,25 @@ struct PosterCard<Artwork: View, Footer: View>: View {
     private let subtitle: String?
     private let badge: String?
     private let aspectRatio: CGFloat
+    private let isBusy: Bool
     private let artwork: Artwork
     private let footer: Footer
     private let action: () -> Void
 
     @State private var isHovered = false
 
-    /// - Parameter aspectRatio: width over height. Match the source artwork:
-    ///   a poster shape crops a wide image down to its middle.
+    /// - Parameters:
+    ///   - aspectRatio: width over height. Match the source artwork: a poster
+    ///     shape crops a wide image down to its middle.
+    ///   - isBusy: shows a spinner over the artwork and stops responding to
+    ///     taps. Work that takes a moment has to say so, or the card reads as
+    ///     a click that did nothing.
     init(
         title: String,
         subtitle: String? = nil,
         badge: String? = nil,
         aspectRatio: CGFloat = 16.0 / 9.0,
+        isBusy: Bool = false,
         action: @escaping () -> Void,
         @ViewBuilder artwork: () -> Artwork,
         @ViewBuilder footer: () -> Footer = { EmptyView() },
@@ -32,6 +38,7 @@ struct PosterCard<Artwork: View, Footer: View>: View {
         self.subtitle = subtitle
         self.badge = badge
         self.aspectRatio = aspectRatio
+        self.isBusy = isBusy
         self.action = action
         self.artwork = artwork()
         self.footer = footer()
@@ -46,10 +53,12 @@ struct PosterCard<Artwork: View, Footer: View>: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .disabled(isBusy)
         // A small lift rather than a large one: a grid of cards that jump on
         // hover reads as unstable.
-        .scaleEffect(isHovered ? 1.02 : 1)
+        .scaleEffect(isHovered && !isBusy ? 1.02 : 1)
         .animation(Theme.Motion.quick, value: isHovered)
+        .animation(Theme.Motion.quick, value: isBusy)
         .onHover { isHovered = $0 }
     }
 
@@ -106,6 +115,18 @@ struct PosterCard<Artwork: View, Footer: View>: View {
             }
             .padding(Theme.Spacing.compact)
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            if isBusy {
+                // Over a scrim rather than over the artwork: a spinner on a
+                // bright frame is as invisible as white text would be.
+                ZStack {
+                    Color.black.opacity(0.55)
+                    ProgressView()
+                        .controlSize(.large)
+                        .tint(.white)
+                }
+                .transition(.opacity)
+            }
         }
         .aspectRatio(aspectRatio, contentMode: .fit)
         .clipShape(shape)

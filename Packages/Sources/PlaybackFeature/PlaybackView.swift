@@ -46,28 +46,32 @@ public struct PlaybackCanvas: View {
     @Bindable var timeline: TimelineModel
     let source: any StoryboardSource
 
-    /// The pointer is over the picture, reported by the canvas itself.
-    @State private var isOverCanvas = false
-    /// The pointer is over the controls drawn on top of it.
+    /// The pointer is over the picture.
     ///
-    /// Tracked separately because the canvas reports the pointer leaving the
-    /// moment it crosses onto a button: without this the controls would vanish
-    /// exactly when they are being reached for.
-    @State private var isOverControls = false
-
-    private var isHovered: Bool { isOverCanvas || isOverControls }
+    /// Reported by an AppKit tracking area laid over the canvas rather than by
+    /// `onHover`: the Metal view handles its own mouse tracking and does not
+    /// pass those events up, so SwiftUI never sees them.
+    @State private var isHovered = false
 
     public var body: some View {
         GeometryReader { proxy in
             let size = fittedSize(in: proxy.size)
 
             ZStack {
-                MetalCanvasView(model: model, source: source) { isOverCanvas = $0 }
+                MetalCanvasView(model: model, source: source)
                     .frame(width: size.width, height: size.height)
                     .clipShape(
                         RoundedRectangle(cornerRadius: Theme.Radius.stage, style: .continuous),
                     )
                     .elevated(Theme.Elevation.high)
+
+                // Watches the whole picture, including the space the controls
+                // sit in. Tracking the Metal view itself reports the pointer
+                // leaving the moment it crosses onto a button, which would hide
+                // the controls exactly when they are being reached for.
+                HoverReporter { isHovered = $0 }
+                    .frame(width: size.width, height: size.height)
+                    .allowsHitTesting(false)
 
                 overlay(canvasSize: size)
                     .frame(width: size.width, height: size.height)
@@ -87,9 +91,7 @@ public struct PlaybackCanvas: View {
         VStack(spacing: 0) {
             HStack(alignment: .top) {
                 Spacer()
-                RenderStats(model: model)
-                    .opacity(isHovered ? 1 : 0)
-                    .animation(Theme.Motion.standard, value: isHovered)
+                RenderStats(model: model, isRevealed: isHovered)
             }
 
             Spacer()
@@ -101,9 +103,6 @@ public struct PlaybackCanvas: View {
                     CanvasVolumeControl(model: model, isRevealed: isHovered)
                 }
             }
-            // The controls keep themselves revealed while the pointer is on
-            // them; the canvas has already reported it left.
-            .onHover { isOverControls = $0 }
             // Extra room beneath the controls: sitting hard against the canvas
             // edge makes them look clipped rather than placed.
             .padding(.bottom, Theme.Spacing.snug)
@@ -118,7 +117,6 @@ public struct PlaybackCanvas: View {
             ? byWidth
             : CGSize(width: available.height * aspect, height: available.height)
     }
-
 }
 
 // ─── Render statistics ───────────────────────────────────────────────────────
@@ -127,6 +125,7 @@ public struct PlaybackCanvas: View {
 /// reading while working — so they appear only on hover.
 private struct RenderStats: View {
     let model: PlaybackModel
+    let isRevealed: Bool
 
     var body: some View {
         HStack(spacing: Theme.Spacing.snug) {
@@ -145,6 +144,6 @@ private struct RenderStats: View {
         .foregroundStyle(Theme.Palette.tertiary)
         .padding(.horizontal, Theme.Spacing.snug)
         .padding(.vertical, Theme.Spacing.hair)
-        .surface(.bar, radius: Theme.Radius.small)
+        .revealed(isRevealed, role: .bar, capsule: false, radius: Theme.Radius.small)
     }
 }

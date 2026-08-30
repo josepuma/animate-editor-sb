@@ -16,6 +16,13 @@ public final class ProjectBrowserModel {
     public private(set) var previews: [RecentProjectStore.Entry.ID: BeatmapPreview] = [:]
     public private(set) var errorMessage: String?
 
+    /// The folder currently being validated, if any.
+    ///
+    /// Drives the spinner on its card: checking a beatmap means parsing its
+    /// storyboard, which takes long enough on a real map that a card with no
+    /// feedback reads as a click that did nothing.
+    public private(set) var openingURL: URL?
+
     private let store: RecentProjectStore
     private let onOpen: (URL) -> Void
 
@@ -52,17 +59,34 @@ public final class ProjectBrowserModel {
     /// Validating here means a bad folder surfaces an error in the browser
     /// rather than a blank canvas in the player.
     public func open(url: URL) {
-        do {
-            let folder = try BeatmapFolder(url: url)
-            _ = try BeatmapStoryboardLoader.load(from: folder)
+        guard openingURL == nil else { return }
+        openingURL = url
 
-            store.remember(url: url)
-            refreshRecents()
-            errorMessage = nil
-            onOpen(url)
-        } catch {
-            errorMessage = String(describing: error)
+        Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                Result {
+                    let folder = try BeatmapFolder(url: url)
+                    _ = try BeatmapStoryboardLoader.load(from: folder)
+                }
+            }.value
+
+            openingURL = nil
+
+            switch result {
+            case .success:
+                store.remember(url: url)
+                refreshRecents()
+                errorMessage = nil
+                onOpen(url)
+            case let .failure(error):
+                errorMessage = String(describing: error)
+            }
         }
+    }
+
+    /// Whether `entry` is the folder being opened right now.
+    public func isOpening(_ url: URL) -> Bool {
+        openingURL == url
     }
 
     public func forget(_ entry: RecentProjectStore.Entry) {

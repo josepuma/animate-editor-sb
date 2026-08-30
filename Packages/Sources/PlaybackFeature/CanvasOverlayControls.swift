@@ -10,57 +10,33 @@ struct CanvasOverlayControls: View {
     @Bindable var model: PlaybackModel
     let isRevealed: Bool
 
-    /// Mirrors the window's own state.
-    ///
-    /// Read from `NSApp` on demand it would never refresh: SwiftUI has no way
-    /// to know the window changed, so the icon would keep pointing the wrong
-    /// way after a full-screen transition.
-    @State private var isFullScreen = false
-
     var body: some View {
         HStack(spacing: Theme.Spacing.compact) {
             aspectRatio
             transport
             tools
         }
-        .opacity(isRevealed ? 1 : 0)
-        .offset(y: isRevealed ? 0 : Theme.Spacing.snug)
-        .animation(Theme.Motion.standard, value: isRevealed)
-        // Hidden controls must not swallow clicks meant for the canvas.
-        .allowsHitTesting(isRevealed)
-        // Tracked from the window rather than set by the button, so the icon
-        // stays right when full screen is entered from the menu, the green
-        // button or a keyboard shortcut.
-        .onReceive(
-            NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification),
-        ) { _ in isFullScreen = true }
-        .onReceive(
-            NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification),
-        ) { _ in isFullScreen = false }
     }
 
     // ─── Groups ──────────────────────────────────────────────────────────────
 
+    /// The canvas ratio, as a readout.
+    ///
+    /// Plain text rather than a `Menu`: on macOS a menu is an AppKit control
+    /// underneath, and an AppKit view ignores the `.opacity` SwiftUI applies to
+    /// its container — it draws straight through, so the pill stayed visible
+    /// with the controls hidden and dragged the whole row into view with it.
+    ///
+    /// Nothing is lost: osu! storyboards are always 4:3 inside a 16:9 frame, so
+    /// there was never a second option to pick.
     private var aspectRatio: some View {
-        Menu {
-            Text("osu! storyboards are always 4:3 in a 16:9 frame")
-        } label: {
-            HStack(spacing: Theme.Spacing.tight) {
-                Text("16 : 9")
-                    .font(Theme.Typography.label)
-                    .foregroundStyle(Theme.Palette.secondary)
-
-                Image(systemName: "chevron.down")
-                    .font(Theme.Typography.micro)
-                    .foregroundStyle(Theme.Palette.tertiary)
-            }
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .padding(.horizontal, Theme.Spacing.compact)
-        .frame(height: Theme.Size.pill)
-        .capsuleSurface(.floating)
+        Text("16 : 9")
+            .font(Theme.Typography.label)
+            .foregroundStyle(Theme.Palette.secondary)
+            .padding(.horizontal, Theme.Spacing.compact)
+            .frame(height: Theme.Size.pill)
+            .revealed(isRevealed)
+            .help("osu! storyboards are always 4:3 in a 16:9 frame")
     }
 
     private var transport: some View {
@@ -114,7 +90,7 @@ struct CanvasOverlayControls: View {
         }
         .padding(.horizontal, Theme.Spacing.regular)
         .frame(height: Theme.Size.pill)
-        .capsuleSurface(.floating)
+        .revealed(isRevealed)
     }
 
     private var tools: some View {
@@ -132,27 +108,55 @@ struct CanvasOverlayControls: View {
             ) {}
 
             IconButton(
-                systemImage: isFullScreen
+                systemImage: model.isCanvasFullScreen
                     ? "arrow.down.right.and.arrow.up.left"
                     : "arrow.up.left.and.arrow.down.right",
                 size: Theme.Size.controlSmall,
-                help: isFullScreen ? "Exit full screen" : "Full screen",
+                help: model.isCanvasFullScreen ? "Exit full screen" : "Full screen",
                 action: toggleFullScreen,
             )
+            // Escape leaves, as it does everywhere else on the platform: a
+            // full-screen view whose only way out is a button that fades with
+            // the rest of the controls is a trap. Bound only while full
+            // screen, so Escape does not enter it from the editor.
+            .modifier(EscapeToExit(isActive: model.isCanvasFullScreen))
         }
         .padding(.horizontal, Theme.Spacing.regular)
         .frame(height: Theme.Size.pill)
-        .capsuleSurface(.floating)
+        .revealed(isRevealed)
     }
 
-    // ─── Full screen ─────────────────────────────────────────────────────────
+}
 
-    /// Full screen belongs to the window, not to playback, so it goes straight
-    /// to AppKit rather than through the model.
+extension CanvasOverlayControls {
+    /// Fills the screen, not just the window.
+    ///
+    /// Two things at once: the shell drops everything but the picture, and the
+    /// window takes over the display. Either alone falls short of what the
+    /// control promises — panels around a full-screen window, or a bare canvas
+    /// still boxed inside the desktop.
     private func toggleFullScreen() {
-        NSApp.keyWindow?.toggleFullScreen(nil)
-    }
+        model.isCanvasFullScreen.toggle()
 
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
+
+        if model.isCanvasFullScreen != window.styleMask.contains(.fullScreen) {
+            window.toggleFullScreen(nil)
+        }
+    }
+}
+
+/// Binds Escape only while there is something to escape from.
+private struct EscapeToExit: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        if isActive {
+            content.keyboardShortcut(.escape, modifiers: [])
+        } else {
+            content
+        }
+    }
 }
 
 // ─── Scrub bar ───────────────────────────────────────────────────────────────
@@ -239,10 +243,7 @@ struct CanvasVolumeControl: View {
         }
         .padding(.vertical, Theme.Spacing.compact)
         .padding(.horizontal, Theme.Spacing.snug)
-        .capsuleSurface(.floating)
-        .opacity(isRevealed ? 1 : 0)
-        .animation(Theme.Motion.standard, value: isRevealed)
-        .allowsHitTesting(isRevealed)
+        .revealed(isRevealed)
         .onAppear { volume = Double(model.volume) }
         // Only the mute jump is animated; a drag already follows the pointer,
         // and animating that would make the thumb lag behind it.

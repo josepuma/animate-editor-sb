@@ -27,6 +27,27 @@ struct TrackTimelineView: View {
     /// Tall enough for a clip pill to carry a thumbnail and a label.
     private static let trackHeight: CGFloat = 52
 
+    /// What the ruler and every track row span.
+    ///
+    /// One formula rather than one per caller: the header column and the gap
+    /// beside it come off the width in three places — the ruler, the rows, and
+    /// the playhead — and a version that forgets the gap puts the blocks eight
+    /// points out of step with the scale above them.
+    static func contentWidth(in totalWidth: CGFloat) -> CGFloat {
+        max(
+            0,
+            totalWidth
+                - Theme.Spacing.compact * 2
+                - headerWidth
+                - Theme.Spacing.snug,
+        )
+    }
+
+    /// Where that content starts, measured from the panel's own edge.
+    static var contentOrigin: CGFloat {
+        headerWidth + Theme.Spacing.snug
+    }
+
     /// Total height for `trackCount` rows, so the shell can size the workspace
     /// around a timeline that grows with its content.
     static func height(trackCount: Int) -> CGFloat {
@@ -39,12 +60,7 @@ struct TrackTimelineView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            // What the ruler and tracks span, once the panel's own padding, the
-            // header column and the gap beside it are taken out.
-            let contentWidth = proxy.size.width
-                - Theme.Spacing.compact * 2
-                - Self.headerWidth
-                - Theme.Spacing.snug
+            let contentWidth = Self.contentWidth(in: proxy.size.width)
 
             ZStack(alignment: .topLeading) {
                 // The ruler is a band of its own, so it needs more room beneath
@@ -62,7 +78,7 @@ struct TrackTimelineView: View {
                 // Drawn over both, so the line runs unbroken from the ruler
                 // down through every track.
                 playhead(width: contentWidth, height: proxy.size.height)
-                    .offset(x: Self.headerWidth + Theme.Spacing.snug)
+                    .offset(x: Self.contentOrigin)
                     .allowsHitTesting(false)
             }
             .padding(Theme.Spacing.compact)
@@ -298,7 +314,9 @@ struct TrackTimelineView: View {
 
     private var tracks: some View {
         GeometryReader { proxy in
-            let trackWidth = proxy.size.width - Self.headerWidth
+            // The stack sits inside the panel's padding already, so only the
+            // header and its gap come off here.
+            let trackWidth = max(0, proxy.size.width - Self.contentOrigin)
 
             ZStack(alignment: .topLeading) {
                 VStack(spacing: Theme.Spacing.tight) {
@@ -320,7 +338,7 @@ struct TrackTimelineView: View {
                 // over the stack rather than inside each one.
                 if Self.showsRegions {
                     regionOverlay(width: trackWidth)
-                        .offset(x: Self.headerWidth)
+                        .offset(x: Self.contentOrigin)
                         .allowsHitTesting(false)
                 }
             }

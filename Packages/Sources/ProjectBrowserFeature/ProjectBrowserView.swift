@@ -66,8 +66,28 @@ public struct ProjectBrowserView: View {
 
             Spacer(minLength: Theme.Spacing.regular)
 
-            Button("Open Folder", systemImage: "plus", action: chooseFolder)
-                .buttonStyle(.themed(.secondary, size: .small, capsule: true))
+            // A folder chosen from the panel has no card to spin, so the button
+            // carries the wait: the spinner takes the icon's place rather than
+            // appearing beside it, which would shift the label mid-click.
+            Button(action: chooseFolder) {
+                Label {
+                    Text("Open Folder")
+                } icon: {
+                    ZStack {
+                        // Both drawn into one slot so the label does not shift
+                        // when they swap: a spinner is wider than a `plus`.
+                        Image(systemName: "plus")
+                            .opacity(model.openingURL != nil ? 0 : 1)
+
+                        if model.openingURL != nil {
+                            ProgressView()
+                                .controlSize(.mini)
+                        }
+                    }
+                }
+            }
+            .buttonStyle(.themed(.secondary, size: .small, capsule: true))
+            .disabled(model.openingURL != nil)
         }
     }
 
@@ -88,6 +108,7 @@ public struct ProjectBrowserView: View {
                     BeatmapCard(
                         entry: entry,
                         preview: model.previews[entry.id],
+                        isOpening: model.isOpening(entry.url),
                         open: { model.open(url: entry.url) },
                         forget: { model.forget(entry) },
                     )
@@ -160,6 +181,7 @@ public struct ProjectBrowserView: View {
 private struct BeatmapCard: View {
     let entry: RecentProjectStore.Entry
     let preview: BeatmapPreview?
+    let isOpening: Bool
     let open: () -> Void
     let forget: () -> Void
 
@@ -168,6 +190,7 @@ private struct BeatmapCard: View {
             title: preview?.title ?? entry.name,
             subtitle: subtitle,
             badge: badge,
+            isBusy: isOpening,
             action: open,
         ) {
             PosterArtwork(url: preview?.backgroundURL)
