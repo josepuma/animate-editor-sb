@@ -7,6 +7,8 @@ import UniformTypeIdentifiers
 public struct ProjectBrowserView: View {
     @State private var model: ProjectBrowserModel
     @State private var isTargetedForDrop = false
+    /// Width the grid has to divide, measured rather than assumed.
+    @State private var availableWidth: CGFloat = 0
 
     /// Card width. The grid fits as many as the window allows.
     private static let cardWidth: CGFloat = 260
@@ -26,6 +28,16 @@ public struct ProjectBrowserView: View {
                 } else {
                     recentsGrid
                 }
+            }
+            // Measured inside the padding, so the width is what the grid
+            // actually divides. `onGeometryChange` rather than a
+            // `GeometryReader`: a reader reports its parent's size and
+            // publishes none of its own, leaving the stack unable to size
+            // itself.
+            .onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.width
+            } action: { width in
+                availableWidth = width
             }
             .padding(Theme.Spacing.section)
         }
@@ -91,17 +103,31 @@ public struct ProjectBrowserView: View {
         }
     }
 
+    /// Equal columns rather than `.adaptive`.
+    ///
+    /// An adaptive grid with an open maximum hands the leftover width out
+    /// unevenly, so one card ends up wider than its neighbour — and since the
+    /// height follows the aspect ratio, taller too, which is what leaves the
+    /// footers on different lines.
+    private var columns: [GridItem] {
+        // The gaps come out of the width before it is divided: ignoring them
+        // fits one column too many at certain widths, and every card then
+        // lands under the minimum it was sized for.
+        let gap = Theme.Spacing.regular
+        let count = max(1, Int((availableWidth + gap) / (Self.cardWidth + gap)))
+
+        return Array(
+            repeating: GridItem(.flexible(), spacing: gap),
+            count: count,
+        )
+    }
+
     private var recentsGrid: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.compact) {
             SectionHeader("Recent")
 
             LazyVGrid(
-                columns: [
-                    GridItem(
-                        .adaptive(minimum: Self.cardWidth, maximum: .infinity),
-                        spacing: Theme.Spacing.regular,
-                    ),
-                ],
+                columns: columns,
                 spacing: Theme.Spacing.loose,
             ) {
                 ForEach(model.recents) { entry in

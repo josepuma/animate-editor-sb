@@ -25,6 +25,7 @@ struct EditorWindow: View {
             missingImagePaths: playback.missingImagePaths,
             currentTime: playback.currentTime,
             duration: playback.duration,
+            timelineRange: playback.timelineRange,
             drawnCount: playback.drawnCount,
             grid: timeline.grid,
             breaks: playback.breaks,

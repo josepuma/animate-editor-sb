@@ -11,7 +11,13 @@ import SwiftUI
 struct TrackTimelineView: View {
     let shell: EditorShellModel
     let currentTime: Double
-    let duration: Double
+    /// The span the timeline covers.
+    ///
+    /// Not just the track's length: a storyboard can open before the first note
+    /// and run past the last, and an editor has to show both.
+    let timelineRange: ClosedRange<Double>
+    /// Where the audio itself ends, for the row that draws it.
+    let audioDuration: Double
     let breaks: [BreakPeriod]
     let kiaiSections: [KiaiSection]
     let waveformPeaks: [Float]
@@ -22,25 +28,22 @@ struct TrackTimelineView: View {
     @State private var waveformGrowth: Double = 0
 
     /// Width of the track headers.
-    private static let headerWidth: CGFloat = 132
+    static let headerWidth: CGFloat = 132
     private static let rulerHeight: CGFloat = 32
     /// Tall enough for a clip pill to carry a thumbnail and a label.
     private static let trackHeight: CGFloat = 52
+    /// Shorter than a clip row: the waveform is reference, not content to edit.
+    private static let audioTrackHeight: CGFloat = 40
 
-    /// What the ruler and every track row span.
+    /// What the ruler and every track row span, given the width inside the
+    /// panel's padding.
     ///
     /// One formula rather than one per caller: the header column and the gap
-    /// beside it come off the width in three places — the ruler, the rows, and
+    /// beside it come off the width in three places — the ruler, the rows and
     /// the playhead — and a version that forgets the gap puts the blocks eight
     /// points out of step with the scale above them.
-    static func contentWidth(in totalWidth: CGFloat) -> CGFloat {
-        max(
-            0,
-            totalWidth
-                - Theme.Spacing.compact * 2
-                - headerWidth
-                - Theme.Spacing.snug,
-        )
+    static func contentWidth(in innerWidth: CGFloat) -> CGFloat {
+        max(0, innerWidth - contentOrigin)
     }
 
     /// Where that content starts, measured from the panel's own edge.
@@ -54,11 +57,16 @@ struct TrackTimelineView: View {
         rulerHeight
             // The gap the stack puts between the ruler and the first row.
             + Theme.Spacing.snug
+            // The audio row, which is always there once a track is loaded.
+            + audioTrackHeight + Theme.Spacing.tight
             + (trackHeight + Theme.Spacing.tight) * CGFloat(max(trackCount, 1))
             + Theme.Spacing.compact * 2
     }
 
     var body: some View {
+        // The padding goes outside the reader, so `proxy.size` is the space the
+        // content actually gets. Inside, the reader still reports the full
+        // panel and every span measured from it runs long.
         GeometryReader { proxy in
             let contentWidth = Self.contentWidth(in: proxy.size.width)
 
@@ -70,9 +78,21 @@ struct TrackTimelineView: View {
                 VStack(spacing: Theme.Spacing.snug) {
                     HStack(spacing: Theme.Spacing.snug) {
                         tools
-                        ruler
+                        // Given the same span the rows get, rather than left to
+                        // take what the stack has over: the two are compared by
+                        // eye every time the playhead crosses a block, so they
+                        // cannot be allowed to disagree by a rounding.
+                        ruler(width: contentWidth)
+                            .frame(width: contentWidth, height: Self.rulerHeight)
+                            .background {
+                                RoundedRectangle(
+                                    cornerRadius: Theme.Radius.control,
+                                    style: .continuous,
+                                )
+                                .fill(Theme.Fill.subtle)
+                            }
                     }
-                    tracks
+                    tracks(contentWidth: contentWidth)
                 }
 
                 // Drawn over both, so the line runs unbroken from the ruler
@@ -81,8 +101,8 @@ struct TrackTimelineView: View {
                     .offset(x: Self.contentOrigin)
                     .allowsHitTesting(false)
             }
-            .padding(Theme.Spacing.compact)
         }
+        .padding(Theme.Spacing.compact)
         .frame(height: Self.height(trackCount: shell.tracks.count))
         .surface(.panel)
     }
@@ -125,26 +145,21 @@ struct TrackTimelineView: View {
 
     // ─── Ruler ───────────────────────────────────────────────────────────────
 
-    private var ruler: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Canvas { context, size in
-                    drawRuler(in: context, size: size, growth: waveformGrowth)
-                }
+    private func ruler(width: CGFloat) -> some View {
+        let scale = TimelineScale(range: timelineRange, width: width)
+
+        return ZStack(alignment: .leading) {
+            Canvas { context, size in
+                drawRuler(in: context, size: size, growth: waveformGrowth)
             }
-            .contentShape(.rect)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        seek(Self.time(atX: value.location.x, width: proxy.size.width, duration: duration))
-                    },
-            )
         }
-        .frame(height: Self.rulerHeight)
-        .background {
-            RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                .fill(Theme.Fill.subtle)
-        }
+        .contentShape(.rect)
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    seek(scale.time(atX: value.location.x))
+                },
+        )
         .onChange(of: waveformPeaks.count, initial: true) { _, count in
             guard count > 0 else {
                 waveformGrowth = 0
@@ -160,8 +175,9 @@ struct TrackTimelineView: View {
     /// land in order to leave gaps for them — a dark plate behind each label
     /// would read as a pill sitting on the ruler.
     private func drawRuler(in context: GraphicsContext, size: CGSize, growth: Double) {
-        let interval = Self.labelInterval(duration: duration, width: size.width)
-        guard interval > 0, duration > 0 else { return }
+        let scale = TimelineScale(range: timelineRange, width: size.width)
+        let interval = Self.labelInterval(duration: scale.duration, width: size.width)
+        guard interval > 0 else { return }
 
         // Inset so the first label and the last mark sit inside the well's
         // rounded corners instead of touching them.
@@ -169,16 +185,26 @@ struct TrackTimelineView: View {
 
         // Place the labels first, keeping the span each one occupies.
         var labels: [(text: GraphicsContext.ResolvedText, centre: CGFloat, span: ClosedRange<CGFloat>)] = []
-        var time = 0.0
+        // Ticks land on round times rather than on the span's own start, so a
+        // storyboard opening at -420ms still shows 0:00 where the track begins.
+        var time = (timelineRange.lowerBound / interval).rounded(.down) * interval
 
-        while time <= duration {
+        while time <= timelineRange.upperBound {
+            defer { time += interval }
+
+            // A tick rounded down from a negative start can land before the
+            // span begins. Nudging it inwards instead of dropping it stacks it
+            // on top of the next one, which is what turns the left end of the
+            // ruler into overlapping text.
+            guard time >= timelineRange.lowerBound else { continue }
+
             let resolved = context.resolve(
                 Text(Self.timeLabel(time))
                     .font(Theme.Typography.micro)
                     .foregroundStyle(Theme.Palette.secondary),
             )
             let width = resolved.measure(in: size).width
-            let ideal = time / duration * size.width
+            let ideal = scale.x(of: time)
             // Nudge the ends inwards: centred on its own timestamp, the first
             // label would hang off the left edge and read as clipped.
             let centre = min(
@@ -186,12 +212,16 @@ struct TrackTimelineView: View {
                 size.width - inset - width / 2,
             )
 
+            // A label pushed onto its neighbour is worse than one left out.
+            if let previous = labels.last, centre - previous.centre < width {
+                continue
+            }
+
             labels.append((
                 resolved,
                 centre,
                 (centre - width / 2 - Theme.Spacing.snug)...(centre + width / 2 + Theme.Spacing.snug),
             ))
-            time += interval
         }
 
         drawDots(in: context, size: size, avoiding: labels.map(\.span), growth: growth)
@@ -261,7 +291,7 @@ struct TrackTimelineView: View {
                 atX: x,
                 width: size.width,
                 currentTime: currentTime,
-                duration: duration,
+                range: timelineRange,
             )
 
             if playedRatio > 0 {
@@ -281,11 +311,14 @@ struct TrackTimelineView: View {
     ///
     /// Uses the same inset span the marks are drawn across, so a click lands on
     /// the mark under the pointer.
-    static func time(atX x: CGFloat, width: CGFloat, duration: Double) -> Double {
-        let inset = Theme.Spacing.compact
-        let span = max(1, width - inset * 2)
-        let ratio = min(max(0, (x - inset) / span), 1)
-        return Double(ratio) * duration
+    /// The time a point along the ruler corresponds to.
+    ///
+    /// Measured against the full width, the same span the clips and the
+    /// playhead use: clicking has to leave the playhead where the pointer was,
+    /// and the ruler's inset is a detail of how its dots are drawn rather than
+    /// a different timeline.
+    static func time(atX x: CGFloat, width: CGFloat, range: ClosedRange<Double>) -> Double {
+        TimelineScale(range: range, width: width).time(atX: x)
     }
 
     /// How fully a mark at `x` counts as played, from 0 to 1.
@@ -296,13 +329,13 @@ struct TrackTimelineView: View {
         atX x: CGFloat,
         width: CGFloat,
         currentTime: Double,
-        duration: Double,
+        range: ClosedRange<Double>,
     ) -> Double {
-        guard duration > 0, width > 0 else { return 0 }
+        // A span with no length has nothing to be part-way through, so nothing
+        // counts as played rather than everything before an arbitrary point.
+        guard width > 0, range.upperBound > range.lowerBound else { return 0 }
 
-        let inset = Double(Theme.Spacing.compact)
-        let span = Swift.max(1, Double(width) - inset * 2)
-        let playheadX = inset + currentTime / duration * span
+        let playheadX = Double(TimelineScale(range: range, width: width).x(of: currentTime))
         let fade: Double = 24
 
         if Double(x) <= playheadX - fade { return 1 }
@@ -312,49 +345,58 @@ struct TrackTimelineView: View {
 
     // ─── Tracks ──────────────────────────────────────────────────────────────
 
-    private var tracks: some View {
-        GeometryReader { proxy in
-            // The stack sits inside the panel's padding already, so only the
-            // header and its gap come off here.
-            let trackWidth = max(0, proxy.size.width - Self.contentOrigin)
-
-            ZStack(alignment: .topLeading) {
-                VStack(spacing: Theme.Spacing.tight) {
-                    ForEach(shell.tracks) { track in
-                        TrackRowView(
-                            track: track,
-                            isSelected: track.id == shell.selectedTrackID,
-                            duration: duration,
-                            headerWidth: Self.headerWidth,
-                            height: Self.trackHeight,
-                            select: { shell.selectedTrackID = track.id },
-                            toggleVisibility: { shell.toggleVisibility(of: track.id) },
-                            toggleLock: { shell.toggleLock(of: track.id) },
-                        )
-                    }
+    /// - Parameter contentWidth: measured once by the body. A reader of its own
+    ///   here would report whatever the enclosing stack offered rather than the
+    ///   span the ruler was drawn against, and the two would disagree.
+    private func tracks(contentWidth: CGFloat) -> some View {
+        ZStack(alignment: .topLeading) {
+            VStack(spacing: Theme.Spacing.tight) {
+                ForEach(shell.tracks) { track in
+                    TrackRowView(
+                        track: track,
+                        isSelected: track.id == shell.selectedTrackID,
+                        scale: TimelineScale(range: timelineRange, width: contentWidth),
+                        headerWidth: Self.headerWidth,
+                        height: Self.trackHeight,
+                        select: { shell.selectedTrackID = track.id },
+                        toggleVisibility: { shell.toggleVisibility(of: track.id) },
+                        toggleLock: { shell.toggleLock(of: track.id) },
+                    )
                 }
 
-                // Regions and the playhead span every row, so they are drawn
-                // over the stack rather than inside each one.
-                if Self.showsRegions {
-                    regionOverlay(width: trackWidth)
-                        .offset(x: Self.contentOrigin)
-                        .allowsHitTesting(false)
+                // The soundtrack sits under the layers it is written against,
+                // the way a video editor puts audio beneath its video tracks.
+                if !waveformPeaks.isEmpty {
+                    AudioTrackRow(
+                        peaks: waveformPeaks,
+                        scale: TimelineScale(range: timelineRange, width: contentWidth),
+                        audioDuration: audioDuration,
+                        headerWidth: Self.headerWidth,
+                        height: Self.audioTrackHeight,
+                    )
                 }
             }
-            .contentShape(.rect)
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        let x = value.location.x - Self.headerWidth
-                        guard x >= 0 else { return }
-                        seek(x / trackWidth * duration)
-                    },
-            )
+
+            // Regions and the playhead span every row, so they are drawn
+            // over the stack rather than inside each one.
+            if Self.showsRegions {
+                regionOverlay(width: contentWidth)
+                    .offset(x: Self.contentOrigin)
+                    .allowsHitTesting(false)
+            }
         }
+        .contentShape(.rect)
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    let scale = TimelineScale(range: timelineRange, width: contentWidth)
+                    seek(scale.time(atX: value.location.x - Self.contentOrigin))
+                },
+        )
         .frame(
             height: (Self.trackHeight + Theme.Spacing.tight)
-                * CGFloat(max(shell.tracks.count, 1)),
+                * CGFloat(max(shell.tracks.count, 1))
+                + (waveformPeaks.isEmpty ? 0 : Self.audioTrackHeight + Theme.Spacing.tight),
         )
     }
 
@@ -369,8 +411,8 @@ struct TrackTimelineView: View {
 
     private func regionOverlay(width: CGFloat) -> some View {
         Canvas { context, size in
-            guard duration > 0 else { return }
-            let x = { (time: Double) in time / duration * size.width }
+            let scale = TimelineScale(range: timelineRange, width: size.width)
+            let x = { (time: Double) in scale.x(of: time) }
 
             for period in breaks {
                 let start = x(period.startTime)
@@ -397,11 +439,12 @@ struct TrackTimelineView: View {
     }
 
     private func playhead(width: CGFloat, height: CGFloat) -> some View {
-        // Mapped across the same inset span the ruler's marks use, so the line
-        // lands on the mark it is passing rather than beside it.
-        let inset = Theme.Spacing.compact
-        let span = max(1, width - inset * 2)
-        let x = duration > 0 ? inset + currentTime / duration * span : inset
+        // Mapped across the full span the clips are drawn on, not the ruler's
+        // inset one. The inset exists to keep the ruler's dots off its rounded
+        // corners; borrowing it here would park the playhead twelve points to
+        // the right of the block it is entering, and the block is what the eye
+        // checks it against.
+        let x = TimelineScale(range: timelineRange, width: width).x(of: currentTime)
 
         return ZStack(alignment: .top) {
             Rectangle()
@@ -433,8 +476,13 @@ struct TrackTimelineView: View {
     }
 
     static func timeLabel(_ milliseconds: Double) -> String {
-        let totalSeconds = Int(milliseconds / 1000)
-        return String(format: "%d:%02d", totalSeconds / 60, totalSeconds % 60)
+        // Signed, because a storyboard can open before the track does and
+        // `-0:03` is the honest label for what sits there. Formatting the
+        // magnitude and prefixing it keeps `-0:03` from printing as `0:-3`.
+        let totalSeconds = Int(abs(milliseconds) / 1000)
+        let sign = milliseconds < 0 ? "-" : ""
+
+        return String(format: "%@%d:%02d", sign, totalSeconds / 60, totalSeconds % 60)
     }
 }
 
@@ -443,7 +491,13 @@ struct TrackTimelineView: View {
 private struct TrackRowView: View {
     let track: ScriptTrack
     let isSelected: Bool
-    let duration: Double
+    /// The span and width the clips are drawn against, measured once by the
+    /// timeline.
+    ///
+    /// Passed in rather than measured here: `content` is a `GeometryReader`,
+    /// which takes whatever it is offered, and the stack around it has no width
+    /// of its own — so the row would grow past the panel's right edge.
+    let scale: TimelineScale
     let headerWidth: CGFloat
     let height: CGFloat
     let select: () -> Void
@@ -456,6 +510,9 @@ private struct TrackRowView: View {
         HStack(spacing: Theme.Spacing.snug) {
             header
             content
+                .frame(width: scale.width)
+
+            Spacer(minLength: 0)
         }
         .frame(height: height)
         .background {
@@ -522,17 +579,13 @@ private struct TrackRowView: View {
     /// Spans drawn as clip pills rather than filled rectangles, so a track
     /// reads as content sitting on the timeline.
     private var content: some View {
-        GeometryReader { proxy in
-            let width = proxy.size.width
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
+                .fill(Theme.Fill.subtle)
 
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
-                    .fill(Theme.Fill.subtle)
-
-                ForEach(Array(track.activeRanges.enumerated()), id: \.offset) { index, range in
-                    let start = duration > 0 ? range.lowerBound / duration * width : 0
-                    let end = duration > 0 ? range.upperBound / duration * width : 0
-                    let spanWidth = max(3, end - start)
+            ForEach(Array(track.activeRanges.enumerated()), id: \.offset) { index, range in
+                let start = scale.x(of: range.lowerBound)
+                let spanWidth = max(3, scale.x(of: range.upperBound) - start)
 
                     TrackBlock(
                         tint: track.layer.tint,
@@ -549,12 +602,11 @@ private struct TrackRowView: View {
                             BlockBadge(systemImage: "photo")
                         }
                     }
-                    .frame(width: spanWidth)
-                    .offset(x: start)
-                }
+                .frame(width: spanWidth)
+                .offset(x: start)
             }
-            .padding(.vertical, Theme.Spacing.tight)
         }
+        .padding(.vertical, Theme.Spacing.tight)
     }
 
     /// A span covers thousands of sprites, so it is named by what it is rather

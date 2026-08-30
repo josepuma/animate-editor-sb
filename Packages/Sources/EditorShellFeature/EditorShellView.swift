@@ -20,6 +20,7 @@ public struct EditorShellView<Canvas: View>: View {
     private let missingImagePaths: Set<String>
     private let currentTime: Double
     private let duration: Double
+    private let timelineRange: ClosedRange<Double>
     private let drawnCount: Int
     private let grid: BeatGrid?
     private let breaks: [BreakPeriod]
@@ -38,6 +39,9 @@ public struct EditorShellView<Canvas: View>: View {
         missingImagePaths: Set<String>,
         currentTime: Double,
         duration: Double,
+        /// The span the timeline covers, which can start before the track and
+        /// end after it. Defaults to the track's own length.
+        timelineRange: ClosedRange<Double>? = nil,
         drawnCount: Int,
         grid: BeatGrid?,
         breaks: [BreakPeriod],
@@ -52,6 +56,7 @@ public struct EditorShellView<Canvas: View>: View {
         self.missingImagePaths = missingImagePaths
         self.currentTime = currentTime
         self.duration = duration
+        self.timelineRange = timelineRange ?? 0...max(duration, 1)
         self.drawnCount = drawnCount
         self.grid = grid
         self.breaks = breaks
@@ -80,7 +85,8 @@ public struct EditorShellView<Canvas: View>: View {
                 TrackTimelineView(
                     shell: shell,
                     currentTime: currentTime,
-                    duration: duration,
+                    timelineRange: timelineRange,
+                    audioDuration: duration,
                     breaks: breaks,
                     kiaiSections: kiaiSections,
                     waveformPeaks: waveformPeaks,

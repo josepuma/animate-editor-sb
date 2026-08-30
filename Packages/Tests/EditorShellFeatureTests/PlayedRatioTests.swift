@@ -11,7 +11,7 @@ struct PlayedRatioTests {
             atX: x,
             width: 1000,
             currentTime: currentTime,
-            duration: 1000,
+            range: 0...1000,
         )
     }
 
@@ -64,41 +64,43 @@ struct PlayedRatioTests {
     func degenerateInputs() {
         #expect(
             TrackTimelineView.playedRatio(
-                atX: 100, width: 1000, currentTime: 500, duration: 0,
+                atX: 100, width: 1000, currentTime: 500, range: 0...0,
             ) == 0,
         )
         #expect(
             TrackTimelineView.playedRatio(
-                atX: 100, width: 0, currentTime: 500, duration: 1000,
+                atX: 100, width: 0, currentTime: 500, range: 0...1000,
             ) == 0,
         )
     }
 }
 
-/// Clicking the ruler must land on the mark under the pointer, which means
-/// seeking has to use the same inset span the marks are drawn across.
+/// Clicking the ruler leaves the playhead where the pointer was, which means
+/// seeking maps against the full width — the same span the playhead and the
+/// clips use.
 @Suite("Ruler seek mapping")
 struct RulerSeekTests {
     private func time(atX x: Double) -> Double {
-        TrackTimelineView.time(atX: x, width: 1000, duration: 60_000)
+        TrackTimelineView.time(atX: x, width: 1000, range: 0...60_000)
     }
 
-    @Test("the left edge maps to the start")
-    func leftEdgeIsStart() {
+    @Test("the edges map to the ends of the span")
+    func edgesAreEnds() {
         #expect(time(atX: 0) == 0)
-        // Anything inside the inset is still the start.
-        #expect(time(atX: 5) == 0)
+        #expect(time(atX: 1000) == 60_000)
     }
 
-    @Test("the right edge maps to the end")
-    func rightEdgeIsEnd() {
-        #expect(time(atX: 1000) == 60_000)
-        #expect(time(atX: 995) == 60_000)
+    @Test("a position maps to its own share of the span")
+    func positionIsProportional() {
+        // No inset in the mapping: x=5 of 1000 is 0.5% in, not the start.
+        // Rounding it back to zero would leave the playhead where the pointer
+        // was not.
+        #expect(abs(time(atX: 5) - 300) < 1)
+        #expect(abs(time(atX: 995) - 59_700) < 1)
     }
 
     @Test("the middle maps to half way")
     func middleIsHalfway() {
-        // 500 is the centre of the view and of the inset span alike.
         #expect(abs(time(atX: 500) - 30_000) < 1)
     }
 
@@ -118,6 +120,6 @@ struct RulerSeekTests {
 
     @Test("a zero-width ruler reports the start")
     func zeroWidthIsStart() {
-        #expect(TrackTimelineView.time(atX: 10, width: 0, duration: 60_000) == 0)
+        #expect(TrackTimelineView.time(atX: 10, width: 0, range: 0...60_000) == 0)
     }
 }

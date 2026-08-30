@@ -14,8 +14,18 @@ public final class PlaybackModel {
     /// Current position, in milliseconds.
     public private(set) var currentTime: Double = 0
     public private(set) var isPlaying = false
-    /// Length of the storyboard, or of the audio when it runs longer.
+    /// How far playback runs: the length of the track.
     public private(set) var duration: Double = 1
+
+    /// The span the timeline shows.
+    ///
+    /// A storyboard is not bound to its track: an intro can begin before the
+    /// first note and a fade can end after the last. Those are exactly the
+    /// commands an editor has to show — clipping the ruler to the audio would
+    /// hide the sprites whose timing is hardest to get right. So the timeline
+    /// covers whichever span is wider while the transport still stops with the
+    /// music.
+    public private(set) var timelineRange: ClosedRange<Double> = 0...1
 
     public private(set) var spriteCount = 0
     public private(set) var drawnCount = 0
@@ -104,6 +114,7 @@ public final class PlaybackModel {
         drawnCount = 0
         currentTime = 0
         duration = 1
+        timelineRange = 0...1
         isPlaying = false
         hasAudio = false
         audioWarning = nil
@@ -124,7 +135,9 @@ public final class PlaybackModel {
     ) {
         self.sprites = sprites
         spriteCount = sprites.count
+        let storyboardRange = StoryboardResolver.timeRange(of: sprites)
         self.duration = max(duration, 1)
+        timelineRange = storyboardRange
         self.timing = timing
         self.missingImagePaths = missingImagePaths
         status = .ready(name)
@@ -147,6 +160,12 @@ public final class PlaybackModel {
             // ending at some enormous timestamp — and using that would leave
             // the transport running long after the audio stopped.
             self.duration = audio.duration
+            // The ruler spans both, so commands that start before the track or
+            // run past its end stay visible and editable.
+            timelineRange = min(storyboardRange.lowerBound, 0)...max(
+                storyboardRange.upperBound,
+                audio.duration,
+            )
         } catch {
             hasAudio = false
             audioWarning = String(describing: error)
@@ -159,7 +178,11 @@ public final class PlaybackModel {
     /// the waveform is decoration: playback starts without waiting for it.
     private func loadWaveform(from url: URL) {
         waveform = nil
-        Task.detached(priority: .utility) {
+        // `.userInitiated` rather than `.utility`: the waveform is decoration,
+        // but it is decoration someone is waiting to see — at the lowest
+        // priority it can sit behind other work long enough to arrive well
+        // after the storyboard is already playing.
+        Task.detached(priority: .userInitiated) {
             guard let extracted = try? WaveformExtractor.extract(from: url) else { return }
             await MainActor.run { self.waveform = extracted }
         }
@@ -179,9 +202,12 @@ public final class PlaybackModel {
     public func startPlayback() {
         guard !status.isFailure else { return }
         // Restart from the top when resuming at the end.
-        if currentTime >= duration - 1 { seek(to: 0) }
+        if currentTime >= duration - 1 { seek(to: timelineRange.lowerBound) }
 
-        if hasAudio { audio.play() }
+        // Not while the clock is still before zero: `advance` starts the track
+        // as the playhead reaches it, so the lead-in plays in silence as it
+        // should.
+        if hasAudio, currentTime >= 0 { audio.play() }
         isPlaying = true
     }
 
@@ -191,10 +217,17 @@ public final class PlaybackModel {
     }
 
     /// Clamps and applies a seek, in milliseconds.
+    ///
+    /// The clock follows the timeline, which can open before the track does —
+    /// a storyboard is allowed to start early, and scrubbing has to reach the
+    /// sprites that live there. The audio is clamped separately, since it has
+    /// nothing to play before its own first sample.
     public func seek(to time: Double) {
-        let clamped = min(max(0, time), duration)
-        currentTime = clamped
-        if hasAudio { audio.seek(toMilliseconds: clamped) }
+        currentTime = min(max(timelineRange.lowerBound, time), timelineRange.upperBound)
+
+        if hasAudio {
+            audio.seek(toMilliseconds: min(max(0, currentTime), duration))
+        }
     }
 
     public func setVolume(_ volume: Float) {
@@ -212,6 +245,15 @@ public final class PlaybackModel {
     public func advance(by delta: Double) {
         guard isPlaying else { return }
 
+        // Before zero the track has nothing to play, so the clock runs on the
+        // frame delta and the audio waits. A storyboard that opens early is
+        // meant to be watched through that lead-in rather than skipped past it.
+        if currentTime < 0 {
+            currentTime = min(currentTime + delta, 0)
+            if currentTime >= 0, hasAudio { audio.play() }
+            return
+        }
+
         if hasAudio {
             currentTime = min(audio.currentTime, duration)
             if audio.hasReachedEnd { loopToStart() }
@@ -222,8 +264,8 @@ public final class PlaybackModel {
     }
 
     private func loopToStart() {
-        seek(to: 0)
-        if hasAudio, isPlaying { audio.play() }
+        seek(to: timelineRange.lowerBound)
+        if hasAudio, isPlaying, currentTime >= 0 { audio.play() }
     }
 
     public func frameRendered(drawnCount: Int, framesPerSecond: Double) {

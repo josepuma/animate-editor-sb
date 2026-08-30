@@ -66,9 +66,11 @@ struct PosterCard<Artwork: View, Footer: View>: View {
         let shape = RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous)
 
         return ZStack(alignment: .bottomLeading) {
-            artwork
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .clipped()
+            // A neutral base the ratio is applied to, with the artwork behind
+            // it. As a child of the stack the image brings its own size, and
+            // the ratio then shapes whatever that turned out to be — so a card
+            // ends up sized by its picture rather than the picture by its card.
+            Color.clear
 
             // Dark at the foot, clear at the head, so the artwork stays visible
             // while the caption keeps its contrast.
@@ -128,7 +130,15 @@ struct PosterCard<Artwork: View, Footer: View>: View {
                 .transition(.opacity)
             }
         }
+        // Shape first, then fill it: the ratio settles the card's size against
+        // a neutral base, and the artwork is laid into whatever that turned out
+        // to be. `background` rather than a stack child, so an image cannot
+        // impose its own dimensions on the card holding it.
         .aspectRatio(aspectRatio, contentMode: .fit)
+        .background {
+            artwork
+                .clipped()
+        }
         .clipShape(shape)
         .overlay {
             shape.strokeBorder(
@@ -160,7 +170,7 @@ struct PosterArtwork: View {
                 case let .success(image):
                     image
                         .resizable()
-                        .aspectRatio(contentMode: .fill)
+                        .scaledToFill()
                 default:
                     placeholder
                 }

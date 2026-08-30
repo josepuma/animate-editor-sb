@@ -252,6 +252,29 @@ public enum StoryboardResolver {
         return last - percentile > 60_000 ? percentile : last
     }
 
+    /// The span the storyboard occupies, from its first command to its last.
+    ///
+    /// A storyboard is not bound to the track it plays over: an intro can
+    /// begin before the first note and a fade can end after the last. An editor
+    /// has to show both — those are exactly the commands whose timing is hard
+    /// to get right and easiest to get wrong.
+    ///
+    /// The end is the last command, not ``duration(of:)``.
+    ///
+    /// That function drops a trailing outlier so playback does not run on in
+    /// silence, which is right for a transport and wrong for a ruler: the
+    /// timeline draws every sprite it has, and a span that stops short of the
+    /// last one leaves its clip hanging past the end of the track it sits on.
+    public static func timeRange(of prepared: [PreparedSprite]) -> ClosedRange<Double> {
+        let starts = prepared.map(\.activeStart).filter(\.isFinite)
+        let ends = prepared.map(\.activeEnd).filter(\.isFinite)
+
+        let start = Swift.min(starts.min() ?? 0, 0)
+        let end = ends.max() ?? 1
+
+        return start...Swift.max(end, start + 1)
+    }
+
     // ─── Per-sprite resolution ───────────────────────────────────────────────
 
     /// Ported from `resolveSprite`.

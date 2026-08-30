@@ -69,6 +69,19 @@ public enum WaveformExtractor {
 
         var bucketEnergy: Double = 0
         var framesInBucket = 0
+        /// How far into the current bucket the samples taken have reached.
+        var framesSinceBucketStart = 0
+        /// Where in the next chunk the stride resumes.
+        var frameOffset = 0
+
+        /// Samples taken per bucket.
+        ///
+        /// Enough that a bucket's RMS is stable — the average of a few hundred
+        /// samples spread through a bucket lands within a rounding of the
+        /// average of all of them — and few enough that a long track is read in
+        /// a fraction of the time.
+        let samplesPerBucket = 128
+        let frameStride = max(1, framesPerBucket / samplesPerBucket)
 
         while file.framePosition < totalFrames {
             do {
@@ -82,7 +95,16 @@ public enum WaveformExtractor {
             let frameCount = Int(buffer.frameLength)
             let channelCount = Int(format.channelCount)
 
-            for frame in 0..<frameCount {
+            // Every nth frame rather than all of them.
+            //
+            // A bucket covers thousands of frames, and its RMS is the same to
+            // several decimals whether it averages all of them or a few hundred
+            // spread evenly through — while reading all of them means a loop
+            // over every sample in the file, which is what left the waveform
+            // arriving long after the storyboard did.
+            var frame = frameOffset
+
+            while frame < frameCount {
                 // Mix channels down to one magnitude: a stereo waveform drawn
                 // as a single trace is what the eye reads as "the music".
                 var magnitude: Float = 0
@@ -96,13 +118,21 @@ public enum WaveformExtractor {
                 // the waveform reads as a fence.
                 bucketEnergy += Double(magnitude * magnitude)
                 framesInBucket += 1
+                framesSinceBucketStart += frameStride
 
-                if framesInBucket >= framesPerBucket {
+                if framesSinceBucketStart >= framesPerBucket {
                     peaks.append(Float((bucketEnergy / Double(framesInBucket)).squareRoot()))
                     bucketEnergy = 0
                     framesInBucket = 0
+                    framesSinceBucketStart = 0
                 }
+
+                frame += frameStride
             }
+
+            // Carry the remainder into the next chunk, so the stride does not
+            // reset at every buffer boundary and drift the buckets.
+            frameOffset = frame - frameCount
         }
 
         if framesInBucket > 0 {

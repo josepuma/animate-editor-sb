@@ -328,4 +328,57 @@ struct ResolverDurationTests {
         let sprites = prepared(lines.joined(separator: "\n"))
         #expect(StoryboardResolver.duration(of: sprites) == 40000)
     }
+
+    // ─── Time range ──────────────────────────────────────────────────────────
+
+    @Test("the range opens where the storyboard does, even before zero")
+    func rangeStartsEarly() {
+        let sprites = prepared("""
+        [Events]
+        Sprite,Foreground,Centre,"a.png",320,240
+        _F,0,-2000,1000,0,1
+        """)
+
+        #expect(StoryboardResolver.timeRange(of: sprites).lowerBound == -2000)
+    }
+
+    @Test("the range never opens after zero")
+    func rangeNeverStartsLate() {
+        // A storyboard beginning at 0:30 still has a timeline that starts at
+        // the track's own beginning; the empty stretch before it is where the
+        // music plays.
+        let sprites = prepared("""
+        [Events]
+        Sprite,Foreground,Centre,"a.png",320,240
+        _F,0,30000,31000,0,1
+        """)
+
+        #expect(StoryboardResolver.timeRange(of: sprites).lowerBound == 0)
+    }
+
+    @Test("the range reaches the last command, unlike the duration")
+    func rangeKeepsTheOutlier() {
+        // `duration` drops a trailing outlier so playback does not run on in
+        // silence. The timeline cannot: it draws that sprite's clip, and a span
+        // ending before the clip leaves it hanging past the end of the track.
+        var lines = ["[Events]"]
+        for index in 0..<40 {
+            lines.append(#"Sprite,Foreground,Centre,"s\#(index).png",320,240"#)
+            lines.append("_F,0,0,10000,0,1")
+        }
+        lines.append(#"Sprite,Foreground,Centre,"runaway.png",320,240"#)
+        lines.append("_F,0,0,43200000,0,1")
+
+        let sprites = prepared(lines.joined(separator: "\n"))
+
+        #expect(StoryboardResolver.duration(of: sprites) == 10000)
+        #expect(StoryboardResolver.timeRange(of: sprites).upperBound == 43_200_000)
+    }
+
+    @Test("an empty storyboard still has a span")
+    func emptyRangeHasWidth() {
+        // A zero-width range would divide by nothing everywhere it is used.
+        let range = StoryboardResolver.timeRange(of: [])
+        #expect(range.upperBound > range.lowerBound)
+    }
 }
