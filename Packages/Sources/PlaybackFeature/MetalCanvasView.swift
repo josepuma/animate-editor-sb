@@ -80,10 +80,7 @@ struct MetalCanvasView: NSViewRepresentable {
                         pixelFormat: view.colorPixelFormat,
                     )
                     try renderer.setSprites(sprites) { path in
-                        // Built-in images first: an effect ships with its own
-                        // default, and a beatmap has no file to offer for it.
-                        (BuiltInTextures.data(for: path) ?? source.imageData(for: path))
-                            .map { .data($0) }
+                        Self.imageData(for: path, source: source).map { .data($0) }
                     }
 
                     renderer.isWidescreen = model.isWidescreen
@@ -102,6 +99,23 @@ struct MetalCanvasView: NSViewRepresentable {
             }
         }
 
+        /// Resolves a sprite path to image data, wherever it comes from.
+        ///
+        /// Three places, in order. A *derived* path is made on demand — a glow's
+        /// blurred copy of some other sprite — and it needs the resolver itself
+        /// to find its source, which is why this is one function rather than a
+        /// chain of `??`. A *built-in* is an image the app ships, because an
+        /// effect has to draw something before any file has been chosen. Failing
+        /// both, the beatmap's own folder.
+        static func imageData(for path: String, source: any StoryboardSource) -> Data? {
+            if DerivedSprite.isDerived(path) {
+                return DerivedTextures.data(for: path) { original in
+                    imageData(for: original, source: source)
+                }
+            }
+            return BuiltInTextures.data(for: path) ?? source.imageData(for: path)
+        }
+
         func setWidescreen(_ isWidescreen: Bool) {
             renderer?.isWidescreen = isWidescreen
         }
@@ -118,8 +132,7 @@ struct MetalCanvasView: NSViewRepresentable {
             let source = source
             do {
                 try renderer.setSprites(model.sprites) { path in
-                    (BuiltInTextures.data(for: path) ?? source.imageData(for: path))
-                        .map { .data($0) }
+                    Self.imageData(for: path, source: source).map { .data($0) }
                 }
             } catch {
                 model.contentFailed("\(error)")

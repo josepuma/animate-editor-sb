@@ -14,6 +14,14 @@ public struct EffectTrack: Identifiable, Sendable, Equatable {
     public var name: String
     public var layer: Layer
     public var nodes: [EffectNode]
+    /// Filters applied to everything on this lane, in order.
+    ///
+    /// On the track rather than on each effect, which is where After Effects
+    /// puts a layer effect and for the same reason: the lane is already the
+    /// unit of grouping and of draw order, so it is the thing a look belongs
+    /// to. Ordered because they compose — a glow after an echo lights the
+    /// trail, and before it the trail carries copies of the glow.
+    public var filters: [FilterNode]
     public var isVisible: Bool
     public var isLocked: Bool
 
@@ -22,6 +30,7 @@ public struct EffectTrack: Identifiable, Sendable, Equatable {
         name: String,
         layer: Layer = .foreground,
         nodes: [EffectNode] = [],
+        filters: [FilterNode] = [],
         isVisible: Bool = true,
         isLocked: Bool = false,
     ) {
@@ -29,6 +38,7 @@ public struct EffectTrack: Identifiable, Sendable, Equatable {
         self.name = name
         self.layer = layer
         self.nodes = nodes
+        self.filters = filters
         self.isVisible = isVisible
         self.isLocked = isLocked
     }
@@ -130,6 +140,48 @@ public struct EffectDocument: Sendable {
         // rename again, since there is nothing left to click.
         guard !trimmed.isEmpty else { return }
         tracks[index].name = trimmed
+    }
+
+    // ─── Filters ─────────────────────────────────────────────────────────────
+
+    @discardableResult
+    public mutating func addFilter(
+        _ descriptor: FilterDescriptor,
+        to trackID: EffectTrack.ID,
+    ) -> FilterNode? {
+        guard let index = tracks.firstIndex(where: { $0.id == trackID }) else { return nil }
+
+        let node = FilterNode(
+            id: "\(descriptor.type)-\(UUID().uuidString.prefix(8))",
+            type: descriptor.type,
+            values: descriptor.defaultValues,
+        )
+        tracks[index].filters.append(node)
+        return node
+    }
+
+    public mutating func removeFilter(_ filterID: FilterNode.ID, from trackID: EffectTrack.ID) {
+        guard let index = tracks.firstIndex(where: { $0.id == trackID }) else { return }
+        tracks[index].filters.removeAll { $0.id == filterID }
+    }
+
+    public mutating func setFilterValue(
+        _ value: EffectValue,
+        for parameterID: String,
+        on filterID: FilterNode.ID,
+        in trackID: EffectTrack.ID,
+    ) {
+        guard let trackIndex = tracks.firstIndex(where: { $0.id == trackID }),
+              let filterIndex = tracks[trackIndex].filters.firstIndex(where: { $0.id == filterID })
+        else { return }
+        tracks[trackIndex].filters[filterIndex].values[parameterID] = value
+    }
+
+    public mutating func toggleFilter(_ filterID: FilterNode.ID, in trackID: EffectTrack.ID) {
+        guard let trackIndex = tracks.firstIndex(where: { $0.id == trackID }),
+              let filterIndex = tracks[trackIndex].filters.firstIndex(where: { $0.id == filterID })
+        else { return }
+        tracks[trackIndex].filters[filterIndex].isEnabled.toggle()
     }
 
     public mutating func setLayer(_ layer: Layer, on trackID: EffectTrack.ID) {

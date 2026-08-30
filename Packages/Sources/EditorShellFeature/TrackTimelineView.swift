@@ -459,6 +459,11 @@ struct TrackTimelineView: View {
             moveNodeToTrack: { shell.moveEffect($0, toTrack: $1) },
             removeTrack: { shell.removeTrack(track.id) },
             rename: { shell.renameTrack(track.id, to: $0) },
+            applyFilter: { type in
+                guard let descriptor = shell.filters.descriptor(for: type) else { return }
+                shell.addFilter(descriptor, to: track.id)
+            },
+            filterIcon: { shell.filters.descriptor(for: $0)?.systemImage ?? "wand.and.stars" },
             raise: { shell.raiseTrack(track.id) },
             lower: { shell.lowerTrack(track.id) },
             canRaise: shell.effects.canRaiseTrack(track.id),
@@ -675,6 +680,8 @@ struct TrackRowView: View {
     @State private var isHovered = false
     /// Which clip the pointer is over, so only its ears appear.
     @State private var hoveredNodeID: EffectNode.ID?
+    /// The clip a filter from the library is hovering over.
+    @State private var targetedNodeID: EffectNode.ID?
     /// The lane a drag has crossed into, applied when it ends.
     @State private var pendingTrackID: EffectTrack.ID?
     /// The name as it is being typed, committed on return or on leaving.
@@ -757,9 +764,25 @@ struct TrackRowView: View {
                     isNamingFocused = false
                 }
 
-                Rectangle()
-                    .fill(track.layer.tint)
-                    .frame(width: Theme.Size.controlTiny, height: Theme.Size.ring)
+                HStack(spacing: Theme.Spacing.hair) {
+                    Rectangle()
+                        .fill(track.layer.tint)
+                        .frame(width: Theme.Size.controlTiny, height: Theme.Size.ring)
+
+                    // A badge per filter, so what a lane looks like is legible
+                    // from the timeline. Kept out of the inspector alone: a
+                    // look applied to a lane and visible only after selecting
+                    // it is a look people forget they applied.
+                    ForEach(track.filters) { filter in
+                        Image(systemName: filterIcon(filter.type))
+                            .font(.system(size: 7))
+                            .foregroundStyle(
+                                filter.isEnabled
+                                    ? Theme.Palette.secondary
+                                    : Theme.Palette.tertiary.opacity(0.5),
+                            )
+                    }
+                }
             }
 
             Spacer(minLength: 0)
@@ -818,6 +841,7 @@ struct TrackRowView: View {
         // The ears fade in with the hover rather than appearing at once, which
         // at the speed a pointer crosses a timeline reads as flicker.
         .animation(Theme.Motion.quick, value: hoveredNodeID)
+        .animation(Theme.Motion.quick, value: targetedNodeID)
         // The ghost fades too, so crossing a lane boundary reads as a preview
         // settling in rather than as something blinking on.
         .animation(Theme.Motion.quick, value: dropPreview)
@@ -907,6 +931,19 @@ struct TrackRowView: View {
             .gesture(moveGesture(node))
             .contextMenu { clipMenu(node) }
 
+            // The drop target is a layer of its own, above the clip.
+            //
+            // On the clip itself it never fired: a `DragGesture` and a
+            // `dropDestination` on one view compete, and the gesture wins — the
+            // clip could be dragged and would not accept anything. As a
+            // separate view it is hit tested on its own, and it carries no
+            // gesture to lose to.
+            //
+            // A filter is dropped *onto the thing it will change*, which is
+            // where a hand aims. It still applies to the whole lane, since that
+            // is where filters live.
+            filterTarget(node, span: span)
+
             // Siblings in the stack rather than overlays on the clip. An
             // overlay shares its host's place in the hit test, and the clip's
             // own drag gesture — the one that wraps it — wins every time,
@@ -916,6 +953,44 @@ struct TrackRowView: View {
                 ear(node, edge: .trailing, span: span)
             }
         }
+    }
+
+    /// An invisible drop layer sitting over one clip.
+    @ViewBuilder
+    private func filterTarget(_ node: EffectNode, span: VisibleSpan) -> some View {
+        // `Color.clear` takes no hit testing of its own, so the clip beneath
+        // keeps its click and its drag; a `dropDestination` still registers the
+        // region with the drag session, which is the one thing this layer is
+        // for.
+        Color.clear
+            .frame(width: span.width)
+            .frame(maxHeight: .infinity)
+            .offset(x: span.start)
+            // Strings rather than a custom type: see `FilterTransfer` for why
+            // an exported `UTType` cannot work in a SwiftPM executable.
+            .dropDestination(for: String.self) { items, _ in
+                guard let filter = items.compactMap(FilterTransfer.parse).first else {
+                    return false
+                }
+                actions.applyFilter(filter.type)
+                return true
+            } isTargeted: { targetedNodeID = $0 ? node.id : nil }
+            .overlay {
+                if targetedNodeID == node.id {
+                    RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
+                        .strokeBorder(.white, style: StrokeStyle(
+                            lineWidth: Theme.Size.ring,
+                            dash: [4, 3],
+                        ))
+                        .background {
+                            RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
+                                .fill(.white.opacity(0.25))
+                        }
+                        .frame(width: span.width)
+                        .offset(x: span.start)
+                        .allowsHitTesting(false)
+                }
+            }
     }
 
     // ─── Resizing ────────────────────────────────────────────────────────────
@@ -997,6 +1072,15 @@ struct TrackRowView: View {
                 actions.previewDrop(pendingTrackID, node.id, start...(start + length))
             }
             .onEnded { _ in commit(.move) }
+    }
+
+    /// The glyph for a filter badge.
+    ///
+    /// Read from the actions rather than looked up in a library the row does
+    /// not have: a timeline row knows what it was told, not where filters come
+    /// from.
+    private func filterIcon(_ type: String) -> String {
+        actions.filterIcon(type)
     }
 
     /// Whether this clip is being dragged onto a different lane.
@@ -1149,6 +1233,10 @@ struct TrackActions {
     let moveNodeToTrack: (EffectNode.ID, EffectTrack.ID) -> Void
     let removeTrack: () -> Void
     let rename: (String) -> Void
+    /// Applies a filter dropped from the library.
+    let applyFilter: (String) -> Void
+    /// The glyph for a filter of this type.
+    let filterIcon: (String) -> String
     let raise: () -> Void
     let lower: () -> Void
     let canRaise: Bool

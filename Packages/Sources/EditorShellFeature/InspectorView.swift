@@ -48,6 +48,17 @@ struct InspectorView: View {
                             systemImage: "sparkles",
                         )
                     }
+
+                    // Filters belong to the lane, so they show whenever there
+                    // is one — with or without a clip selected. Tucked inside
+                    // the track branch, they vanished the moment a clip was
+                    // picked, which is exactly when someone reaches for them.
+                    // Only when there is something to show: an empty "Filters"
+                    // group is a heading and a button standing in for nothing,
+                    // and the library tab is where filters are found anyway.
+                    if let track = shell.selectedTrack, !track.filters.isEmpty {
+                        filterSection(track)
+                    }
                 }
                 .padding(Theme.Spacing.compact)
             }
@@ -56,6 +67,41 @@ struct InspectorView: View {
         .frame(width: Self.width)
         .frame(maxHeight: .infinity)
         .surface(.panel)
+    }
+
+    /// The filters applied to a lane, and a way to add one.
+    ///
+    /// On the track rather than on each clip: a look belongs to the lane, which
+    /// is already the unit of grouping and of draw order.
+    @ViewBuilder
+    private func filterSection(_ track: EffectTrack) -> some View {
+        FieldGroup("Filters") {
+            ForEach(track.filters) { filter in
+                if let descriptor = shell.filters.descriptor(for: filter.type) {
+                    FilterCard(
+                        descriptor: descriptor,
+                        filter: filter,
+                        toggle: { shell.toggleFilter(filter.id, in: track.id) },
+                        remove: { shell.removeFilter(filter.id, from: track.id) },
+                        onChange: { parameter, value in
+                            shell.setFilterValue(
+                                value, for: parameter, on: filter.id, in: track.id,
+                            )
+                        },
+                    )
+                }
+            }
+
+            // A glow over a large emitter is a file osu! will not open. Said
+            // here, where it can still be turned down, rather than at export.
+            let multiplier = shell.spriteMultiplier(for: track.id)
+            if multiplier > 1 {
+                Text("Sprites ×\(String(format: "%.0f", multiplier))")
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(multiplier >= 5 ? Theme.Palette.warning : Theme.Palette.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 
     /// The selected effect's declared parameters, grouped as it declared them.
@@ -201,6 +247,76 @@ struct InspectorView: View {
         }
     }
 
+}
+
+// ─── Filter card ─────────────────────────────────────────────────────────────
+
+/// One filter on a track: its name, a switch, and its parameters.
+private struct FilterCard: View {
+    let descriptor: FilterDescriptor
+    let filter: FilterNode
+    let toggle: () -> Void
+    let remove: () -> Void
+    let onChange: (String, EffectValue) -> Void
+
+    @State private var isExpanded = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
+            HStack(spacing: Theme.Spacing.snug) {
+                Image(systemName: "chevron.right")
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.tertiary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+
+                Image(systemName: descriptor.systemImage)
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.secondary)
+
+                Text(descriptor.name)
+                    .font(Theme.Typography.label)
+                    // Dimmed rather than hidden when off: a filter switched off
+                    // is still part of the look someone is building.
+                    .foregroundStyle(filter.isEnabled ? Theme.Palette.primary : Theme.Palette.tertiary)
+
+                Spacer(minLength: Theme.Spacing.tight)
+
+                IconButton(
+                    systemImage: filter.isEnabled ? "eye" : "eye.slash",
+                    size: Theme.Size.controlTiny,
+                    help: filter.isEnabled ? "Disable" : "Enable",
+                    action: toggle,
+                )
+
+                IconButton(
+                    systemImage: "trash",
+                    size: Theme.Size.controlTiny,
+                    help: "Remove \(descriptor.name)",
+                    action: remove,
+                )
+            }
+            .contentShape(.rect)
+            .onTapGesture { isExpanded.toggle() }
+
+            if isExpanded {
+                ForEach(descriptor.parameters, id: \.id) { parameter in
+                    ParameterControl(
+                        parameter: parameter,
+                        value: filter.values[parameter.id] ?? parameter.defaultValue,
+                        onChange: { onChange(parameter.id, $0) },
+                    )
+                }
+                .disabled(!filter.isEnabled)
+                .opacity(filter.isEnabled ? 1 : 0.5)
+            }
+        }
+        .padding(Theme.Spacing.snug)
+        .background {
+            RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                .fill(Theme.Fill.well)
+        }
+        .animation(Theme.Motion.quick, value: isExpanded)
+    }
 }
 
 // ─── Parameter control ───────────────────────────────────────────────────────

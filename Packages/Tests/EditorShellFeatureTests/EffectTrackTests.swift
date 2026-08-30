@@ -156,6 +156,55 @@ struct EffectTrackTests {
         #expect(shell.selectedEffect?.id == second.id)
     }
 
+    // ─── Filters ─────────────────────────────────────────────────────────────
+
+    /// The bug this pins: filters were shown only in the branch that runs when
+    /// no clip is selected, so they vanished the moment one was picked — which
+    /// is exactly when someone reaches for them.
+    @Test("a lane's filters are reachable with a clip selected")
+    func filtersSurviveClipSelection() {
+        let shell = model()
+        let node = shell.addEffect(descriptor, at: 0, duration: 1000)
+        let trackID = shell.effects.tracks[0].id
+        shell.addFilter(GlowFilter.descriptor, to: trackID)
+
+        shell.selectedNodeID = node.id
+        shell.selectedTrackID = trackID
+
+        // Both are answerable at once: the clip being edited, and the lane's
+        // filters underneath it.
+        #expect(shell.selectedEffect?.id == node.id)
+        #expect(shell.selectedTrack?.filters.count == 1)
+    }
+
+    @Test("a filter dropped on a lane reaches the output")
+    func filterReachesOutput() {
+        let shell = model()
+        let node = shell.addEffect(descriptor, at: 0, duration: 2000)
+        shell.setValue(.integer(4), for: EmitterEffect.Param.count, on: node.id)
+        let trackID = shell.effects.tracks[0].id
+
+        #expect(shell.evaluateEffects().count == 4)
+
+        shell.addFilter(GlowFilter.descriptor, to: trackID)
+        #expect(shell.evaluateEffects().count > 4)
+        #expect(shell.spriteMultiplier(for: trackID) > 1)
+    }
+
+    @Test("removing a filter puts the output back")
+    func removingAFilter() {
+        let shell = model()
+        let node = shell.addEffect(descriptor, at: 0, duration: 2000)
+        shell.setValue(.integer(4), for: EmitterEffect.Param.count, on: node.id)
+        let trackID = shell.effects.tracks[0].id
+
+        let filter = shell.addFilter(GlowFilter.descriptor, to: trackID)!
+        shell.removeFilter(filter.id, from: trackID)
+
+        #expect(shell.evaluateEffects().count == 4)
+        #expect(shell.spriteMultiplier(for: trackID) == 1)
+    }
+
     // ─── Editing ─────────────────────────────────────────────────────────────
 
     @Test("changing a parameter re-evaluates the output")

@@ -5,6 +5,7 @@ import StoryboardCore
 public enum SidePanel: String, CaseIterable, Identifiable, Sendable {
     case assets
     case scripts
+    case filters
     case layers
     case timing
 
@@ -14,6 +15,7 @@ public enum SidePanel: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .assets: "photo.stack"
         case .scripts: "curlybraces"
+        case .filters: "wand.and.stars"
         case .layers: "square.3.layers.3d"
         case .timing: "metronome"
         }
@@ -22,7 +24,8 @@ public enum SidePanel: String, CaseIterable, Identifiable, Sendable {
     public var title: String {
         switch self {
         case .assets: "Assets"
-        case .scripts: "Scripts"
+        case .scripts: "Effects"
+        case .filters: "Filters"
         case .layers: "Layers"
         case .timing: "Timing"
         }
@@ -113,15 +116,17 @@ public final class EditorShellModel {
     /// as opposed to the layer tracks derived from a parsed `.osb`.
     public private(set) var effects = EffectDocument()
     public let library: EffectLibrary
+    public let filters: FilterLibrary
     private let evaluator: EffectEvaluator
 
     /// Bumped whenever an effect changes, so views that re-evaluate can watch
     /// one value instead of diffing the whole document.
     public private(set) var effectsRevision = 0
 
-    public init(library: EffectLibrary = .standard) {
+    public init(library: EffectLibrary = .standard, filters: FilterLibrary = .standard) {
         self.library = library
-        evaluator = EffectEvaluator(library: library)
+        self.filters = filters
+        evaluator = EffectEvaluator(library: library, filters: filters)
     }
 
     // ─── Effects ─────────────────────────────────────────────────────────────
@@ -267,6 +272,49 @@ public final class EditorShellModel {
     public func renameTrack(_ trackID: EffectTrack.ID, to name: String) {
         effects.rename(trackID, to: name)
         effectsChanged()
+    }
+
+    // ─── Filters ─────────────────────────────────────────────────────────────
+
+    /// The filters available to apply.
+    public var filterDescriptors: [FilterDescriptor] {
+        filters.descriptors
+    }
+
+    @discardableResult
+    public func addFilter(_ descriptor: FilterDescriptor, to trackID: EffectTrack.ID) -> FilterNode? {
+        let node = effects.addFilter(descriptor, to: trackID)
+        effectsChanged()
+        return node
+    }
+
+    public func removeFilter(_ filterID: FilterNode.ID, from trackID: EffectTrack.ID) {
+        effects.removeFilter(filterID, from: trackID)
+        effectsChanged()
+    }
+
+    public func toggleFilter(_ filterID: FilterNode.ID, in trackID: EffectTrack.ID) {
+        effects.toggleFilter(filterID, in: trackID)
+        effectsChanged()
+    }
+
+    public func setFilterValue(
+        _ value: EffectValue,
+        for parameterID: String,
+        on filterID: FilterNode.ID,
+        in trackID: EffectTrack.ID,
+    ) {
+        effects.setFilterValue(value, for: parameterID, on: filterID, in: trackID)
+        effectsChanged()
+    }
+
+    /// How much a track's filters multiply its sprite count.
+    ///
+    /// Surfaced so a glow over a large emitter can be seen for what it is —
+    /// a file osu! will not open — while it can still be turned down.
+    public func spriteMultiplier(for trackID: EffectTrack.ID) -> Double {
+        guard let track = effects.track(id: trackID) else { return 1 }
+        return evaluator.spriteMultiplier(for: track)
     }
 
     public func setLayer(_ layer: Layer, on trackID: EffectTrack.ID) {

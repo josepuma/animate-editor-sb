@@ -10,14 +10,22 @@ import Foundation
 ///
 /// ## What a filter can be
 ///
-/// osu! has no shaders. A storyboard is sprites and commands, so a filter here
-/// cannot process pixels the way a compositor would — it can only **add more
-/// sprites** that approximate the look. Glow, shadow and echo all come out of
-/// that; blur and distortion cannot, and are absent rather than faked badly.
+/// osu! has no shaders, so a filter cannot run a pass over the frame the way a
+/// compositor would. It has two other moves, and between them they cover more
+/// than the limitation suggests:
 ///
-/// The cost is real and multiplies: a three-layer glow over a two hundred
-/// particle emitter is eight hundred sprites. `estimatedMultiplier` exists so
-/// the editor can say so before the file is written.
+/// - **Add sprites.** A glow is a second copy behind the first; an echo is the
+///   same sprite drawn where it used to be. This is what multiplies file size.
+/// - **Change the image a sprite draws.** A blurred copy of a texture is still
+///   one sprite, so softness costs pixels rather than sprites. See
+///   ``DerivedSprite``.
+///
+/// What genuinely cannot be done is anything that reads the frame: a blur that
+/// smears *overlapping* sprites together, refraction, colour grading against a
+/// backdrop. Those are absent rather than faked badly.
+///
+/// Where a filter does add sprites the cost is real and multiplies, so
+/// `estimatedMultiplier` exists to say so before the file is written.
 public protocol SpriteFilter: Sendable {
     static var descriptor: FilterDescriptor { get }
 
@@ -194,5 +202,7 @@ public struct FilterLibrary: Sendable {
     }
 
     /// The built-in library.
-    public static let standard = FilterLibrary(filters: [GlowFilter(), EchoFilter()])
+    public static let standard = FilterLibrary(filters: [
+        GlowFilter(), BlurFilter(), EchoFilter(),
+    ])
 }

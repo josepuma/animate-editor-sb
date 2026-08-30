@@ -24,6 +24,7 @@ struct SidePanelView: View {
             switch shell.sidePanel {
             case .assets: assets
             case .scripts: scripts
+            case .filters: filtersPanel
             case .layers: layers
             case .timing: timing
             }
@@ -69,69 +70,66 @@ struct SidePanelView: View {
     /// Effects and scripts share this panel because they will be the same
     /// thing: a scripted effect declares the same descriptor a native one does,
     /// and will appear in this list beside them.
+    /// The effect library.
+    ///
+    /// No list of what has been placed: the timeline already shows that, in the
+    /// arrangement that matters. Repeating it here spends the panel's height on
+    /// a second, worse view of the same thing.
     private var scripts: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.compact) {
-            VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
-                Text("Library")
-                    .font(Theme.Typography.micro)
-                    .tracking(0.6)
-                    .foregroundStyle(Theme.Palette.tertiary)
-
-                ScrollView {
-                    LazyVStack(spacing: Theme.Spacing.tight) {
-                        // One row per effect, with its presets folded inside.
-                        //
-                        // Every preset is the same emitter with different
-                        // numbers, so listing them flat would put fifteen rows
-                        // at one level and hide that they are all one effect —
-                        // and the list only grows from here.
-                        ForEach(shell.library.descriptors, id: \.type) { descriptor in
-                            EffectGroup(
-                                descriptor: descriptor,
-                                presets: shell.presets.filter { $0.effectType == descriptor.type },
-                                isExpanded: expandedEffect == descriptor.type,
-                                toggleExpanded: {
-                                    expandedEffect = expandedEffect == descriptor.type
-                                        ? nil
-                                        : descriptor.type
-                                },
-                                // Placed where the playhead is, the way a video
-                                // editor drops a clip at the cursor.
-                                addBlank: { shell.addEffect(descriptor, at: playheadTime) },
-                                addPreset: { shell.addPreset($0, at: playheadTime) },
-                            )
-                        }
-                    }
+        ScrollView {
+            LazyVStack(spacing: Theme.Spacing.tight) {
+                // One row per effect, with its presets folded inside.
+                //
+                // Every preset is the same emitter with different numbers, so
+                // listing them flat would put fifteen rows at one level and
+                // hide that they are all one effect — and the list only grows
+                // from here.
+                ForEach(shell.library.descriptors, id: \.type) { descriptor in
+                    EffectGroup(
+                        descriptor: descriptor,
+                        presets: shell.presets.filter { $0.effectType == descriptor.type },
+                        isExpanded: expandedEffect == descriptor.type,
+                        toggleExpanded: {
+                            expandedEffect = expandedEffect == descriptor.type
+                                ? nil
+                                : descriptor.type
+                        },
+                        // Placed where the playhead is, the way a video editor
+                        // drops a clip at the cursor.
+                        addBlank: { shell.addEffect(descriptor, at: playheadTime) },
+                        addPreset: { shell.addPreset($0, at: playheadTime) },
+                    )
                 }
-                .frame(maxHeight: 300)
             }
+        }
+    }
 
-            if !shell.effects.nodes.isEmpty {
-                Divider().overlay(Theme.Border.panel)
+    // ─── Filters ─────────────────────────────────────────────────────────────
 
-                Text("Placed")
-                    .font(Theme.Typography.micro)
-                    .tracking(0.6)
-                    .foregroundStyle(Theme.Palette.tertiary)
+    /// The filter library, in a tab of its own.
+    ///
+    /// Apart from the effects because they are different things: one makes
+    /// something out of nothing, the other needs something to already be there.
+    /// Sharing a panel implied a filter could be dropped on an empty timeline.
+    private var filtersPanel: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
+            Text("Drag onto a track to apply")
+                .font(Theme.Typography.micro)
+                .foregroundStyle(Theme.Palette.tertiary)
 
-                ScrollView {
-                    LazyVStack(spacing: Theme.Spacing.tight) {
-                        ForEach(shell.effects.nodes) { node in
-                            PlacedEffectRow(
-                                node: node,
-                                isSelected: node.id == shell.selectedTrackID,
-                                select: { shell.selectedTrackID = node.id },
-                                remove: { shell.removeEffect(node.id) },
-                            )
-                        }
+            ScrollView {
+                LazyVStack(spacing: Theme.Spacing.tight) {
+                    ForEach(shell.filterDescriptors, id: \.type) { descriptor in
+                        FilterLibraryRow(
+                            descriptor: descriptor,
+                            canApply: shell.selectedTrack != nil,
+                            apply: {
+                                guard let track = shell.selectedTrack else { return }
+                                shell.addFilter(descriptor, to: track.id)
+                            },
+                        )
                     }
                 }
-            } else {
-                ComingSoon(
-                    title: "No effects",
-                    detail: "Add one from the library to place it on the timeline.",
-                    systemImage: "sparkles",
-                )
             }
         }
     }
@@ -373,6 +371,66 @@ private struct PresetRow: View {
         .onHover { isHovered = $0 }
         .animation(Theme.Motion.quick, value: isHovered)
         .help("Add \(preset.name) at the playhead")
+    }
+}
+
+/// One filter available to apply, draggable onto a track.
+///
+/// Dragged rather than only clicked because that is what the hand does with a
+/// library — After Effects, Premiere and Resolve all work this way, and a panel
+/// of things you can only click reads as a menu rather than as a shelf.
+private struct FilterLibraryRow: View {
+    let descriptor: FilterDescriptor
+    /// Whether there is a lane to apply to. Clicking applies to the selection;
+    /// with nothing selected there is nowhere for it to go.
+    let canApply: Bool
+    let apply: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: Theme.Spacing.snug) {
+            Image(systemName: descriptor.systemImage)
+                .font(Theme.Typography.micro)
+                .foregroundStyle(Theme.Palette.secondary)
+                .frame(width: Theme.Size.ring * 2)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(descriptor.name)
+                    .font(Theme.Typography.label)
+                    .foregroundStyle(Theme.Palette.primary)
+                Text(descriptor.category)
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.tertiary)
+            }
+
+            Spacer(minLength: Theme.Spacing.tight)
+
+            Image(systemName: "line.3.horizontal")
+                .font(Theme.Typography.micro)
+                .foregroundStyle(isHovered ? Theme.Palette.secondary : Theme.Palette.tertiary)
+        }
+        .padding(.horizontal, Theme.Spacing.snug)
+        .frame(height: Theme.Size.control)
+        .background {
+            RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                .fill(isHovered ? Theme.Fill.rowHover : .clear)
+        }
+        .contentShape(.rect)
+        .onTapGesture { if canApply { apply() } }
+        .onHover { isHovered = $0 }
+        // The type carried is the filter's own, so a drop can tell a filter
+        // from anything else that might be dragged over a lane.
+        .draggable(FilterTransfer(type: descriptor.type).payload) {
+            Label(descriptor.name, systemImage: descriptor.systemImage)
+                .font(Theme.Typography.label)
+                .padding(Theme.Spacing.snug)
+                .background(.thinMaterial, in: Capsule())
+        }
+        .help(canApply
+            ? "Drag onto a track, or click to apply to the selected one"
+            : "Drag onto a track")
+        .animation(Theme.Motion.quick, value: isHovered)
     }
 }
 

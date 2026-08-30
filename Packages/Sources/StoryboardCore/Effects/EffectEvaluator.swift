@@ -47,9 +47,11 @@ public struct EffectLibrary: Sendable {
 /// changing underneath.
 public struct EffectEvaluator: Sendable {
     public let library: EffectLibrary
+    public let filters: FilterLibrary
 
-    public init(library: EffectLibrary = .standard) {
+    public init(library: EffectLibrary = .standard, filters: FilterLibrary = .standard) {
         self.library = library
+        self.filters = filters
     }
 
     /// Evaluates one node into sprites positioned on the project timeline.
@@ -77,9 +79,51 @@ public struct EffectEvaluator: Sendable {
     /// nothing regardless of what its effects say — hiding a lane has to hide
     /// what is on it, which is the only reading of the control that makes sense.
     public func evaluate(_ document: EffectDocument) -> [StoryboardSprite] {
-        document.tracks.flatMap { track in
-            track.isVisible ? evaluate(track.nodes) : []
+        document.tracks.flatMap { evaluate($0) }
+    }
+
+    /// Evaluates one track: its effects, then its filters over the result.
+    ///
+    /// Filters run here rather than at export, which is the whole point. A
+    /// filter that only ran on the way out would be invisible in the editor —
+    /// and two paths to the same picture drift, so the one that ships would be
+    /// the one nobody had looked at. Everything a filter does is sprites, so
+    /// there is no reason to have two.
+    public func evaluate(_ track: EffectTrack) -> [StoryboardSprite] {
+        guard track.isVisible else { return [] }
+
+        var sprites = evaluate(track.nodes)
+
+        for node in track.filters where node.isEnabled {
+            guard let filter = filters.filter(for: node.type) else { continue }
+            let descriptor = Swift.type(of: filter).descriptor
+            let context = FilterContext(descriptor: descriptor, node: node)
+            sprites = filter.apply(to: sprites, in: context)
         }
+
+        // The lane owns the layer, so anything a filter added takes it too.
+        return sprites.map { sprite in
+            var placed = sprite
+            placed.layer = track.layer
+            return placed
+        }
+    }
+
+    /// How many sprites a track's filters would multiply its output by.
+    ///
+    /// Reported so the editor can warn before a `.osb` is written: a glow over
+    /// a large emitter is a file osu! will not open, and that is worth knowing
+    /// while it can still be turned down.
+    public func spriteMultiplier(for track: EffectTrack) -> Double {
+        track.filters
+            .filter(\.isEnabled)
+            .reduce(1.0) { total, node in
+                guard let filter = filters.filter(for: node.type) else { return total }
+                let descriptor = Swift.type(of: filter).descriptor
+                return total * filter.estimatedMultiplier(
+                    in: FilterContext(descriptor: descriptor, node: node),
+                )
+            }
     }
 
     /// Moves a locally-timed sprite onto the project timeline.
