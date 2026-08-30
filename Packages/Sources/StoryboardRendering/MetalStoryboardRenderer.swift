@@ -13,6 +13,26 @@ public enum OsuCanvas {
     public static let height: Float = 480
     /// Added to storyboard x to reach canvas x.
     public static let xOffset: Float = 107
+
+    /// The 4:3 stage, for beatmaps whose `.osu` has widescreen support off.
+    ///
+    /// Those storyboards were authored against the narrower frame, so osu!
+    /// pillarboxes them rather than stretching. Drawing them across the wide
+    /// stage would put every sprite in the wrong place.
+    public static let narrowWidth: Float = 640
+
+    /// The stage's own dimensions for a given beatmap.
+    public static func size(widescreen: Bool) -> (width: Float, height: Float) {
+        (widescreen ? width : narrowWidth, height)
+    }
+
+    /// How far storyboard x is shifted to reach canvas x.
+    ///
+    /// Only the wide stage has room either side of the 640-point playfield; on
+    /// the narrow one the two spaces are the same.
+    public static func offset(widescreen: Bool) -> Float {
+        widescreen ? xOffset : 0
+    }
 }
 
 /// Draws resolved storyboard sprites with Metal.
@@ -42,6 +62,13 @@ public final class MetalStoryboardRenderer {
 
     /// Sprite images packed into array-texture pages.
     private var atlas: TextureAtlas?
+
+    /// Whether the storyboard was authored for the wide stage.
+    ///
+    /// Decides both the projection and where storyboard x sits on it: a 4:3
+    /// storyboard is drawn on the narrower stage rather than stretched across
+    /// this one, which is what osu! does with it.
+    public var isWidescreen = true
 
     /// Sprites are drawn in this order; layers are sorted bottom to top.
     private var drawOrder: [PreparedSprite] = []
@@ -103,7 +130,11 @@ public final class MetalStoryboardRenderer {
         let samplerDescriptor = MTLSamplerDescriptor()
         samplerDescriptor.minFilter = .linear
         samplerDescriptor.magFilter = .linear
-        samplerDescriptor.mipFilter = .linear
+        // Follows the atlas rather than being chosen here: filtering between
+        // levels a texture does not have is undefined, and the hardware then
+        // samples whatever it finds — which appears as detail the sprite never
+        // had.
+        samplerDescriptor.mipFilter = TextureAtlas.isMipmapped ? .linear : .notMipmapped
         samplerDescriptor.sAddressMode = .clampToEdge
         samplerDescriptor.tAddressMode = .clampToEdge
         guard let sampler = device.makeSamplerState(descriptor: samplerDescriptor) else {
@@ -290,7 +321,9 @@ public final class MetalStoryboardRenderer {
             }
         }
 
-        var uniforms = Uniforms(projection: Self.projectionMatrix())
+        var uniforms = Uniforms(
+            projection: Self.projectionMatrix(widescreen: isWidescreen),
+        )
         uniformBuffer.contents().copyMemory(
             from: &uniforms,
             byteCount: MemoryLayout<Uniforms>.stride,
@@ -391,7 +424,7 @@ public final class MetalStoryboardRenderer {
             let instance = SpriteInstance(
                 // The origin itself — the shader offsets the quad around it.
                 position: SIMD2<Float>(
-                    Float(state.x) + OsuCanvas.xOffset,
+                    Float(state.x) + OsuCanvas.offset(widescreen: isWidescreen),
                     Float(state.y),
                 ),
                 halfSize: halfSize,
@@ -429,9 +462,8 @@ public final class MetalStoryboardRenderer {
     ///
     /// Canvas space has Y increasing downwards; clip space has Y increasing
     /// upwards, so the Y row is negated.
-    private static func projectionMatrix() -> matrix_float4x4 {
-        let width = OsuCanvas.width
-        let height = OsuCanvas.height
+    private static func projectionMatrix(widescreen: Bool) -> matrix_float4x4 {
+        let (width, height) = OsuCanvas.size(widescreen: widescreen)
 
         return matrix_float4x4(columns: (
             SIMD4<Float>(2 / width, 0, 0, 0),
@@ -529,7 +561,16 @@ extension MTKTextureLoader {
                     height: height,
                     bitsPerComponent: 8,
                     bytesPerRow: bytesPerRow,
-                    space: CGColorSpaceCreateDeviceRGB(),
+                    // sRGB explicitly, not `CGColorSpaceCreateDeviceRGB`.
+                    //
+                    // The device space is whatever the display happens to be,
+                    // which on a modern Mac is a wide gamut: Core Graphics then
+                    // converts a plain sRGB PNG into it and the colours come out
+                    // pushed — more saturated than the file, and showing detail
+                    // that was never meant to be visible. osu! composites in
+                    // sRGB, so the pixels stay in the space they were authored
+                    // in.
+                    space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
                         | CGBitmapInfo.byteOrder32Big.rawValue,
                 )
@@ -539,8 +580,11 @@ extension MTKTextureLoader {
 
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
 
+            // Follows the atlas: these textures are blitted into its pages, and
+            // a blit copies bytes without interpreting them, so both sides have
+            // to agree on what those bytes mean.
             let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-                pixelFormat: .rgba8Unorm,
+                pixelFormat: TextureAtlas.pixelFormat,
                 width: width,
                 height: height,
                 mipmapped: false,

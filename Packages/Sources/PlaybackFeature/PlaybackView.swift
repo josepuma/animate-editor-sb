@@ -111,7 +111,8 @@ public struct PlaybackCanvas: View {
     }
 
     private func fittedSize(in available: CGSize) -> CGSize {
-        let aspect = CGFloat(OsuCanvas.width / OsuCanvas.height)
+        let size = OsuCanvas.size(widescreen: model.isWidescreen)
+        let aspect = CGFloat(size.width / size.height)
         let byWidth = CGSize(width: available.width, height: available.width / aspect)
         return byWidth.height <= available.height
             ? byWidth

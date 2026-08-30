@@ -91,6 +91,28 @@ struct BeatmapStoryboardLoaderTests {
         #expect(result.osuPaths == ["easy.osu"])
     }
 
+    @Test("only one difficulty's events are used")
+    func doesNotStackEveryDifficulty() throws {
+        // osu! plays one difficulty at a time, so only its events sit on the
+        // shared `.osb`. Merging every difficulty draws the same sprite once
+        // per file — several copies of a semi-transparent PNG stacked on
+        // themselves, which reads as artwork far more saturated than the file.
+        let temporary = try TemporaryFolder(files: [
+            "map.osb": osbWithTwoSprites,
+            "easy.osu": osuWithOneSprite,
+            "normal.osu": osuWithOneSprite,
+            "hard.osu": osuWithOneSprite,
+            "sb/a.png": "x",
+            "sb/b.png": "x",
+            "sb/c.png": "x",
+        ])
+        let result = try BeatmapStoryboardLoader.load(from: BeatmapFolder(url: temporary.url))
+
+        // Two from the `.osb`, one from a single difficulty — not one each.
+        #expect(result.spriteCount == 3)
+        #expect(result.osuPaths.count == 1)
+    }
+
     @Test("sprite ids stay unique after merging")
     func idsAreUniqueAfterMerge() throws {
         let temporary = try TemporaryFolder(files: [

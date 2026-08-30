@@ -17,6 +17,28 @@ struct OsuParserTests {
         #expect(timing.audioFilename == "audio.mp3")
     }
 
+    @Test("reads the widescreen setting")
+    func readsWidescreen() {
+        let wide = OsuParser.parse("""
+        [General]
+        WidescreenStoryboard: 1
+        """)
+        let narrow = OsuParser.parse("""
+        [General]
+        WidescreenStoryboard: 0
+        """)
+
+        #expect(wide.isWidescreen)
+        #expect(!narrow.isWidescreen)
+    }
+
+    @Test("a beatmap without the key is not widescreen")
+    func widescreenDefaultsOff() {
+        // osu! treats the absent key as off: a map written before widescreen
+        // storyboards existed was authored against the narrow stage.
+        #expect(!OsuParser.parse("[General]\nAudioFilename: a.mp3").isWidescreen)
+    }
+
     @Test("keeps colons inside a filename")
     func keepsColonsInFilename() {
         let timing = OsuParser.parse("""

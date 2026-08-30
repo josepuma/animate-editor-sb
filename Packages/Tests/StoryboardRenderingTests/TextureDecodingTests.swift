@@ -53,7 +53,11 @@ struct TextureDecodingTests {
         let loader = MTKTextureLoader(device: device)
         let texture = try MTKTextureLoader.Source.data(png).load(with: loader)
 
-        #expect(texture.pixelFormat == .rgba8Unorm)
+        // Compared against the atlas rather than against a literal: pages are
+        // assembled with a blit, which copies bytes and requires both sides to
+        // agree on what they mean. A test naming the format itself passes while
+        // the two drift apart.
+        #expect(texture.pixelFormat == TextureAtlas.pixelFormat)
         #expect(texture.width == 2)
         #expect(texture.height == 2)
     }

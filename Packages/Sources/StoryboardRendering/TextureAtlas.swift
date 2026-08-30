@@ -29,6 +29,30 @@ struct TextureAtlas {
     /// every Metal GPU family supports at least this size for 2D arrays.
     static let pageSize = 4096
 
+    /// What atlas pages, and the sprite textures blitted into them, are stored
+    /// as.
+    ///
+    /// Plain `rgba8Unorm`, not the `_srgb` variant: osu! blends storyboards in
+    /// gamma space, so the bytes are used as they stand. Converting to linear
+    /// light and back is more correct in the abstract and does not match what
+    /// the artwork was drawn against — overlaps darken and edges pick up a
+    /// fringe.
+    ///
+    /// A blit copies bytes without interpreting them, so every texture that
+    /// reaches a page has to be this format too.
+    static let pixelFormat: MTLPixelFormat = .rgba8Unorm
+
+    /// Whether atlas pages carry mipmaps.
+    ///
+    /// They do not: a storyboard scales its sprites up far more often than
+    /// down, and building the chain for several 4096² pages costs memory and
+    /// upload time for detail rarely asked for.
+    ///
+    /// The sampler has to agree. Filtering between levels that do not exist is
+    /// undefined — the hardware samples whatever it finds, which appears as
+    /// detail the sprite never had.
+    static let isMipmapped = false
+
     /// Transparent gutter around each sprite.
     ///
     /// Linear filtering samples a texel's neighbours, so sprites packed edge to
@@ -87,10 +111,10 @@ struct TextureAtlas {
         guard !placements.isEmpty else { return nil }
 
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
-            pixelFormat: .rgba8Unorm,
+            pixelFormat: Self.pixelFormat,
             width: Self.pageSize,
             height: Self.pageSize,
-            mipmapped: false,
+            mipmapped: Self.isMipmapped,
         )
         descriptor.textureType = .type2DArray
         descriptor.arrayLength = packer.pageCount

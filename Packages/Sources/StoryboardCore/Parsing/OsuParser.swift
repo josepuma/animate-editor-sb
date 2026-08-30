@@ -9,6 +9,9 @@ public enum OsuParser {
     public static func parse(_ source: String) -> BeatmapTimingData {
         var section = ""
         var audioFilename = ""
+        // osu! treats a missing key as off: a beatmap written before widescreen
+        // storyboards existed is a 4:3 one.
+        var isWidescreen = false
         var metadataFields: [String: String] = [:]
         var uninheritedPoints: [UninheritedTimingPoint] = []
         // Both red and green points, needed to track kiai across the map.
@@ -29,8 +32,15 @@ public enum OsuParser {
                 // Values may themselves contain colons, so split only on the first.
                 if let colon = line.firstIndex(of: ":") {
                     let key = String(line[line.startIndex..<colon]).trimmed()
-                    if key == "AudioFilename" {
-                        audioFilename = String(line[line.index(after: colon)...]).trimmed()
+                    let value = String(line[line.index(after: colon)...]).trimmed()
+
+                    switch key {
+                    case "AudioFilename":
+                        audioFilename = value
+                    case "WidescreenStoryboard":
+                        isWidescreen = value == "1"
+                    default:
+                        break
                     }
                 }
 
@@ -67,6 +77,7 @@ public enum OsuParser {
         return BeatmapTimingData(
             metadata: metadata,
             audioFilename: audioFilename,
+            isWidescreen: isWidescreen,
             uninheritedPoints: uninheritedPoints,
             breaks: breaks,
             kiaiSections: kiaiSections(from: allPoints),

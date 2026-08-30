@@ -4,15 +4,17 @@ import StoryboardCore
 /// Loads a beatmap folder's storyboard.
 ///
 /// A storyboard lives either in a standalone `.osb` or in the `[Events]`
-/// section of a `.osu` difficulty. Both are read and merged, matching osu!,
-/// where a difficulty's own events draw on top of the shared `.osb`.
+/// section of a `.osu` difficulty. The shared `.osb` is read, and **one**
+/// difficulty's events are laid on top of it — which is what osu! shows, since
+/// only one difficulty is ever played at a time.
 public enum BeatmapStoryboardLoader {
     public struct Result: Sendable {
         /// Sprites ready for resolution, in draw order.
         public let sprites: [StoryboardSprite]
         /// Relative path of the `.osb`, when one was found.
         public let osbPath: String?
-        /// Relative paths of every `.osu` that contributed events.
+        /// Relative path of the difficulty whose events were used, when any
+        /// difficulty had some. At most one.
         public let osuPaths: [String]
         /// Sprites whose image could not be found on disk.
         public let missingImagePaths: [String]
@@ -51,6 +53,16 @@ public enum BeatmapStoryboardLoader {
                     timing = parsed
                 }
             }
+
+            // One difficulty's events, not every difficulty's.
+            //
+            // osu! plays a single difficulty at a time: its own events draw on
+            // top of the shared `.osb`, and the other difficulties' are not
+            // there at all. Merging them all stacks the same sprite over itself
+            // once per difficulty — four copies of a semi-transparent PNG read
+            // as one far more saturated than the file, which is only visible on
+            // the sprites a mapper happened to put in the `.osu`.
+            guard contributingOsuPaths.isEmpty else { continue }
 
             let parsedSprites = OsbParser.parse(source).sprites
             guard !parsedSprites.isEmpty else { continue }

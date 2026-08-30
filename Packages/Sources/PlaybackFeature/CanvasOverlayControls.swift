@@ -20,23 +20,46 @@ struct CanvasOverlayControls: View {
 
     // ─── Groups ──────────────────────────────────────────────────────────────
 
-    /// The canvas ratio, as a readout.
+    /// Switches the stage between the wide and narrow frames.
     ///
-    /// Plain text rather than a `Menu`: on macOS a menu is an AppKit control
+    /// A button rather than a `Menu`: on macOS a menu is an AppKit control
     /// underneath, and an AppKit view ignores the `.opacity` SwiftUI applies to
     /// its container — it draws straight through, so the pill stayed visible
     /// with the controls hidden and dragged the whole row into view with it.
-    ///
-    /// Nothing is lost: osu! storyboards are always 4:3 inside a 16:9 frame, so
-    /// there was never a second option to pick.
+    /// With two states there is nothing to choose from anyway.
     private var aspectRatio: some View {
-        Text("16 : 9")
-            .font(Theme.Typography.label)
-            .foregroundStyle(Theme.Palette.secondary)
+        Button {
+            model.isWidescreen.toggle()
+        } label: {
+            HStack(spacing: Theme.Spacing.tight) {
+                Text(model.isWidescreen ? "16 : 9" : "4 : 3")
+                    .font(Theme.Typography.label)
+                    .foregroundStyle(Theme.Palette.secondary)
+
+                // Marked when it disagrees with the beatmap, so an override is
+                // visible rather than mistaken for what the map asked for.
+                if model.isWidescreen != model.beatmapIsWidescreen {
+                    Circle()
+                        .fill(Theme.Palette.warning)
+                        .frame(width: Theme.Spacing.tight, height: Theme.Spacing.tight)
+                }
+            }
             .padding(.horizontal, Theme.Spacing.compact)
             .frame(height: Theme.Size.pill)
-            .revealed(isRevealed)
-            .help("osu! storyboards are always 4:3 in a 16:9 frame")
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .revealed(isRevealed)
+        .help(aspectRatioHelp)
+    }
+
+    private var aspectRatioHelp: String {
+        let target = model.isWidescreen ? "4:3" : "16:9"
+        let asAuthored = model.isWidescreen == model.beatmapIsWidescreen
+
+        return asAuthored
+            ? "Switch to \(target) — this beatmap was authored for \(model.isWidescreen ? "16:9" : "4:3")"
+            : "Switch back to \(target), as the beatmap asks for"
     }
 
     private var transport: some View {

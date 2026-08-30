@@ -97,6 +97,12 @@ public struct BeatmapTimingData: Sendable, Equatable {
     public var metadata: BeatmapMetadata
     /// Audio file name, relative to the beatmap folder.
     public var audioFilename: String
+    /// Whether the storyboard was authored for a 16:9 frame.
+    ///
+    /// osu! draws a 4:3 storyboard pillarboxed rather than stretched, so a map
+    /// with this off has sprites positioned for the narrower stage — laying
+    /// them across a wide one puts everything in the wrong place.
+    public var isWidescreen: Bool
     /// Red timing points, sorted by time.
     public var uninheritedPoints: [UninheritedTimingPoint]
     public var breaks: [BreakPeriod]
@@ -105,12 +111,14 @@ public struct BeatmapTimingData: Sendable, Equatable {
     public init(
         metadata: BeatmapMetadata = BeatmapMetadata(),
         audioFilename: String = "",
+        isWidescreen: Bool = false,
         uninheritedPoints: [UninheritedTimingPoint] = [],
         breaks: [BreakPeriod] = [],
         kiaiSections: [KiaiSection] = [],
     ) {
         self.metadata = metadata
         self.audioFilename = audioFilename
+        self.isWidescreen = isWidescreen
         self.uninheritedPoints = uninheritedPoints
         self.breaks = breaks
         self.kiaiSections = kiaiSections

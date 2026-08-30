@@ -33,6 +33,16 @@ public final class PlaybackModel {
     public private(set) var status: Status = .loading
     public private(set) var hasAudio = false
 
+    /// Which stage the storyboard is drawn on.
+    ///
+    /// Taken from the beatmap's own `WidescreenStoryboard` setting, and
+    /// overridable: a map can be authored for one and still worth checking
+    /// against the other.
+    public var isWidescreen = true
+
+    /// What the beatmap itself asks for, so the override can be undone.
+    public private(set) var beatmapIsWidescreen = true
+
     /// The canvas fills the window, hiding the panels and timeline.
     ///
     /// Full screen for the storyboard rather than for the window: the point is
@@ -141,6 +151,11 @@ public final class PlaybackModel {
         self.timing = timing
         self.missingImagePaths = missingImagePaths
         status = .ready(name)
+
+        // A beatmap with no `.osu` to read is assumed wide, which is what
+        // storyboards have been authored for since the setting existed.
+        beatmapIsWidescreen = timing?.isWidescreen ?? true
+        isWidescreen = beatmapIsWidescreen
 
         // Paused on arrival: opening a beatmap is a step towards editing it,
         // not a request to play it, and music starting on its own is startling

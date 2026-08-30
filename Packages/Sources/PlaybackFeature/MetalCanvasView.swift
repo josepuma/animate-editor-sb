@@ -15,6 +15,13 @@ struct MetalCanvasView: NSViewRepresentable {
     func makeNSView(context: Context) -> MTKView {
         let view = MTKView()
         view.device = MTLCreateSystemDefaultDevice()
+        // Plain `bgra8Unorm`, not the `_srgb` variant.
+        //
+        // osu! composites its storyboards in gamma space — sprite colours are
+        // blended as the bytes stand, without a conversion to linear light and
+        // back. Declaring sRGB here makes the GPU do that conversion, which is
+        // more correct in the abstract and wrong for matching what the artwork
+        // was drawn against: overlaps darken and edges pick up a fringe.
         view.colorPixelFormat = .bgra8Unorm
         // osu! composites a storyboard over black, and anything else tints
         // every partly transparent sprite.
@@ -25,7 +32,9 @@ struct MetalCanvasView: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_: MTKView, context _: Context) {}
+    func updateNSView(_: MTKView, context: Context) {
+        context.coordinator.setWidescreen(model.isWidescreen)
+    }
 
     /// Owns the renderer and advances the clock once per frame.
     @MainActor
@@ -72,6 +81,7 @@ struct MetalCanvasView: NSViewRepresentable {
                         source.imageData(for: path).map { .data($0) }
                     }
 
+                    renderer.isWidescreen = model.isWidescreen
                     self.renderer = renderer
                     model.contentLoaded(
                         name: source.displayName,
@@ -85,6 +95,10 @@ struct MetalCanvasView: NSViewRepresentable {
                     self?.model.contentFailed("\(error)")
                 }
             }
+        }
+
+        func setWidescreen(_ isWidescreen: Bool) {
+            renderer?.isWidescreen = isWidescreen
         }
 
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
