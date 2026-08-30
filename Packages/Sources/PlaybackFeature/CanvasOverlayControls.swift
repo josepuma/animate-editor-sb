@@ -171,9 +171,12 @@ private struct ScrubBar: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let progress = model.duration > 0
-                ? model.currentTime / model.duration
-                : 0
+            // Measured against the timeline rather than the track: a storyboard
+            // that opens before the music would otherwise show negative
+            // progress, and one that outlasts it would fill the bar early.
+            let range = model.timelineRange
+            let span = max(range.upperBound - range.lowerBound, 1)
+            let progress = min(max((model.currentTime - range.lowerBound) / span, 0), 1)
 
             ZStack(alignment: .leading) {
                 Capsule()
@@ -192,7 +195,7 @@ private struct ScrubBar: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         let ratio = min(max(0, value.location.x / proxy.size.width), 1)
-                        model.seek(to: ratio * model.duration)
+                        model.seek(to: range.lowerBound + ratio * span)
                     },
             )
         }

@@ -32,6 +32,11 @@ struct AudioTrackRow: View {
             header
             content
                 .frame(width: scale.width)
+                // Clipped to its own lane, like the clip rows: zoomed in, the
+                // waveform runs past both edges of the space it belongs in.
+                .clipShape(
+                    RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous),
+                )
 
             Spacer(minLength: 0)
         }
@@ -93,22 +98,23 @@ struct AudioTrackRow: View {
             // animated by something the canvas cannot see.
             .scaleEffect(y: growth, anchor: .center)
             .animation(.easeOut(duration: Theme.Motion.deliberateDuration), value: hasGrown)
-            // Only as wide as the audio actually runs: a storyboard that
-            // outlasts the track leaves bare timeline past this point, which is
-            // the whole reason the row is worth having.
-            .frame(width: audioWidth)
+            // Spans the whole lane rather than only the audio's own stretch:
+            // the drawing skips bars that fall outside the track, so where the
+            // music ends reads as empty lane instead of a shortened canvas —
+            // and the bars land wherever their moment does, at any zoom.
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous))
         }
         .padding(.vertical, Theme.Spacing.tight)
     }
 
-    private var audioWidth: CGFloat {
-        min(scale.width(of: audioDuration), scale.width)
-    }
-
     /// Draws the waveform as a run of rounded bars mirrored about the midline.
+    ///
+    /// Each bar asks the scale which moment it stands for, rather than dividing
+    /// the peaks evenly across the width. Spread evenly the whole track is drawn
+    /// into whatever space is given, so zooming in shows the same picture
+    /// stretched instead of a closer look at that stretch of music.
     private func draw(in context: GraphicsContext, size: CGSize) {
-        guard !peaks.isEmpty, size.width > 0 else { return }
+        guard !peaks.isEmpty, size.width > 0, audioDuration > 0 else { return }
 
         let barWidth: CGFloat = 3
         let gap: CGFloat = 3
@@ -118,18 +124,24 @@ struct AudioTrackRow: View {
         // Leaves the bars short of the row's own edge, so the tallest peak does
         // not read as clipped.
         let maxHeight = size.height - Theme.Spacing.snug
-        // Buckets get averaged into one bar each, rather than sampled: at this
-        // width a track has far more peaks than bars, and picking one value per
-        // bar drops the transients that give a waveform its shape.
-        let peaksPerBar = max(1, peaks.count / barCount)
+
+        // How much of the track one bar covers, in milliseconds.
+        let visible = scale.range
+        let visibleDuration = visible.upperBound - visible.lowerBound
+        let msPerBar = visibleDuration / Double(barCount)
 
         for index in 0..<barCount {
             let x = CGFloat(index) * stride
+            // The moment this bar stands for, mapped back through the same
+            // scale the clips and the ruler use.
+            let time = visible.lowerBound + Double(index) * msPerBar
+            guard time >= 0, time <= audioDuration else { continue }
+
             // The peaks arrive already curved: the extractor takes the square
             // root when it normalises, for the same reason level meters are
             // drawn on a curve. Applying it again here compresses the top of
             // the range into itself and every bar ends up the same height.
-            let amplitude = CGFloat(peak(forBar: index, of: peaksPerBar))
+            let amplitude = CGFloat(peak(from: time, through: time + msPerBar))
             let barHeight = max(barWidth, amplitude * maxHeight)
 
             let bar = Path(
@@ -145,16 +157,21 @@ struct AudioTrackRow: View {
         }
     }
 
-    /// The loudest peak a bar stands for.
+    /// The loudest peak between two moments in the track.
     ///
-    /// The maximum rather than the average of its bucket: averaging smooths a
-    /// track towards its own mean, and what makes a waveform readable is the
-    /// difference between a hit and the space around it.
-    private func peak(forBar index: Int, of peaksPerBar: Int) -> Double {
-        let start = index * peaksPerBar
-        guard start < peaks.count else { return 0 }
+    /// The maximum rather than the average: averaging smooths a track towards
+    /// its own mean, and what makes a waveform readable is the difference
+    /// between a hit and the space around it.
+    private func peak(from start: Double, through end: Double) -> Double {
+        let count = Double(peaks.count)
+        let first = Int(start / audioDuration * count)
+        let last = Int(end / audioDuration * count)
 
-        let end = min(start + peaksPerBar, peaks.count)
-        return Double(peaks[start..<end].max() ?? 0)
+        let lower = min(max(first, 0), peaks.count - 1)
+        // At least one peak: zoomed far in a bar covers less than a bucket, and
+        // an empty slice would draw nothing where there is music.
+        let upper = min(max(last, lower + 1), peaks.count)
+
+        return Double(peaks[lower..<upper].max() ?? 0)
     }
 }

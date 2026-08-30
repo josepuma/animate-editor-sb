@@ -28,7 +28,7 @@ struct PosterCard<Artwork: View, Footer: View>: View {
         title: String,
         subtitle: String? = nil,
         badge: String? = nil,
-        aspectRatio: CGFloat = 16.0 / 9.0,
+        aspectRatio: CGFloat =  9.0 / 16.0,
         isBusy: Bool = false,
         action: @escaping () -> Void,
         @ViewBuilder artwork: () -> Artwork,

@@ -201,13 +201,18 @@ public final class PlaybackModel {
 
     public func startPlayback() {
         guard !status.isFailure else { return }
-        // Restart from the top when resuming at the end.
-        if currentTime >= duration - 1 { seek(to: timelineRange.lowerBound) }
 
-        // Not while the clock is still before zero: `advance` starts the track
-        // as the playhead reaches it, so the lead-in plays in silence as it
-        // should.
-        if hasAudio, currentTime >= 0 { audio.play() }
+        // Restart from the top when resuming at the end — the end of the
+        // timeline, not of the track: pressing play on a storyboard's closing
+        // seconds should play them, not jump back to the beginning.
+        if currentTime >= timelineRange.upperBound - 1 {
+            seek(to: timelineRange.lowerBound)
+        }
+
+        // Only while the playhead is within the track. Outside it, `advance`
+        // runs the clock on its own and starts the audio when the playhead
+        // arrives, so a lead-in or a tail plays out in silence as it should.
+        if hasAudio, currentTime >= 0, currentTime < duration { audio.play() }
         isPlaying = true
     }
 
@@ -224,9 +229,14 @@ public final class PlaybackModel {
     /// nothing to play before its own first sample.
     public func seek(to time: Double) {
         currentTime = min(max(timelineRange.lowerBound, time), timelineRange.upperBound)
+        guard hasAudio else { return }
 
-        if hasAudio {
-            audio.seek(toMilliseconds: min(max(0, currentTime), duration))
+        audio.seek(toMilliseconds: min(max(0, currentTime), duration))
+
+        // Landing outside the track silences it: scrubbing into a lead-in or a
+        // tail should not leave the first or last moment of the music sounding.
+        if isPlaying, currentTime < 0 || currentTime >= duration {
+            audio.pause()
         }
     }
 
@@ -236,36 +246,70 @@ public final class PlaybackModel {
 
     public var volume: Float { audio.volume }
 
+    /// How far behind the audio engine may report before its position is taken
+    /// as a seek rather than as it catching up.
+    ///
+    /// A few frames' worth: an engine just told to play lags by a frame or two,
+    /// while anything further back is somebody having moved the playhead.
+    private static let audioCatchUpTolerance: Double = 250
+
     // ─── Frame updates ───────────────────────────────────────────────────────
 
     /// Advances the clock by one frame.
     ///
-    /// - Parameter delta: elapsed time in milliseconds, used only when there is
-    ///   no audio to follow.
+    /// The clock follows the timeline, not the track. A storyboard is allowed
+    /// to open before the first note and to run past the last, and both of
+    /// those stretches have to play: the audio is one source the clock can
+    /// borrow from while it lasts, not the definition of how long the piece is.
+    ///
+    /// - Parameter delta: elapsed time in milliseconds, used whenever the
+    ///   playhead is outside the track and has no audio clock to follow.
     public func advance(by delta: Double) {
         guard isPlaying else { return }
 
-        // Before zero the track has nothing to play, so the clock runs on the
-        // frame delta and the audio waits. A storyboard that opens early is
-        // meant to be watched through that lead-in rather than skipped past it.
-        if currentTime < 0 {
-            currentTime = min(currentTime + delta, 0)
-            if currentTime >= 0, hasAudio { audio.play() }
+        // Outside the track, the clock runs on the frame delta and the audio
+        // stays quiet — a lead-in before the music, or a tail after it.
+        guard currentTime >= 0, currentTime < duration, hasAudio, audio.isPlaying else {
+            currentTime += delta
+
+            if currentTime > timelineRange.upperBound {
+                loopToStart()
+            } else if hasAudio, !audio.isPlaying, currentTime >= 0, currentTime < duration {
+                // The playhead has reached the track: start it where the clock
+                // already is rather than from the top.
+                audio.seek(toMilliseconds: currentTime)
+                audio.play()
+            }
             return
         }
 
-        if hasAudio {
-            currentTime = min(audio.currentTime, duration)
-            if audio.hasReachedEnd { loopToStart() }
-        } else {
-            currentTime += delta
-            if currentTime > duration { loopToStart() }
+        // Within the track the audio hardware keeps the time, because a display
+        // link and an audio device drift apart.
+        //
+        // Except while the engine is still catching up: told to play, it
+        // reports its old position for a few frames, and taking that would snap
+        // the playhead back to where the audio was rather than where the clock
+        // has reached. A large jump is a seek and is followed; a small step
+        // backwards is the engine lagging and is ignored.
+        let reported = audio.currentTime
+        let isLag = reported < currentTime && currentTime - reported < Self.audioCatchUpTolerance
+        currentTime = isLag ? currentTime + delta : reported
+
+        if audio.hasReachedEnd {
+            // Past the end of the music the clock carries on by itself, so a
+            // storyboard that outlasts its track still plays out.
+            audio.pause()
+            currentTime = duration
+
+            if currentTime >= timelineRange.upperBound { loopToStart() }
         }
     }
 
     private func loopToStart() {
         seek(to: timelineRange.lowerBound)
-        if hasAudio, isPlaying, currentTime >= 0 { audio.play() }
+        if hasAudio, isPlaying, currentTime >= 0, currentTime < duration {
+            audio.play()
+        }
     }
 
     public func frameRendered(drawnCount: Int, framesPerSecond: Double) {
@@ -280,8 +324,10 @@ public final class PlaybackModel {
         Self.timecode(for: currentTime)
     }
 
+    /// How far playback runs, which is the end of the timeline rather than of
+    /// the track: the transport counts up to where the storyboard stops.
     public var durationTimecode: String {
-        Self.timecode(for: duration)
+        Self.timecode(for: timelineRange.upperBound)
     }
 
     private static func timecode(for milliseconds: Double) -> String {

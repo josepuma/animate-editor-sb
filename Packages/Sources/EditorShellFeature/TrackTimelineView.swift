@@ -27,6 +27,35 @@ struct TrackTimelineView: View {
     /// place instead of appearing mid-playback.
     @State private var waveformGrowth: Double = 0
 
+    /// How much of the storyboard is on screen, and which part.
+    ///
+    /// Only the magnification and offset are stored; the span they apply to is
+    /// read from `timelineRange` on every use. Keeping a copy of the span in
+    /// state means it can fall behind — the range arrives in two stages, first
+    /// from the sprites and again once the audio is measured — and a window
+    /// computed against a stale span puts the ruler and the clips on different
+    /// timelines.
+    @State private var zoomState = TimelineZoom.State()
+    /// How far the current pan drag had travelled at the last event.
+    @State private var lastPanTranslation: CGFloat = 0
+
+    private var zoom: TimelineZoom {
+        TimelineZoom(full: timelineRange, state: zoomState)
+    }
+
+    /// Applies a change to the zoom, keeping only what the view stores.
+    private func mutateZoom(_ change: (inout TimelineZoom) -> Void) {
+        var updated = zoom
+        change(&updated)
+        zoomState = updated.state
+    }
+
+    /// What the ruler and rows are drawn against: the visible window, which is
+    /// the whole storyboard until someone zooms in.
+    private var visibleRange: ClosedRange<Double> {
+        zoom.visible
+    }
+
     /// Width of the track headers.
     static let headerWidth: CGFloat = 132
     private static let rulerHeight: CGFloat = 32
@@ -105,6 +134,19 @@ struct TrackTimelineView: View {
         .padding(Theme.Spacing.compact)
         .frame(height: Self.height(trackCount: shell.tracks.count))
         .surface(.panel)
+        .onChange(of: shell.tracks.count) { _, _ in
+            // A new storyboard is a new span, so the view starts whole again
+            // rather than keeping a window onto the last one. Keyed on the
+            // track count rather than the range: the range settles in stages as
+            // a beatmap loads, and resetting on each of those would undo a zoom
+            // the moment it was applied.
+            zoomState = TimelineZoom.State()
+        }
+        .onChange(of: currentTime) { _, time in
+            // Pages the view forward as the playhead nears the edge, so playing
+            // past the window carries on rather than running off it.
+            mutateZoom { $0.follow(time) }
+        }
     }
 
     // ─── Tools ───────────────────────────────────────────────────────────────
@@ -127,26 +169,40 @@ struct TrackTimelineView: View {
                 help: "Split at playhead",
             ) {}
 
-            IconButton(
-                systemImage: "slider.horizontal.3",
-                size: Theme.Size.controlTiny,
-                help: "Track settings",
-            ) {}
+            // Editing tools on one side, view controls on the other: zoom
+            // changes what is looked at rather than what is there, and the rule
+            // says so without a label.
+            BarDivider()
 
             IconButton(
-                systemImage: "trash",
+                systemImage: "minus.magnifyingglass",
                 size: Theme.Size.controlTiny,
-                help: "Delete track",
-            ) {}
+                isActive: zoom.canZoomOut,
+                help: "Zoom out",
+            ) {
+                mutateZoom { $0.zoomOut(around: currentTime) }
+            }
+            .disabled(!zoom.canZoomOut)
+
+            IconButton(
+                systemImage: "plus.magnifyingglass",
+                size: Theme.Size.controlTiny,
+                isActive: zoom.canZoomIn,
+                help: "Zoom in",
+            ) {
+                mutateZoom { $0.zoomIn(around: currentTime) }
+            }
+            .disabled(!zoom.canZoomIn)
         }
         .padding(.leading, Theme.Spacing.snug)
         .frame(width: Self.headerWidth, alignment: .leading)
+        .animation(Theme.Motion.quick, value: zoom.magnification)
     }
 
     // ─── Ruler ───────────────────────────────────────────────────────────────
 
     private func ruler(width: CGFloat) -> some View {
-        let scale = TimelineScale(range: timelineRange, width: width)
+        let scale = TimelineScale(range: visibleRange, width: width)
 
         return ZStack(alignment: .leading) {
             Canvas { context, size in
@@ -159,6 +215,22 @@ struct TrackTimelineView: View {
                 .onChanged { value in
                     seek(scale.time(atX: value.location.x))
                 },
+        )
+        // Held-shift drags the view instead of the playhead — the same
+        // distinction a video editor draws between scrubbing and panning.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 4)
+                .modifiers(.shift)
+                .onChanged { value in
+                    guard width > 0 else { return }
+                    // `translation` measures from where the drag began, so it
+                    // has to be differenced: applying it whole on every event
+                    // would pan by the total again and again and race away.
+                    let step = value.translation.width - lastPanTranslation
+                    lastPanTranslation = value.translation.width
+                    mutateZoom { $0.pan(byFractionOfWindow: -Double(step / width)) }
+                }
+                .onEnded { _ in lastPanTranslation = 0 },
         )
         .onChange(of: waveformPeaks.count, initial: true) { _, count in
             guard count > 0 else {
@@ -175,7 +247,7 @@ struct TrackTimelineView: View {
     /// land in order to leave gaps for them — a dark plate behind each label
     /// would read as a pill sitting on the ruler.
     private func drawRuler(in context: GraphicsContext, size: CGSize, growth: Double) {
-        let scale = TimelineScale(range: timelineRange, width: size.width)
+        let scale = TimelineScale(range: visibleRange, width: size.width)
         let interval = Self.labelInterval(duration: scale.duration, width: size.width)
         guard interval > 0 else { return }
 
@@ -187,16 +259,16 @@ struct TrackTimelineView: View {
         var labels: [(text: GraphicsContext.ResolvedText, centre: CGFloat, span: ClosedRange<CGFloat>)] = []
         // Ticks land on round times rather than on the span's own start, so a
         // storyboard opening at -420ms still shows 0:00 where the track begins.
-        var time = (timelineRange.lowerBound / interval).rounded(.down) * interval
+        var time = (visibleRange.lowerBound / interval).rounded(.down) * interval
 
-        while time <= timelineRange.upperBound {
+        while time <= visibleRange.upperBound {
             defer { time += interval }
 
             // A tick rounded down from a negative start can land before the
             // span begins. Nudging it inwards instead of dropping it stacks it
             // on top of the next one, which is what turns the left end of the
             // ruler into overlapping text.
-            guard time >= timelineRange.lowerBound else { continue }
+            guard time >= visibleRange.lowerBound else { continue }
 
             let resolved = context.resolve(
                 Text(Self.timeLabel(time))
@@ -291,7 +363,7 @@ struct TrackTimelineView: View {
                 atX: x,
                 width: size.width,
                 currentTime: currentTime,
-                range: timelineRange,
+                range: visibleRange,
             )
 
             if playedRatio > 0 {
@@ -355,7 +427,7 @@ struct TrackTimelineView: View {
                     TrackRowView(
                         track: track,
                         isSelected: track.id == shell.selectedTrackID,
-                        scale: TimelineScale(range: timelineRange, width: contentWidth),
+                        scale: TimelineScale(range: visibleRange, width: contentWidth),
                         headerWidth: Self.headerWidth,
                         height: Self.trackHeight,
                         select: { shell.selectedTrackID = track.id },
@@ -369,7 +441,7 @@ struct TrackTimelineView: View {
                 if !waveformPeaks.isEmpty {
                     AudioTrackRow(
                         peaks: waveformPeaks,
-                        scale: TimelineScale(range: timelineRange, width: contentWidth),
+                        scale: TimelineScale(range: visibleRange, width: contentWidth),
                         audioDuration: audioDuration,
                         headerWidth: Self.headerWidth,
                         height: Self.audioTrackHeight,
@@ -389,7 +461,7 @@ struct TrackTimelineView: View {
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    let scale = TimelineScale(range: timelineRange, width: contentWidth)
+                    let scale = TimelineScale(range: visibleRange, width: contentWidth)
                     seek(scale.time(atX: value.location.x - Self.contentOrigin))
                 },
         )
@@ -411,7 +483,7 @@ struct TrackTimelineView: View {
 
     private func regionOverlay(width: CGFloat) -> some View {
         Canvas { context, size in
-            let scale = TimelineScale(range: timelineRange, width: size.width)
+            let scale = TimelineScale(range: visibleRange, width: size.width)
             let x = { (time: Double) in scale.x(of: time) }
 
             for period in breaks {
@@ -444,7 +516,7 @@ struct TrackTimelineView: View {
         // corners; borrowing it here would park the playhead twelve points to
         // the right of the block it is entering, and the block is what the eye
         // checks it against.
-        let x = TimelineScale(range: timelineRange, width: width).x(of: currentTime)
+        let x = TimelineScale(range: visibleRange, width: width).x(of: currentTime)
 
         return ZStack(alignment: .top) {
             Rectangle()
@@ -488,7 +560,7 @@ struct TrackTimelineView: View {
 
 // ─── Track row ───────────────────────────────────────────────────────────────
 
-private struct TrackRowView: View {
+struct TrackRowView: View {
     let track: ScriptTrack
     let isSelected: Bool
     /// The span and width the clips are drawn against, measured once by the
@@ -511,6 +583,12 @@ private struct TrackRowView: View {
             header
             content
                 .frame(width: scale.width)
+                // Clipped to its own lane: zoomed in, a clip can begin before
+                // the left edge and end past the right, and without this it
+                // draws straight over the header beside it.
+                .clipShape(
+                    RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous),
+                )
 
             Spacer(minLength: 0)
         }
@@ -576,6 +654,10 @@ private struct TrackRowView: View {
         .frame(width: headerWidth, alignment: .leading)
     }
 
+    private var visibleSpans: [VisibleSpan] {
+        VisibleSpan.spans(of: track.activeRanges, scale: scale)
+    }
+
     /// Spans drawn as clip pills rather than filled rectangles, so a track
     /// reads as content sitting on the timeline.
     private var content: some View {
@@ -583,9 +665,10 @@ private struct TrackRowView: View {
             RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
                 .fill(Theme.Fill.subtle)
 
-            ForEach(Array(track.activeRanges.enumerated()), id: \.offset) { index, range in
-                let start = scale.x(of: range.lowerBound)
-                let spanWidth = max(3, scale.x(of: range.upperBound) - start)
+            ForEach(visibleSpans, id: \.index) { span in
+                let start = span.start
+                let spanWidth = span.width
+                let index = span.index
 
                     TrackBlock(
                         tint: track.layer.tint,
