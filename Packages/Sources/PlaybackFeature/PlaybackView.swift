@@ -12,8 +12,6 @@ public struct PlaybackView: View {
     @Bindable private var timeline: TimelineModel
     private let source: any StoryboardSource
 
-    @State private var isHovered = false
-
     public init(
         model: PlaybackModel,
         timeline: TimelineModel,
@@ -32,12 +30,39 @@ public struct PlaybackView: View {
 
     /// The Metal canvas, letterboxed to osu!'s 16:9 ratio, with statistics in
     /// one corner and playback controls along the bottom.
-    public var canvas: some View {
+    ///
+    /// A view rather than a computed property, because it owns hover state.
+    /// Handed out as `someView.canvas`, the state would belong to a
+    /// `PlaybackView` that never enters the view tree — and `@State` on a view
+    /// SwiftUI never installs has no identity, so writes to it go nowhere.
+    public var canvas: PlaybackCanvas {
+        PlaybackCanvas(model: model, timeline: timeline, source: source)
+    }
+}
+
+/// The canvas and everything drawn over it.
+public struct PlaybackCanvas: View {
+    @Bindable var model: PlaybackModel
+    @Bindable var timeline: TimelineModel
+    let source: any StoryboardSource
+
+    /// The pointer is over the picture, reported by the canvas itself.
+    @State private var isOverCanvas = false
+    /// The pointer is over the controls drawn on top of it.
+    ///
+    /// Tracked separately because the canvas reports the pointer leaving the
+    /// moment it crosses onto a button: without this the controls would vanish
+    /// exactly when they are being reached for.
+    @State private var isOverControls = false
+
+    private var isHovered: Bool { isOverCanvas || isOverControls }
+
+    public var body: some View {
         GeometryReader { proxy in
             let size = fittedSize(in: proxy.size)
 
             ZStack {
-                MetalCanvasView(model: model, source: source)
+                MetalCanvasView(model: model, source: source) { isOverCanvas = $0 }
                     .frame(width: size.width, height: size.height)
                     .clipShape(
                         RoundedRectangle(cornerRadius: Theme.Radius.stage, style: .continuous),
@@ -51,7 +76,6 @@ public struct PlaybackView: View {
                     )
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
-            .onHover { isHovered = $0 }
         }
         .onChange(of: model.timing) { _, timing in
             timeline.setTiming(timing)
@@ -77,6 +101,9 @@ public struct PlaybackView: View {
                     CanvasVolumeControl(model: model, isRevealed: isHovered)
                 }
             }
+            // The controls keep themselves revealed while the pointer is on
+            // them; the canvas has already reported it left.
+            .onHover { isOverControls = $0 }
             // Extra room beneath the controls: sitting hard against the canvas
             // edge makes them look clipped rather than placed.
             .padding(.bottom, Theme.Spacing.snug)
@@ -91,6 +118,7 @@ public struct PlaybackView: View {
             ? byWidth
             : CGSize(width: available.height * aspect, height: available.height)
     }
+
 }
 
 // ─── Render statistics ───────────────────────────────────────────────────────

@@ -39,6 +39,7 @@ let package = Package(
         .library(name: "EditorShellFeature", targets: ["EditorShellFeature"]),
         .executable(name: "AnimateEditor", targets: ["AnimateEditorApp"]),
         .executable(name: "RendererHarness", targets: ["RendererHarness"]),
+        .executable(name: "DesignSystemGallery", targets: ["DesignSystemGallery"]),
     ],
     targets: [
         // ── Core ────────────────────────────────────────────────────────────
@@ -97,6 +98,11 @@ let package = Package(
                 "DesignSystem",
             ],
         ),
+        .testTarget(
+            name: "DesignSystemTests",
+            dependencies: ["DesignSystem"],
+        ),
+
         .target(
             name: "ProjectBrowserFeature",
             dependencies: ["StoryboardPersistence", "DesignSystem"],
@@ -128,6 +134,14 @@ let package = Package(
         .executableTarget(
             name: "RendererHarness",
             dependencies: ["StoryboardCore", "StoryboardRendering", "PlaybackFeature"],
+        ),
+
+        // Every component on one screen, so the system can be reviewed as a
+        // whole. Inconsistencies between two controls are invisible while each
+        // one is only ever seen in its own corner of the app.
+        .executableTarget(
+            name: "DesignSystemGallery",
+            dependencies: ["DesignSystem"],
         ),
     ],
 )

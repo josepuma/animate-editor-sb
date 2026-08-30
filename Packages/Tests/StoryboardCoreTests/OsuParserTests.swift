@@ -60,6 +60,36 @@ struct OsuParserTests {
         #expect(timing.metadata.artistUnicode == "Band")
     }
 
+    @Test("display fields prefer the original script over the romanisation")
+    func prefersOriginalScript() {
+        // `Title` is a romanisation kept for searching; `TitleUnicode` is what
+        // the artist actually called the song, and that is what to show.
+        let timing = OsuParser.parse("""
+        [Metadata]
+        Title:Yoru ni Kakeru
+        TitleUnicode:夜に駆ける
+        Artist:YOASOBI
+        ArtistUnicode:ヨアソビ
+        """)
+
+        #expect(timing.metadata.displayTitle == "夜に駆ける")
+        #expect(timing.metadata.displayArtist == "ヨアソビ")
+        #expect(timing.metadata.displayName == "ヨアソビ - 夜に駆ける")
+    }
+
+    @Test("display fields fall back to the romanisation when there is no original")
+    func fallsBackToRomanisation() {
+        // English-titled maps leave the unicode fields empty or identical.
+        let timing = OsuParser.parse("""
+        [Metadata]
+        Title:Big Black
+        Artist:The Quick Brown Fox
+        """)
+
+        #expect(timing.metadata.displayTitle == "Big Black")
+        #expect(timing.metadata.displayArtist == "The Quick Brown Fox")
+    }
+
     @Test("displayName copes with missing halves")
     func displayNameHandlesMissingFields() {
         #expect(BeatmapMetadata(title: "Song").displayName == "Song")

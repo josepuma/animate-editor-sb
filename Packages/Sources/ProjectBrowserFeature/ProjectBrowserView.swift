@@ -3,10 +3,13 @@ import StoryboardPersistence
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Landing screen: pick a beatmap folder, or reopen a recent one.
+/// Landing screen: a wall of recently opened beatmaps, or a way to add one.
 public struct ProjectBrowserView: View {
     @State private var model: ProjectBrowserModel
     @State private var isTargetedForDrop = false
+
+    /// Card width. The grid fits as many as the window allows.
+    private static let cardWidth: CGFloat = 260
 
     /// - Parameter onOpen: called with a folder that loaded successfully.
     public init(onOpen: @escaping (URL) -> Void) {
@@ -14,16 +17,26 @@ public struct ProjectBrowserView: View {
     }
 
     public var body: some View {
-        VStack(spacing: Theme.Spacing.section) {
-            header
-            dropZone
-            if !model.recents.isEmpty { recentsList }
-            Spacer(minLength: 0)
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Spacing.loose) {
+                header
+
+                if model.recents.isEmpty {
+                    emptyState
+                } else {
+                    recentsGrid
+                }
+            }
+            .padding(Theme.Spacing.section)
         }
-        .padding(Theme.Spacing.section)
-        .frame(minWidth: 620, minHeight: 520)
+        .frame(minWidth: 760, minHeight: 560)
         .background(Theme.Palette.stage)
         .surfaceGroup()
+        .onDrop(of: [.fileURL], isTargeted: $isTargetedForDrop, perform: handleDrop)
+        .overlay {
+            if isTargetedForDrop { dropHighlight }
+        }
+        .animation(Theme.Motion.quick, value: isTargetedForDrop)
         .alert(
             "Could not open that folder",
             isPresented: Binding(
@@ -40,66 +53,80 @@ public struct ProjectBrowserView: View {
     // ─── Sections ────────────────────────────────────────────────────────────
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
-            Text("Animate Editor")
-                .font(Theme.Typography.title)
-                .foregroundStyle(Theme.Palette.primary)
+        HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.regular) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
+                Text("Animate Editor")
+                    .font(Theme.Typography.title)
+                    .foregroundStyle(Theme.Palette.primary)
 
-            Text("Open a beatmap folder to play its storyboard")
-                .font(Theme.Typography.body)
-                .foregroundStyle(Theme.Palette.secondary)
+                Text("Storyboards for osu!")
+                    .font(Theme.Typography.body)
+                    .foregroundStyle(Theme.Palette.secondary)
+            }
+
+            Spacer(minLength: Theme.Spacing.regular)
+
+            Button("Open Folder", systemImage: "plus", action: chooseFolder)
+                .buttonStyle(.themed(.secondary, size: .small, capsule: true))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var dropZone: some View {
+    private var recentsGrid: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.compact) {
+            SectionHeader("Recent")
+
+            LazyVGrid(
+                columns: [
+                    GridItem(
+                        .adaptive(minimum: Self.cardWidth, maximum: .infinity),
+                        spacing: Theme.Spacing.regular,
+                    ),
+                ],
+                spacing: Theme.Spacing.loose,
+            ) {
+                ForEach(model.recents) { entry in
+                    BeatmapCard(
+                        entry: entry,
+                        preview: model.previews[entry.id],
+                        open: { model.open(url: entry.url) },
+                        forget: { model.forget(entry) },
+                    )
+                }
+            }
+        }
+    }
+
+    private var emptyState: some View {
         VStack(spacing: Theme.Spacing.compact) {
             Image(systemName: "folder.badge.plus")
                 .font(Theme.Typography.emptyStateIcon)
+                .foregroundStyle(Theme.Palette.tertiary)
+
+            Text("No beatmaps yet")
+                .font(Theme.Typography.cardTitle)
                 .foregroundStyle(Theme.Palette.secondary)
 
-            Text("Drop a beatmap folder here")
-                .font(Theme.Typography.body)
-                .foregroundStyle(Theme.Palette.secondary)
-
-            Button("Choose Folder…", action: chooseFolder)
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+            Text("Drop a folder anywhere, or use Open Folder")
+                .font(Theme.Typography.micro)
+                .foregroundStyle(Theme.Palette.tertiary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, Theme.Spacing.page)
         .surface(.panel, radius: Theme.Radius.stage)
-        .overlay {
-            RoundedRectangle(cornerRadius: Theme.Radius.stage, style: .continuous)
-                .strokeBorder(
-                    isTargetedForDrop ? Theme.Palette.accent : .clear,
-                    style: StrokeStyle(lineWidth: 2, dash: [6, 4]),
-                )
-        }
-        .animation(Theme.Motion.quick, value: isTargetedForDrop)
-        .onDrop(of: [.fileURL], isTargeted: $isTargetedForDrop, perform: handleDrop)
     }
 
-    private var recentsList: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
-            Text("Recent")
-                .font(Theme.Typography.heading)
-                .foregroundStyle(Theme.Palette.secondary)
-
-            ScrollView {
-                LazyVStack(spacing: Theme.Spacing.snug) {
-                    ForEach(model.recents) { entry in
-                        RecentRow(
-                            entry: entry,
-                            open: { model.open(url: entry.url) },
-                            forget: { model.forget(entry) },
-                        )
-                    }
-                }
-            }
-            .frame(maxHeight: 220)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    /// Shown while a folder is held over the window.
+    ///
+    /// The whole window is the drop target rather than a marked-out zone, which
+    /// is one fewer thing to aim at.
+    private var dropHighlight: some View {
+        RoundedRectangle(cornerRadius: Theme.Radius.stage, style: .continuous)
+            .strokeBorder(
+                Theme.Palette.accent,
+                style: StrokeStyle(lineWidth: 2, dash: [8, 5]),
+            )
+            .padding(Theme.Spacing.compact)
+            .allowsHitTesting(false)
     }
 
     // ─── Actions ─────────────────────────────────────────────────────────────
@@ -127,52 +154,56 @@ public struct ProjectBrowserView: View {
     }
 }
 
-// ─── Rows ────────────────────────────────────────────────────────────────────
+// ─── Card ────────────────────────────────────────────────────────────────────
 
-private struct RecentRow: View {
+/// One beatmap: its cover art, title, and who mapped it.
+private struct BeatmapCard: View {
     let entry: RecentProjectStore.Entry
+    let preview: BeatmapPreview?
     let open: () -> Void
     let forget: () -> Void
 
-    @State private var isHovered = false
-
     var body: some View {
-        Button(action: open) {
-            HStack(spacing: Theme.Spacing.compact) {
-                Image(systemName: "music.note.list")
-                    .foregroundStyle(Theme.Palette.secondary)
-
-                VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
-                    Text(entry.name)
-                        .font(Theme.Typography.cardTitle)
-                        .foregroundStyle(Theme.Palette.primary)
-                        .lineLimit(1)
-
-                    Text(entry.url.deletingLastPathComponent().path)
-                        .font(Theme.Typography.label)
-                        .foregroundStyle(Theme.Palette.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.head)
-                }
-
-                Spacer(minLength: Theme.Spacing.snug)
-
-                if isHovered {
-                    IconButton(
-                        systemImage: "xmark.circle.fill",
-                        size: Theme.Size.controlSmall,
-                        help: "Remove from recents",
-                        action: forget,
-                    )
-                }
-            }
-            .padding(.horizontal, Theme.Spacing.compact)
-            .padding(.vertical, Theme.Spacing.snug)
-            .contentShape(.rect)
+        PosterCard(
+            title: preview?.title ?? entry.name,
+            subtitle: subtitle,
+            badge: badge,
+            action: open,
+        ) {
+            PosterArtwork(url: preview?.backgroundURL)
+        } footer: {
+            footer
         }
-        .buttonStyle(.plain)
-        .surface(isHovered ? .raised : .panel, radius: Theme.Radius.control)
-        .animation(Theme.Motion.quick, value: isHovered)
-        .onHover { isHovered = $0 }
+        .contextMenu {
+            Button("Open", action: open)
+            Button("Remove from Recents", role: .destructive, action: forget)
+        }
+    }
+
+    /// Artist, falling back to the folder's own name while the preview loads.
+    private var subtitle: String? {
+        guard let preview, !preview.artist.isEmpty else { return nil }
+        return preview.artist
+    }
+
+    private var badge: String? {
+        guard let bpm = preview?.bpm, bpm > 0 else { return nil }
+        return String(format: "%.0f BPM", bpm)
+    }
+
+    @ViewBuilder
+    private var footer: some View {
+        if let creator = preview?.creator, !creator.isEmpty {
+            Text("Mapped by \(creator)")
+                .font(Theme.Typography.micro)
+                .foregroundStyle(Theme.Palette.tertiary)
+                .lineLimit(1)
+        } else {
+            Text(entry.url.deletingLastPathComponent().lastPathComponent)
+                .font(Theme.Typography.micro)
+                .foregroundStyle(Theme.Palette.tertiary)
+                .lineLimit(1)
+                .truncationMode(.head)
+        }
     }
 }

@@ -1,0 +1,168 @@
+import DesignSystem
+import SwiftUI
+
+/// A large artwork tile with its title over a gradient, as a streaming app
+/// presents a show.
+///
+/// The gradient is what makes the text readable: artwork is arbitrary, and a
+/// caption laid straight over it disappears against a bright frame.
+struct PosterCard<Artwork: View, Footer: View>: View {
+    private let title: String
+    private let subtitle: String?
+    private let badge: String?
+    private let aspectRatio: CGFloat
+    private let artwork: Artwork
+    private let footer: Footer
+    private let action: () -> Void
+
+    @State private var isHovered = false
+
+    /// - Parameter aspectRatio: width over height. Match the source artwork:
+    ///   a poster shape crops a wide image down to its middle.
+    init(
+        title: String,
+        subtitle: String? = nil,
+        badge: String? = nil,
+        aspectRatio: CGFloat = 16.0 / 9.0,
+        action: @escaping () -> Void,
+        @ViewBuilder artwork: () -> Artwork,
+        @ViewBuilder footer: () -> Footer = { EmptyView() },
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.badge = badge
+        self.aspectRatio = aspectRatio
+        self.action = action
+        self.artwork = artwork()
+        self.footer = footer()
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
+                poster
+                footer
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        // A small lift rather than a large one: a grid of cards that jump on
+        // hover reads as unstable.
+        .scaleEffect(isHovered ? 1.02 : 1)
+        .animation(Theme.Motion.quick, value: isHovered)
+        .onHover { isHovered = $0 }
+    }
+
+    private var poster: some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.Radius.panel, style: .continuous)
+
+        return ZStack(alignment: .bottomLeading) {
+            artwork
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+
+            // Dark at the foot, clear at the head, so the artwork stays visible
+            // while the caption keeps its contrast.
+            LinearGradient(
+                stops: [
+                    .init(color: .black.opacity(0), location: 0),
+                    .init(color: .black.opacity(0.35), location: 0.55),
+                    .init(color: .black.opacity(0.85), location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom,
+            )
+
+            VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
+                if let badge {
+                    Text(badge)
+                        .font(Theme.Typography.micro)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, Theme.Spacing.snug)
+                        .padding(.vertical, Theme.Spacing.hair)
+                        .background {
+                            Capsule().fill(.black.opacity(0.45))
+                        }
+                        .overlay {
+                            Capsule().strokeBorder(
+                                Theme.Border.badge,
+                                lineWidth: Theme.Size.hairline,
+                            )
+                        }
+                }
+
+                Text(title)
+                    .font(Theme.Typography.cardTitle)
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+
+                if let subtitle {
+                    Text(subtitle)
+                        .font(Theme.Typography.micro)
+                        .foregroundStyle(.white.opacity(0.75))
+                        .lineLimit(1)
+                }
+            }
+            .padding(Theme.Spacing.compact)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .aspectRatio(aspectRatio, contentMode: .fit)
+        .clipShape(shape)
+        .overlay {
+            shape.strokeBorder(
+                isHovered ? Theme.Border.cardHovered : Theme.Border.card,
+                lineWidth: Theme.Size.hairline,
+            )
+        }
+        .elevated(isHovered ? Theme.Elevation.high : Theme.Elevation.medium)
+    }
+}
+
+// ─── Artwork ─────────────────────────────────────────────────────────────────
+
+/// Loads a card's image from disk, showing a tinted placeholder until it
+/// arrives and in place of one that will not load.
+struct PosterArtwork: View {
+    private let url: URL?
+    private let fallbackSymbol: String
+
+    init(url: URL?, fallbackSymbol: String = "music.note") {
+        self.url = url
+        self.fallbackSymbol = fallbackSymbol
+    }
+
+    var body: some View {
+        if let url {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case let .success(image):
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                default:
+                    placeholder
+                }
+            }
+        } else {
+            placeholder
+        }
+    }
+
+    private var placeholder: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Theme.TrackPalette.violet.opacity(0.35),
+                    Theme.TrackPalette.blue.opacity(0.25),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing,
+            )
+
+            Image(systemName: fallbackSymbol)
+                .font(Theme.Typography.emptyStateIcon)
+                .foregroundStyle(.white.opacity(0.35))
+        }
+    }
+}

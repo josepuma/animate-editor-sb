@@ -56,13 +56,7 @@ struct InspectorView: View {
     // ─── Sections ────────────────────────────────────────────────────────────
 
     private var header: some View {
-        HStack(spacing: Theme.Spacing.snug) {
-            Text("Script Settings")
-                .font(Theme.Typography.heading)
-                .foregroundStyle(Theme.Palette.primary)
-
-            Spacer(minLength: Theme.Spacing.snug)
-
+        SectionHeader("Script Settings") {
             IconButton(
                 systemImage: "ellipsis",
                 size: Theme.Size.controlTiny,
@@ -114,14 +108,7 @@ private struct PropertyControl: View {
     @Binding var property: ScriptProperty
 
     var body: some View {
-        HStack(spacing: Theme.Spacing.snug) {
-            Text(property.name)
-                .font(Theme.Typography.micro)
-                .foregroundStyle(Theme.Palette.tertiary)
-                // A fixed label column keeps the controls aligned down the
-                // panel rather than stepping in and out with name lengths.
-                .frame(width: 62, alignment: .leading)
-
+        PropertyRow(property.name) {
             control
         }
     }

@@ -10,6 +10,13 @@ struct CanvasOverlayControls: View {
     @Bindable var model: PlaybackModel
     let isRevealed: Bool
 
+    /// Mirrors the window's own state.
+    ///
+    /// Read from `NSApp` on demand it would never refresh: SwiftUI has no way
+    /// to know the window changed, so the icon would keep pointing the wrong
+    /// way after a full-screen transition.
+    @State private var isFullScreen = false
+
     var body: some View {
         HStack(spacing: Theme.Spacing.compact) {
             aspectRatio
@@ -21,6 +28,15 @@ struct CanvasOverlayControls: View {
         .animation(Theme.Motion.standard, value: isRevealed)
         // Hidden controls must not swallow clicks meant for the canvas.
         .allowsHitTesting(isRevealed)
+        // Tracked from the window rather than set by the button, so the icon
+        // stays right when full screen is entered from the menu, the green
+        // button or a keyboard shortcut.
+        .onReceive(
+            NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification),
+        ) { _ in isFullScreen = true }
+        .onReceive(
+            NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification),
+        ) { _ in isFullScreen = false }
     }
 
     // ─── Groups ──────────────────────────────────────────────────────────────
@@ -44,7 +60,7 @@ struct CanvasOverlayControls: View {
         .fixedSize()
         .padding(.horizontal, Theme.Spacing.compact)
         .frame(height: Theme.Size.pill)
-        .capsuleSurface(.overlay)
+        .capsuleSurface(.floating)
     }
 
     private var transport: some View {
@@ -65,7 +81,7 @@ struct CanvasOverlayControls: View {
                     .foregroundStyle(Theme.Palette.primary)
                     .frame(width: Theme.Size.control, height: Theme.Size.control)
                     .overlay {
-                        Circle().strokeBorder(.white.opacity(0.35), lineWidth: 1.5)
+                        Circle().strokeBorder(Theme.Border.handle, lineWidth: Theme.Size.ring)
                     }
                     .contentShape(.circle)
             }
@@ -98,7 +114,7 @@ struct CanvasOverlayControls: View {
         }
         .padding(.horizontal, Theme.Spacing.regular)
         .frame(height: Theme.Size.pill)
-        .capsuleSurface(.overlay)
+        .capsuleSurface(.floating)
     }
 
     private var tools: some View {
@@ -116,15 +132,27 @@ struct CanvasOverlayControls: View {
             ) {}
 
             IconButton(
-                systemImage: "arrow.up.left.and.arrow.down.right",
+                systemImage: isFullScreen
+                    ? "arrow.down.right.and.arrow.up.left"
+                    : "arrow.up.left.and.arrow.down.right",
                 size: Theme.Size.controlSmall,
-                help: "Fit to window",
-            ) {}
+                help: isFullScreen ? "Exit full screen" : "Full screen",
+                action: toggleFullScreen,
+            )
         }
         .padding(.horizontal, Theme.Spacing.regular)
         .frame(height: Theme.Size.pill)
-        .capsuleSurface(.overlay)
+        .capsuleSurface(.floating)
     }
+
+    // ─── Full screen ─────────────────────────────────────────────────────────
+
+    /// Full screen belongs to the window, not to playback, so it goes straight
+    /// to AppKit rather than through the model.
+    private func toggleFullScreen() {
+        NSApp.keyWindow?.toggleFullScreen(nil)
+    }
+
 }
 
 // ─── Scrub bar ───────────────────────────────────────────────────────────────
@@ -145,7 +173,7 @@ private struct ScrubBar: View {
 
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(.white.opacity(0.18))
+                    .fill(Theme.Fill.groove)
 
                 Capsule()
                     .fill(Theme.Palette.primary)
@@ -176,8 +204,21 @@ struct CanvasVolumeControl: View {
     let isRevealed: Bool
 
     @State private var volume: Double = 1
+    /// What to restore on unmute, so silencing is reversible rather than a
+    /// one-way trip back to full.
+    @State private var volumeBeforeMute: Double = 1
 
     private static let trackHeight: CGFloat = 84
+
+    private func toggleMute() {
+        if volume > 0 {
+            volumeBeforeMute = volume
+            volume = 0
+        } else {
+            volume = volumeBeforeMute > 0 ? volumeBeforeMute : 1
+        }
+        model.setVolume(Float(volume))
+    }
 
     var body: some View {
         VStack(spacing: Theme.Spacing.compact) {
@@ -187,17 +228,25 @@ struct CanvasVolumeControl: View {
 
             track
 
-            Image(systemName: "speaker.slash.fill")
-                .font(Theme.Typography.micro)
-                .foregroundStyle(Theme.Palette.tertiary)
+            // Silencing is what the pointer reaches for here, so the lower
+            // glyph is a control rather than a label for the track's floor.
+            IconButton(
+                systemImage: volume > 0 ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                size: Theme.Size.controlTiny,
+                help: volume > 0 ? "Mute" : "Unmute",
+                action: toggleMute,
+            )
         }
         .padding(.vertical, Theme.Spacing.compact)
         .padding(.horizontal, Theme.Spacing.snug)
-        .capsuleSurface(.overlay)
+        .capsuleSurface(.floating)
         .opacity(isRevealed ? 1 : 0)
         .animation(Theme.Motion.standard, value: isRevealed)
         .allowsHitTesting(isRevealed)
         .onAppear { volume = Double(model.volume) }
+        // Only the mute jump is animated; a drag already follows the pointer,
+        // and animating that would make the thumb lag behind it.
+        .animation(Theme.Motion.quick, value: volume == 0)
     }
 
     /// A capsule track with a pill thumb, drawn rather than built from `Slider`
@@ -210,13 +259,13 @@ struct CanvasVolumeControl: View {
 
             ZStack(alignment: .top) {
                 Capsule()
-                    .fill(.white.opacity(0.16))
-                    .frame(width: 4)
+                    .fill(Theme.Fill.groove)
+                    .frame(width: Theme.Size.grooveThickness)
                     .frame(maxWidth: .infinity)
 
                 Capsule()
                     .fill(.white)
-                    .frame(width: 12, height: thumbHeight)
+                    .frame(width: Theme.Size.playheadHandleWidth, height: thumbHeight)
                     // Full volume sits at the top, so the offset is inverted.
                     .offset(y: travel * (1 - volume))
                     .elevated(Theme.Elevation.low)

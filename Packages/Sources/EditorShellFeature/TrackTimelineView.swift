@@ -31,6 +31,8 @@ struct TrackTimelineView: View {
     /// around a timeline that grows with its content.
     static func height(trackCount: Int) -> CGFloat {
         rulerHeight
+            // The gap the stack puts between the ruler and the first row.
+            + Theme.Spacing.snug
             + (trackHeight + Theme.Spacing.tight) * CGFloat(max(trackCount, 1))
             + Theme.Spacing.compact * 2
     }
@@ -45,7 +47,11 @@ struct TrackTimelineView: View {
                 - Theme.Spacing.snug
 
             ZStack(alignment: .topLeading) {
-                VStack(spacing: 0) {
+                // The ruler is a band of its own, so it needs more room beneath
+                // it than the track rows need between them — flush against the
+                // first row, it reads as part of that row rather than as the
+                // scale the rows are measured against.
+                VStack(spacing: Theme.Spacing.snug) {
                     HStack(spacing: Theme.Spacing.snug) {
                         tools
                         ruler
@@ -121,7 +127,7 @@ struct TrackTimelineView: View {
         .frame(height: Self.rulerHeight)
         .background {
             RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                .fill(.white.opacity(0.03))
+                .fill(Theme.Fill.subtle)
         }
         .onChange(of: waveformPeaks.count, initial: true) { _, count in
             guard count > 0 else {
@@ -312,10 +318,11 @@ struct TrackTimelineView: View {
 
                 // Regions and the playhead span every row, so they are drawn
                 // over the stack rather than inside each one.
-                regionOverlay(width: trackWidth)
-                    .offset(x: Self.headerWidth)
-                    .allowsHitTesting(false)
-
+                if Self.showsRegions {
+                    regionOverlay(width: trackWidth)
+                        .offset(x: Self.headerWidth)
+                        .allowsHitTesting(false)
+                }
             }
             .contentShape(.rect)
             .gesture(
@@ -332,6 +339,15 @@ struct TrackTimelineView: View {
                 * CGFloat(max(shell.tracks.count, 1)),
         )
     }
+
+    /// Whether break and kiai bands are painted across the tracks.
+    ///
+    /// Off for now: they belong to the beatmap's gameplay rather than to the
+    /// storyboard being edited, and tinting every lane behind the clips costs
+    /// more clarity than the information is worth here. Kept rather than
+    /// deleted because the parser already supplies both, so turning them back
+    /// on is one flag.
+    private static let showsRegions = false
 
     private func regionOverlay(width: CGFloat) -> some View {
         Canvas { context, size in
@@ -426,12 +442,21 @@ private struct TrackRowView: View {
         .frame(height: height)
         .background {
             RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                .fill(.white.opacity(isSelected ? 0.05 : isHovered ? 0.025 : 0))
+                .fill(rowFill)
         }
         .contentShape(.rect)
         .onTapGesture(perform: select)
         .onHover { isHovered = $0 }
         .animation(Theme.Motion.quick, value: isSelected)
+        .animation(Theme.Motion.quick, value: isHovered)
+    }
+
+    /// Fainter than the shared row fills on purpose: a track row is several
+    /// times the height of a list row, and the same opacity over that much area
+    /// reads as a lit panel rather than as a highlighted row.
+    private var rowFill: Color {
+        if isSelected { return Theme.Fill.rowSelected }
+        return isHovered ? Theme.Fill.rowHover : .clear
     }
 
     /// Track name with its own underline, and the per-track toggles — the
@@ -449,20 +474,24 @@ private struct TrackRowView: View {
 
                 Rectangle()
                     .fill(track.layer.tint)
-                    .frame(width: 22, height: 1.5)
+                    .frame(width: Theme.Size.controlTiny, height: Theme.Size.ring)
             }
 
             Spacer(minLength: 0)
 
-            HeaderToggle(
+            IconButton(
                 systemImage: track.isVisible ? "eye" : "eye.slash",
+                size: Theme.Size.controlTiny,
+                prominence: .filled,
                 isActive: track.isVisible,
                 help: track.isVisible ? "Hide" : "Show",
                 action: toggleVisibility,
             )
 
-            HeaderToggle(
+            IconButton(
                 systemImage: track.isLocked ? "lock.fill" : "lock.open",
+                size: Theme.Size.controlTiny,
+                prominence: .filled,
                 isActive: track.isLocked,
                 help: track.isLocked ? "Unlock" : "Lock",
                 action: toggleLock,
@@ -480,7 +509,7 @@ private struct TrackRowView: View {
 
             ZStack(alignment: .leading) {
                 RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
-                    .fill(.white.opacity(0.03))
+                    .fill(Theme.Fill.subtle)
 
                 ForEach(Array(track.activeRanges.enumerated()), id: \.offset) { index, range in
                     let start = duration > 0 ? range.lowerBound / duration * width : 0
@@ -516,35 +545,6 @@ private struct TrackRowView: View {
         track.activeRanges.count > 1
             ? "\(track.name) \(index + 1)"
             : track.name
-    }
-}
-
-// ─── Header toggle ───────────────────────────────────────────────────────────
-
-private struct HeaderToggle: View {
-    let systemImage: String
-    let isActive: Bool
-    let help: String
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(Theme.Typography.micro)
-                .foregroundStyle(isActive ? Theme.Palette.secondary : Theme.Palette.tertiary)
-                .frame(width: Theme.Size.controlTiny, height: Theme.Size.controlTiny)
-                .background {
-                    RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-                        .fill(.white.opacity(isHovered ? 0.12 : 0.06))
-                }
-                .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .help(help)
-        .onHover { isHovered = $0 }
-        .animation(Theme.Motion.quick, value: isHovered)
     }
 }
 

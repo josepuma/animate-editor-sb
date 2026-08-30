@@ -59,6 +59,26 @@
             "target": "RendererHarness",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release RendererHarness (Packages)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:animate-editor-sb}/Packages",
+            "name": "Debug DesignSystemGallery (Packages)",
+            "target": "DesignSystemGallery",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug DesignSystemGallery (Packages)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:animate-editor-sb}/Packages",
+            "name": "Release DesignSystemGallery (Packages)",
+            "target": "DesignSystemGallery",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release DesignSystemGallery (Packages)"
         }
     ]
 }

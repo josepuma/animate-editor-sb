@@ -133,7 +133,7 @@ private struct AssetRow: View {
         .padding(.vertical, Theme.Spacing.tight)
         .background {
             RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-                .fill(isHovered ? .white.opacity(0.06) : .clear)
+                .fill(isHovered ? Theme.Fill.hover : .clear)
         }
         .contentShape(.rect)
         .onHover { isHovered = $0 }
@@ -147,6 +147,8 @@ private struct TrackRow: View {
     let select: () -> Void
     let toggleVisibility: () -> Void
     let toggleLock: () -> Void
+
+    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: Theme.Spacing.snug) {
@@ -172,6 +174,8 @@ private struct TrackRow: View {
             IconButton(
                 systemImage: track.isVisible ? "eye" : "eye.slash",
                 size: Theme.Size.controlTiny,
+                prominence: .filled,
+                isActive: track.isVisible,
                 help: track.isVisible ? "Hide" : "Show",
                 action: toggleVisibility,
             )
@@ -179,6 +183,8 @@ private struct TrackRow: View {
             IconButton(
                 systemImage: track.isLocked ? "lock.fill" : "lock.open",
                 size: Theme.Size.controlTiny,
+                prominence: .filled,
+                isActive: track.isLocked,
                 help: track.isLocked ? "Unlock" : "Lock",
                 action: toggleLock,
             )
@@ -187,10 +193,19 @@ private struct TrackRow: View {
         .padding(.vertical, Theme.Spacing.tight)
         .background {
             RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-                .fill(isSelected ? .white.opacity(0.1) : .clear)
+                .fill(fill)
         }
         .contentShape(.rect)
         .onTapGesture(perform: select)
+        .onHover { isHovered = $0 }
         .animation(Theme.Motion.quick, value: isSelected)
+        .animation(Theme.Motion.quick, value: isHovered)
+    }
+
+    /// Selection wins over hover, so pointing at the selected row does not dim
+    /// it back down.
+    private var fill: Color {
+        if isSelected { return Theme.Fill.selected }
+        return isHovered ? Theme.Fill.hover : .clear
     }
 }

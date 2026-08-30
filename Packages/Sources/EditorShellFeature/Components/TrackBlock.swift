@@ -1,18 +1,12 @@
+import DesignSystem
 import SwiftUI
-
-public extension View {
-    /// Lifts the view off its surface with a drop shadow.
-    func elevated(_ shadow: Theme.Elevation.Shadow = Theme.Elevation.low) -> some View {
-        self.shadow(color: shadow.color, radius: shadow.radius, y: shadow.y)
-    }
-}
 
 /// A clip on a timeline track: a rounded pill carrying a thumbnail, a label and
 /// an optional trailing badge.
 ///
 /// The gradient, bright inner edge and shadow are what make it read as a solid
 /// object; a flat fill on a dark surface looks like a gap in the background.
-public struct TrackBlock<Thumbnail: View, Badge: View>: View {
+struct TrackBlock<Thumbnail: View, Badge: View>: View {
     private let tint: Color
     private let label: String?
     private let isDimmed: Bool
@@ -20,7 +14,7 @@ public struct TrackBlock<Thumbnail: View, Badge: View>: View {
     private let thumbnail: Thumbnail
     private let badge: Badge
 
-    public init(
+    init(
         tint: Color,
         label: String? = nil,
         isDimmed: Bool = false,
@@ -36,14 +30,17 @@ public struct TrackBlock<Thumbnail: View, Badge: View>: View {
         self.badge = badge()
     }
 
-    public var body: some View {
+    var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
 
         HStack(spacing: Theme.Spacing.snug) {
             thumbnail
                 .clipShape(
                     RoundedRectangle(
-                        cornerRadius: cornerRadius - Theme.Spacing.tight,
+                        cornerRadius: Theme.Radius.nested(
+                            in: cornerRadius,
+                            inset: Theme.Spacing.tight,
+                        ),
                         style: .continuous,
                     ),
                 )
@@ -85,7 +82,7 @@ public struct TrackBlock<Thumbnail: View, Badge: View>: View {
                     startPoint: .top,
                     endPoint: .bottom,
                 ),
-                lineWidth: 1,
+                lineWidth: Theme.Size.hairline,
             )
         }
         .clipShape(shape)
@@ -95,40 +92,21 @@ public struct TrackBlock<Thumbnail: View, Badge: View>: View {
 
 /// A small rounded glyph at the trailing edge of a block, as used for a clip's
 /// type indicator.
-public struct BlockBadge: View {
+struct BlockBadge: View {
     private let systemImage: String
 
-    public init(systemImage: String) {
+    init(systemImage: String) {
         self.systemImage = systemImage
     }
 
-    public var body: some View {
+    var body: some View {
         Image(systemName: systemImage)
             .font(Theme.Typography.micro)
             .foregroundStyle(.white.opacity(0.9))
             .frame(width: Theme.Size.controlTiny, height: Theme.Size.controlTiny)
             .background {
                 RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-                    .fill(.white.opacity(0.18))
+                    .fill(Theme.Fill.badge)
             }
-    }
-}
-
-/// The draggable head of a playhead, sitting above its line.
-public struct PlayheadHandle: View {
-    private let tint: Color
-
-    public init(tint: Color = Theme.Palette.accent) {
-        self.tint = tint
-    }
-
-    public var body: some View {
-        Capsule()
-            .fill(tint)
-            .frame(width: 10, height: 14)
-            .overlay {
-                Capsule().strokeBorder(.white.opacity(0.35), lineWidth: 1)
-            }
-            .elevated(Theme.Elevation.medium)
     }
 }

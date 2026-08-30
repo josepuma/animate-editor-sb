@@ -57,9 +57,14 @@ public struct EditorShellView<Canvas: View>: View {
     }
 
     public var body: some View {
-        VStack(spacing: Theme.Spacing.snug) {
-            toolbar
-            workspace
+        // The timeline is its own region rather than another row in the stack,
+        // so it gets more air above it than the toolbar and workspace get
+        // between them. At an even gap it reads as crowding the canvas.
+        VStack(spacing: Theme.Spacing.compact) {
+            VStack(spacing: Theme.Spacing.snug) {
+                toolbar
+                workspace
+            }
 
             TrackTimelineView(
                 shell: shell,

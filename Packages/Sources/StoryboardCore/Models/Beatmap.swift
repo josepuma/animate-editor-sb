@@ -24,9 +24,25 @@ public struct BeatmapMetadata: Sendable, Equatable {
         self.version = version
     }
 
+    /// The title as its own language writes it.
+    ///
+    /// `Title` holds a romanisation for searching; `TitleUnicode` holds what the
+    /// artist actually called the song, which is what should be shown.
+    public var displayTitle: String {
+        titleUnicode.isEmpty ? title : titleUnicode
+    }
+
+    /// The artist's own name, for the same reason.
+    public var displayArtist: String {
+        artistUnicode.isEmpty ? artist : artistUnicode
+    }
+
     /// `Artist - Title`, or whichever half is present.
     public var displayName: String {
-        switch (artist.isEmpty, title.isEmpty) {
+        let artist = displayArtist
+        let title = displayTitle
+
+        return switch (artist.isEmpty, title.isEmpty) {
         case (false, false): "\(artist) - \(title)"
         case (true, false): title
         case (false, true): artist

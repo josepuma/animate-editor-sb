@@ -44,6 +44,17 @@ public enum Theme {
         public static let panel: CGFloat = 18
         /// 24 — the largest surfaces, such as the canvas.
         public static let stage: CGFloat = 24
+
+        /// The radius a shape needs to sit concentrically inside another.
+        ///
+        /// Two rounded rectangles are only parallel when the inner radius is
+        /// the outer one less the gap between them. Pick the inner radius from
+        /// the scale instead and the curves diverge: the inner corner reads as
+        /// too square or too round against its own socket, which is the kind of
+        /// wrongness that is obvious without being nameable.
+        public static func nested(in outer: CGFloat, inset: CGFloat) -> CGFloat {
+            max(outer - inset, 0)
+        }
     }
 
     // ─── Sizing ──────────────────────────────────────────────────────────────
@@ -61,6 +72,17 @@ public enum Theme {
         public static let hairline: CGFloat = 1
         /// 14 — height of a divider inside a bar.
         public static let dividerHeight: CGFloat = 14
+        /// 10 — width of the playhead's grab handle.
+        public static let playheadHandleWidth: CGFloat = 10
+        /// 4 — thickness of a scrubber or slider groove.
+        public static let grooveThickness: CGFloat = 4
+        /// 1.5 — a ring drawn around a control, thicker than a hairline so it
+        /// reads as a deliberate outline rather than an edge.
+        public static let ring: CGFloat = 1.5
+        /// 58 — label column in an inspector row, wide enough for "Rotation".
+        public static let propertyLabel: CGFloat = 58
+        /// 38 — a numeric readout beside a slider, fixed so it stops jittering.
+        public static let valueReadout: CGFloat = 38
 
         /// Heights for horizontal strips of content, such as the timeline.
         ///
@@ -138,6 +160,65 @@ public enum Theme {
         /// Behind the storyboard canvas: osu! composites over black, and any
         /// other colour tints every partly transparent sprite.
         public static let stage = Color.black
+    }
+
+    /// Translucent white fills, layered over the app's dark chrome.
+    ///
+    /// These are the states a control moves through — resting, hovered,
+    /// selected — named so the whole app shifts together. Written as raw
+    /// opacities they drift: the same control ends up at 0.12 in one place and
+    /// 0.1 in another, and nobody notices until the two sit side by side.
+    public enum Fill {
+        /// 0.03 — a block grouping other controls, barely distinct from behind.
+        public static let subtle = Color.white.opacity(0.03)
+        /// 0.05 — a panel anchored to the window: side panel, inspector, cards.
+        ///
+        /// Opaque rather than glass. A panel at the window edge has nothing
+        /// behind it but the desktop, so refracting buys no depth and costs
+        /// contrast on whatever it holds.
+        public static let panel = Color.white.opacity(0.05)
+        /// 0.09 — a panel lifted above its siblings.
+        public static let raised = Color.white.opacity(0.09)
+        /// 0.06 — the well a control sits in, at rest.
+        public static let well = Color.white.opacity(0.06)
+        /// 0.06 — a hovered control that is not selected.
+        public static let hover = Color.white.opacity(0.06)
+        /// 0.12 — the selected item in a group.
+        public static let selected = Color.white.opacity(0.12)
+        /// 0.025 — a hovered row tall enough that `.hover` would overwhelm it.
+        public static let rowHover = Color.white.opacity(0.025)
+        /// 0.05 — a selected row of that same height.
+        ///
+        /// Fainter than `.selected` because the fill covers several times the
+        /// area: the same opacity over a track lane reads as a lit panel rather
+        /// than as a highlighted row.
+        public static let rowSelected = Color.white.opacity(0.05)
+        /// 0.18 — a badge on tinted content, which needs more to read.
+        public static let badge = Color.white.opacity(0.18)
+        /// 0.18 — the unfilled groove of a scrubber or slider.
+        ///
+        /// Brighter than `.well` because these sit on the overlay's scrim
+        /// rather than on the app's chrome, and a groove that reads as empty
+        /// gives the filled part nothing to measure against.
+        public static let groove = Color.white.opacity(0.18)
+    }
+
+    /// Hairline borders, in the same layered white.
+    public enum Border {
+        /// 0.06 — the edge of a field well.
+        public static let field = Color.white.opacity(0.06)
+        /// 0.08 — the edge of an anchored panel.
+        public static let panel = Color.white.opacity(0.08)
+        /// 0.14 — the edge of a raised panel, which needs to separate further.
+        public static let raised = Color.white.opacity(0.14)
+        /// 0.1 — a card at rest.
+        public static let card = Color.white.opacity(0.1)
+        /// 0.28 — a card under the pointer.
+        public static let cardHovered = Color.white.opacity(0.28)
+        /// 0.2 — a badge over artwork.
+        public static let badge = Color.white.opacity(0.2)
+        /// 0.35 — the playhead's own edge.
+        public static let handle = Color.white.opacity(0.35)
     }
 
     /// Colours identifying content, chosen to stay distinct from each other
