@@ -13,7 +13,13 @@ public struct EditorShellView<Canvas: View>: View {
         CGSize(width: ShellLayout.minimumWidth, height: ShellLayout.minimumHeight)
     }
 
-    @State private var shell = EditorShellModel()
+    @State private var ownShell = EditorShellModel()
+    /// Supplied by the app when the effects have to be visible outside the
+    /// shell — the canvas renders them, and the canvas belongs to another
+    /// feature. Without one, the shell keeps its own.
+    private let providedShell: EditorShellModel?
+
+    private var shell: EditorShellModel { providedShell ?? ownShell }
 
     private let title: String
     private let sprites: [PreparedSprite]
@@ -34,6 +40,9 @@ public struct EditorShellView<Canvas: View>: View {
     ///   by whoever supplies the canvas, since the control that toggles it
     ///   lives there.
     public init(
+        /// The model to drive, when the app needs to read the effects placed in
+        /// it. Omitted, the shell owns one of its own.
+        shell: EditorShellModel? = nil,
         title: String,
         sprites: [PreparedSprite],
         missingImagePaths: Set<String>,
@@ -51,6 +60,7 @@ public struct EditorShellView<Canvas: View>: View {
         seek: @escaping (Double) -> Void,
         @ViewBuilder canvas: () -> Canvas,
     ) {
+        providedShell = shell
         self.title = title
         self.sprites = sprites
         self.missingImagePaths = missingImagePaths
@@ -129,7 +139,7 @@ public struct EditorShellView<Canvas: View>: View {
             if !isCanvasFullScreen {
                 SidebarRail(
                     items: SidePanel.allCases,
-                    selection: $shell.sidePanel,
+                    selection: Bindable(shell).sidePanel,
                     icon: \.systemImage,
                     label: \.title,
                 )
@@ -137,7 +147,7 @@ public struct EditorShellView<Canvas: View>: View {
                 .surface(.bar, radius: Theme.Radius.control)
 
                 if shell.isSidePanelVisible {
-                    SidePanelView(shell: shell)
+                    SidePanelView(shell: shell, playheadTime: currentTime)
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
             }

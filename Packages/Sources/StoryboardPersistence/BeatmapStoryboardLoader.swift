@@ -28,8 +28,8 @@ public enum BeatmapStoryboardLoader {
 
     /// Reads and merges the folder's storyboard sources.
     ///
-    /// - Throws: ``BeatmapFolderError/noStoryboardFound(_:)`` when neither
-    ///   source yields any sprite.
+    /// - Throws: ``BeatmapFolderError/notABeatmapFolder(_:)`` when the folder
+    ///   holds no difficulty, no audio and no storyboard.
     public static func load(from folder: BeatmapFolder) throws -> Result {
         var sprites: [StoryboardSprite] = []
 
@@ -70,8 +70,17 @@ public enum BeatmapStoryboardLoader {
             sprites.append(contentsOf: parsedSprites)
         }
 
-        guard !sprites.isEmpty else {
-            throw BeatmapFolderError.noStoryboardFound(folder.name)
+        // An empty storyboard is a starting point, not a failure. A folder with
+        // audio and a difficulty is exactly what someone opens to write a
+        // storyboard that does not exist yet — refusing it would mean the
+        // editor could only ever open work that had already been done
+        // elsewhere.
+        //
+        // What is still refused is a folder with nothing to build against: no
+        // difficulty, no audio, no storyboard. That is not an empty project,
+        // it is the wrong folder.
+        guard !sprites.isEmpty || timing != nil || hasAudio(in: folder) else {
+            throw BeatmapFolderError.notABeatmapFolder(folder.name)
         }
 
         // Parsers number sprites per file, so ids collide once files are merged.
@@ -90,9 +99,7 @@ public enum BeatmapStoryboardLoader {
         let audioURL = timing
             .map(\.audioFilename)
             .flatMap { folder.fileURL(forRelativePath: $0) }
-            ?? folder.files(withExtensions: ["mp3", "ogg", "wav", "m4a"])
-                .first
-                .flatMap { folder.fileURL(forRelativePath: $0) }
+            ?? firstAudioURL(in: folder)
 
         return Result(
             sprites: sprites,
@@ -102,6 +109,19 @@ public enum BeatmapStoryboardLoader {
             timing: timing,
             audioURL: audioURL,
         )
+    }
+
+    /// Audio file extensions a beatmap folder may use.
+    private static let audioExtensions = ["mp3", "ogg", "wav", "m4a"]
+
+    private static func firstAudioURL(in folder: BeatmapFolder) -> URL? {
+        folder.files(withExtensions: audioExtensions)
+            .first
+            .flatMap { folder.fileURL(forRelativePath: $0) }
+    }
+
+    private static func hasAudio(in folder: BeatmapFolder) -> Bool {
+        !folder.files(withExtensions: audioExtensions).isEmpty
     }
 
     /// Reads a text file, falling back to Latin-1 for the older beatmaps that

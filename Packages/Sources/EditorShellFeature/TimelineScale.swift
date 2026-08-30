@@ -40,4 +40,16 @@ struct TimelineScale: Equatable {
         guard width > 0 else { return 0 }
         return CGFloat(span / duration) * width
     }
+
+    /// How much time a horizontal distance covers.
+    ///
+    /// The inverse of `width(of:)`, and deliberately not `time(atX:)`: that one
+    /// answers "which moment is under this pixel" and so clamps to the visible
+    /// span. Feeding it a drag translation gives 0 for every leftward drag —
+    /// a negative x clamps to the window's start — so a block could be dragged
+    /// right but never back.
+    func duration(ofWidth distance: CGFloat) -> Double {
+        guard width > 0 else { return 0 }
+        return Double(distance / width) * duration
+    }
 }

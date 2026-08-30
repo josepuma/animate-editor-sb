@@ -66,7 +66,7 @@ let package = Package(
         .target(
             name: "StoryboardRendering",
             dependencies: ["StoryboardCore", "StoryboardShaderTypes"],
-            resources: [.copy("Shaders.metal")],
+            resources: [.copy("Shaders.metal"), .copy("Particles")],
         ),
         .testTarget(
             name: "StoryboardRenderingTests",

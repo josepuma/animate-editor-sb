@@ -23,6 +23,16 @@ struct TextureAtlas {
     let texture: MTLTexture
     private(set) var entries: [String: Entry] = [:]
 
+    /// Paths asked for that produced no texture.
+    ///
+    /// Kept so the renderer can tell "this atlas is complete" from "this atlas
+    /// is missing files that may since have appeared". A sprite whose image is
+    /// absent draws as a flat quad, which looks the same whether the file is
+    /// genuinely gone or was added a second ago.
+    private(set) var missingPaths: Set<String> = []
+
+    var hasMissingTextures: Bool { !missingPaths.isEmpty }
+
     /// Page dimension.
     ///
     /// 4096 comfortably fits a 1920×1080 background alongside other sprites;
@@ -78,10 +88,14 @@ struct TextureAtlas {
         // Load first, then pack: packing needs every size up front, and tall
         // images should be placed before short ones to reduce wasted rows.
         var loaded: [(path: String, texture: MTLTexture)] = []
+        var missing: Set<String> = []
         for path in paths {
             guard let source = textureProvider(path),
                   let texture = try? source.load(with: loader)
-            else { continue }
+            else {
+                missing.insert(path)
+                continue
+            }
             loaded.append((path, texture))
         }
         guard !loaded.isEmpty else { return nil }
@@ -105,7 +119,13 @@ struct TextureAtlas {
             guard let slot = packer.place(
                 width: entry.texture.width + Self.padding * 2,
                 height: entry.texture.height + Self.padding * 2,
-            ) else { continue }
+            ) else {
+                // Too large for a page. Recorded as missing so the sprite is
+                // known to be drawing without its image, though rebuilding will
+                // not help this one — only a smaller file will.
+                missing.insert(entry.path)
+                continue
+            }
             placements.append((entry, slot))
         }
         guard !placements.isEmpty else { return nil }
@@ -205,6 +225,7 @@ struct TextureAtlas {
         commandBuffer.waitUntilCompleted()
 
         texture = atlas
+        missingPaths = missing
     }
 
     /// Number of slices in the array texture.

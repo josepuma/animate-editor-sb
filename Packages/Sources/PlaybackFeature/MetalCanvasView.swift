@@ -44,6 +44,8 @@ struct MetalCanvasView: NSViewRepresentable {
         private var renderer: MetalStoryboardRenderer?
         private var lastFrameTimestamp: CFTimeInterval?
         private var smoothedFPS: Double = 60
+        /// The sprite revision already on the GPU.
+        private var uploadedRevision: Int?
 
         init(model: PlaybackModel, source: any StoryboardSource) {
             self.model = model
@@ -78,7 +80,10 @@ struct MetalCanvasView: NSViewRepresentable {
                         pixelFormat: view.colorPixelFormat,
                     )
                     try renderer.setSprites(sprites) { path in
-                        source.imageData(for: path).map { .data($0) }
+                        // Built-in images first: an effect ships with its own
+                        // default, and a beatmap has no file to offer for it.
+                        (BuiltInTextures.data(for: path) ?? source.imageData(for: path))
+                            .map { .data($0) }
                     }
 
                     renderer.isWidescreen = model.isWidescreen
@@ -101,9 +106,36 @@ struct MetalCanvasView: NSViewRepresentable {
             renderer?.isWidescreen = isWidescreen
         }
 
+        /// Uploads the model's sprites when they differ from what the GPU holds.
+        ///
+        /// Guarded by a revision rather than by comparing the arrays: a real
+        /// beatmap carries thousands of sprites, and this runs on every SwiftUI
+        /// update.
+        func syncSprites() {
+            guard let renderer, uploadedRevision != model.spritesRevision else { return }
+            uploadedRevision = model.spritesRevision
+
+            let source = source
+            do {
+                try renderer.setSprites(model.sprites) { path in
+                    (BuiltInTextures.data(for: path) ?? source.imageData(for: path))
+                        .map { .data($0) }
+                }
+            } catch {
+                model.contentFailed("\(error)")
+            }
+        }
+
         func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
         func draw(in view: MTKView) {
+            // Checked here rather than from `updateNSView`, which only runs
+            // when SwiftUI re-evaluates this view — and it has no reason to,
+            // since nothing in the view's own body reads the revision. The
+            // display link is already running, and the check is one integer
+            // comparison per frame.
+            syncSprites()
+
             let now = CACurrentMediaTime()
             if let last = lastFrameTimestamp {
                 let delta = now - last

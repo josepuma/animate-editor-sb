@@ -44,6 +44,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.setFrameAutosaveName("MainWindow")
         window.delegate = self
         window.makeKeyAndOrderFront(nil)
+        // Nothing starts focused. AppKit hands first responder to the first
+        // text field it finds, and an inspector full of them means the editor
+        // opens with a parameter quietly holding the keyboard — space, which
+        // is play/pause, goes into that field as a character instead.
+        window.makeFirstResponder(nil)
 
         self.window = window
         NSApp.activate(ignoringOtherApps: true)

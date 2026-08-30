@@ -18,10 +18,20 @@ public struct PropertyRow<Control: View>: View {
                 // A fixed column so a stack of rows aligns down the inspector;
                 // sizing each label to its own text leaves a ragged edge.
                 .frame(width: Theme.Size.propertyLabel, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
 
             control
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // Centred on the row rather than on the stack's baseline: a label long
+        // enough to wrap ("Velocity Random") is two lines against a one-line
+        // control, and the default alignment leaves the two sitting at
+        // different heights.
+        //
+        // The minimum height is what keeps the rhythm even. Without it a row
+        // with a wrapped label is visibly taller than its neighbours, and a
+        // column of fields reads as unevenly spaced rather than as a form.
+        .frame(minHeight: Theme.Size.field, alignment: .center)
     }
 }
 

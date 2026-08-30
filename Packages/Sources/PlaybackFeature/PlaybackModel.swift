@@ -120,6 +120,8 @@ public final class PlaybackModel {
     public func unload() {
         audio.unload()
         sprites = []
+        beatmapSprites = []
+        effectSprites = []
         spriteCount = 0
         drawnCount = 0
         currentTime = 0
@@ -135,6 +137,44 @@ public final class PlaybackModel {
         status = .loading
     }
 
+    /// Sprites the placed effects evaluate to, kept apart from the ones parsed
+    /// out of the beatmap.
+    ///
+    /// Separate because they change for different reasons: the parsed sprites
+    /// arrive once when a folder opens, while these are rebuilt whenever a
+    /// parameter moves. Merging them into one array would mean re-preparing the
+    /// whole storyboard on every drag.
+    private var effectSprites: [PreparedSprite] = []
+    private var beatmapSprites: [PreparedSprite] = []
+
+    /// Replaces the sprites the placed effects produce.
+    ///
+    /// Takes finished storyboard sprites rather than the effects themselves:
+    /// this feature renders what it is handed and knows nothing about emitters,
+    /// which is what keeps the two features independent.
+    public func effectsChanged(to storyboardSprites: [StoryboardSprite]) {
+        effectSprites = StoryboardResolver.prepare(storyboardSprites)
+        rebuildSprites()
+    }
+
+    /// Bumped whenever the sprite list changes, so the canvas knows to upload
+    /// it again.
+    ///
+    /// The renderer keeps its own copy on the GPU, uploaded once. Changing
+    /// `sprites` alone leaves it drawing whatever it was given at load — the
+    /// new sprites exist in the model, are counted, and never appear.
+    public private(set) var spritesRevision = 0
+
+    /// Combines the beatmap's sprites with the effects placed on top.
+    ///
+    /// Effects go last so they draw above the parsed storyboard within their
+    /// layer, the way a newly added clip lands on top in any editor.
+    private func rebuildSprites() {
+        sprites = beatmapSprites + effectSprites
+        spriteCount = sprites.count
+        spritesRevision &+= 1
+    }
+
     public func contentLoaded(
         name: String,
         sprites: [PreparedSprite],
@@ -143,8 +183,8 @@ public final class PlaybackModel {
         timing: BeatmapTimingData? = nil,
         missingImagePaths: Set<String> = [],
     ) {
-        self.sprites = sprites
-        spriteCount = sprites.count
+        beatmapSprites = sprites
+        rebuildSprites()
         let storyboardRange = StoryboardResolver.timeRange(of: sprites)
         self.duration = max(duration, 1)
         timelineRange = storyboardRange

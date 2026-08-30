@@ -4,6 +4,12 @@ import SwiftUI
 ///
 /// A shared shape is what makes a column of mixed controls — numbers, menus,
 /// colours — read as one form rather than as a pile of widgets.
+///
+/// The well fills the width it is offered, and so every control in it lines up
+/// on both edges. Letting each one take its intrinsic width instead leaves a
+/// menu ending wherever its longest option happens to fall, in a column where
+/// the fields above and below run to the margin — a ragged edge that reads as a
+/// layout fault rather than as a design.
 public struct FieldWell<Content: View>: View {
     private let content: Content
 
@@ -13,8 +19,10 @@ public struct FieldWell<Content: View>: View {
 
     public var body: some View {
         content
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, Theme.Spacing.snug)
             .padding(.vertical, Theme.Spacing.tight)
+            .frame(maxWidth: .infinity)
             .frame(height: Theme.Size.field)
             .background {
                 RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)

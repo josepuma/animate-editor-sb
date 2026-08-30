@@ -203,13 +203,263 @@ struct EmitterEffectTests {
         #expect(additive[0].commands.contains { $0.kind == .parameter })
     }
 
+    // ─── Colour over life ────────────────────────────────────────────────────
+    //
+    // `_C` interpolates on its own, so a ramp between two colours costs one
+    // command. Every command here is multiplied by the particle count in the
+    // exported file, which is why the midpoint is opt-in rather than always on.
+
+    @Test("a two-colour ramp costs one command")
+    func rampIsOneCommand() {
+        let result = sprites([
+            EmitterEffect.Param.color: .color(EffectColor(r: 255, g: 200, b: 60)),
+            EmitterEffect.Param.colorEnd: .color(EffectColor(r: 120, g: 20, b: 0)),
+        ])
+        let colours = result[0].commands.filter { $0.kind == .color }
+
+        #expect(colours.count == 1)
+        guard case let .color(r1, g1, b1, r2, g2, b2) = colours[0].payload else {
+            Issue.record("expected a colour payload")
+            return
+        }
+        #expect((r1, g1, b1) == (255, 200, 60))
+        #expect((r2, g2, b2) == (120, 20, 0))
+    }
+
+    @Test("a ramp runs the whole life of its particle")
+    func rampSpansTheLife() {
+        let result = sprites([
+            EmitterEffect.Param.color: .color(EffectColor(r: 255, g: 0, b: 0)),
+            EmitterEffect.Param.colorEnd: .color(EffectColor(r: 0, g: 0, b: 255)),
+        ])
+        let sprite = result[0]
+        let colour = sprite.commands.first { $0.kind == .color }!
+        let birth = sprite.commands.map(\.startTime).min()!
+        let death = sprite.commands.map(\.endTime).max()!
+
+        #expect(colour.startTime == birth)
+        #expect(colour.endTime == death)
+    }
+
+    @Test("a midpoint splits the ramp in two")
+    func midpointSplitsTheRamp() {
+        let result = sprites([
+            EmitterEffect.Param.usesColorMid: .toggle(true),
+            EmitterEffect.Param.color: .color(EffectColor(r: 255, g: 255, b: 255)),
+            EmitterEffect.Param.colorMid: .color(EffectColor(r: 255, g: 150, b: 40)),
+            EmitterEffect.Param.colorEnd: .color(EffectColor(r: 120, g: 20, b: 0)),
+        ])
+        let colours = result[0].commands
+            .filter { $0.kind == .color }
+            .sorted { $0.startTime < $1.startTime }
+
+        #expect(colours.count == 2)
+        // The halves meet, so the ramp reads as continuous rather than jumping.
+        #expect(colours[0].endTime == colours[1].startTime)
+    }
+
+    /// Switched off, the midpoint costs nothing — the point of making it
+    /// opt-in.
+    @Test("an unused midpoint adds no command")
+    func unusedMidpointCostsNothing() {
+        let withMid = sprites([
+            EmitterEffect.Param.usesColorMid: .toggle(false),
+            EmitterEffect.Param.color: .color(EffectColor(r: 255, g: 0, b: 0)),
+            EmitterEffect.Param.colorMid: .color(EffectColor(r: 0, g: 255, b: 0)),
+            EmitterEffect.Param.colorEnd: .color(EffectColor(r: 0, g: 0, b: 255)),
+        ])
+
+        #expect(withMid[0].commands.filter { $0.kind == .color }.count == 1)
+    }
+
+    // ─── Colour variety ──────────────────────────────────────────────────────
+    //
+    // The ramp runs over a particle's life, so on its own every particle is the
+    // same colour at the same moment — right for fire, where the field cools
+    // together, and wrong for confetti, which is many colours at once.
+
+    @Test("colour variety gives particles different colours")
+    func varietySpreadsColours() {
+        let plain = sprites([
+            EmitterEffect.Param.color: .color(EffectColor(r: 255, g: 90, b: 120)),
+            EmitterEffect.Param.colorEnd: .color(EffectColor(r: 255, g: 90, b: 120)),
+            EmitterEffect.Param.colorVariety: .number(0),
+        ])
+        let varied = sprites([
+            EmitterEffect.Param.color: .color(EffectColor(r: 255, g: 90, b: 120)),
+            EmitterEffect.Param.colorEnd: .color(EffectColor(r: 255, g: 90, b: 120)),
+            EmitterEffect.Param.colorVariety: .number(1),
+        ])
+
+        #expect(distinctColours(plain) == 1)
+        #expect(distinctColours(varied) > 5)
+    }
+
+    /// Nudging the channels independently walks towards grey, which is the one
+    /// direction a field of confetti must not go. Rotating hue keeps every
+    /// particle as saturated as the colour it came from.
+    @Test("variety rotates hue rather than washing colour out")
+    func varietyKeepsSaturation() {
+        let varied = sprites([
+            EmitterEffect.Param.color: .color(EffectColor(r: 255, g: 90, b: 120)),
+            EmitterEffect.Param.colorEnd: .color(EffectColor(r: 255, g: 90, b: 120)),
+            EmitterEffect.Param.colorVariety: .number(1),
+        ])
+
+        for sprite in varied {
+            guard case let .color(r, g, b, _, _, _) = sprite.commands
+                .first(where: { $0.kind == .color })?.payload
+            else { continue }
+
+            let high = max(r, max(g, b))
+            let low = min(r, min(g, b))
+            // The source colour spans 90…255; every rotation of it should keep
+            // roughly that spread rather than collapsing towards a grey.
+            #expect(high - low > 100)
+        }
+    }
+
+    @Test("a grey colour has no hue to vary")
+    func greyStaysGrey() {
+        let grey = EffectColor(r: 128, g: 128, b: 128)
+        #expect(grey.varied(by: 0.5) == grey)
+    }
+
+    private func distinctColours(_ sprites: [StoryboardSprite]) -> Int {
+        var seen: Set<String> = []
+        for sprite in sprites {
+            guard case let .color(r, g, b, _, _, _) = sprite.commands
+                .first(where: { $0.kind == .color })?.payload
+            else { continue }
+            seen.insert("\(Int(r)),\(Int(g)),\(Int(b))")
+        }
+        return seen.count
+    }
+
     @Test("a white emitter writes no colour command")
     func whiteNeedsNoColourCommand() {
-        let white = sprites([EmitterEffect.Param.color: .color(.white)])
-        let tinted = sprites([EmitterEffect.Param.color: .color(EffectColor(r: 255, g: 0, b: 0))])
+        let white = sprites([
+            EmitterEffect.Param.color: .color(.white),
+            EmitterEffect.Param.colorEnd: .color(.white),
+        ])
+        let tinted = sprites([
+            EmitterEffect.Param.color: .color(EffectColor(r: 255, g: 0, b: 0)),
+            EmitterEffect.Param.colorEnd: .color(EffectColor(r: 255, g: 0, b: 0)),
+        ])
 
         #expect(white[0].commands.allSatisfy { $0.kind != .color })
         #expect(tinted[0].commands.contains { $0.kind == .color })
+    }
+
+    /// Uniform scale is the wrong tool for anything that moves fast: buying
+    /// length with `_S` buys width with it, which is what turned the rain into
+    /// grey bars.
+    @Test("stretch writes a vector scale instead of a uniform one")
+    func stretchUsesVectorScale() {
+        let stretched = sprites([
+            EmitterEffect.Param.stretch: .number(8),
+            EmitterEffect.Param.scaleStart: .number(0.1),
+            EmitterEffect.Param.scaleEnd: .number(0.1),
+        ])
+        let commands = stretched[0].commands
+
+        #expect(commands.allSatisfy { $0.kind != .scale })
+        guard case let .vectorScale(startX, startY, _, _) = commands
+            .first(where: { $0.kind == .vectorScale })?.payload
+        else {
+            Issue.record("expected a vector scale")
+            return
+        }
+        #expect(abs(startY / startX - 8) < 1e-9)
+    }
+
+    /// `_V` costs the same as `_S` but writes twice the numbers, and a
+    /// storyboard is a text file.
+    @Test("no stretch keeps the cheaper uniform scale")
+    func noStretchStaysUniform() {
+        let plain = sprites([
+            EmitterEffect.Param.stretch: .number(1),
+            EmitterEffect.Param.scaleStart: .number(0.5),
+            EmitterEffect.Param.scaleEnd: .number(0.2),
+        ])
+
+        #expect(plain[0].commands.contains { $0.kind == .scale })
+        #expect(plain[0].commands.allSatisfy { $0.kind != .vectorScale })
+    }
+
+    /// Without this, rotation is pure noise and a shaped texture faces a random
+    /// way regardless of travel — a raindrop falling at an angle drawn upright,
+    /// sliding sideways through its own path.
+    @Test("aligned particles point along their direction of travel")
+    func alignmentFollowsDirection() {
+        // Not 90°: the shapes point up, so aligning to 90° is a zero rotation
+        // and writes no command — correct, and indistinguishable from not
+        // aligning at all, which makes it the one angle that proves nothing.
+        for direction in [135.0, 270.0, 45.0] {
+            let result = sprites([
+                EmitterEffect.Param.alignToMotion: .toggle(true),
+                EmitterEffect.Param.direction: .number(direction),
+                EmitterEffect.Param.spread: .number(0),
+                EmitterEffect.Param.rotation: .number(0),
+                EmitterEffect.Param.spin: .number(0),
+            ])
+
+            guard case let .rotate(start, _) = result[0].commands
+                .first(where: { $0.kind == .rotate })?.payload
+            else {
+                Issue.record("expected a rotate command at direction \(direction)")
+                return
+            }
+
+            // The built-in shapes point up, so aligned means a quarter turn off
+            // the travel angle.
+            let expected = (direction - 90) * .pi / 180
+            #expect(abs(start - expected) < 1e-9)
+        }
+    }
+
+    @Test("unaligned particles rotate only by their own jitter")
+    func withoutAlignmentRotationIsNoise() {
+        let result = sprites([
+            EmitterEffect.Param.alignToMotion: .toggle(false),
+            EmitterEffect.Param.direction: .number(135),
+            EmitterEffect.Param.spread: .number(0),
+            EmitterEffect.Param.rotation: .number(0),
+            EmitterEffect.Param.spin: .number(0),
+        ])
+
+        // No jitter and no alignment: nothing to rotate, so nothing is written.
+        #expect(result[0].commands.allSatisfy { $0.kind != .rotate })
+    }
+
+    // ─── Repeating bursts ────────────────────────────────────────────────────
+
+    /// An even drip is right for fire and wrong for anything that *happens*:
+    /// lightning strikes two or three times in a moment, then stops.
+    @Test("repeating bursts release in clumps")
+    func burstsClump() {
+        let result = sprites(
+            duration: 3000,
+            [EmitterEffect.Param.count: .integer(12),
+             EmitterEffect.Param.emission: .choice("Repeating Bursts"),
+             EmitterEffect.Param.burstCount: .integer(3)],
+        )
+        let births = Set(result.compactMap { $0.commands.map(\.startTime).min() })
+
+        // Twelve particles, three moments.
+        #expect(births.count == 3)
+        #expect(result.count == 12)
+    }
+
+    @Test("a single burst group behaves like a plain burst")
+    func oneGroupIsABurst() {
+        let result = sprites([
+            EmitterEffect.Param.emission: .choice("Repeating Bursts"),
+            EmitterEffect.Param.burstCount: .integer(1),
+        ])
+        let births = Set(result.compactMap { $0.commands.map(\.startTime).min() })
+
+        #expect(births == [0])
     }
 
     @Test("a constant scale of 1 writes no scale command")

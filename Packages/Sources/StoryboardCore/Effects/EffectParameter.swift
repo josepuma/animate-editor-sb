@@ -18,6 +18,57 @@ public struct EffectColor: Sendable, Equatable, Hashable {
     }
 
     public static let white = EffectColor(r: 255, g: 255, b: 255)
+
+    /// The same colour rotated around the hue wheel by `amount` of a full turn.
+    ///
+    /// Hue rather than the channels directly: nudging red, green and blue
+    /// independently walks towards grey, which is the one direction a field of
+    /// confetti must not go. Rotating hue keeps every particle as saturated as
+    /// the colour it came from.
+    public func varied(by amount: Double) -> EffectColor {
+        guard amount != 0 else { return self }
+
+        let maximum = max(r, max(g, b)) / 255
+        let minimum = min(r, min(g, b)) / 255
+        let delta = maximum - minimum
+        guard delta > 0 else { return self }  // Grey has no hue to rotate.
+
+        let red = r / 255, green = g / 255, blue = b / 255
+        var hue: Double
+        if maximum == red {
+            hue = (green - blue) / delta
+        } else if maximum == green {
+            hue = 2 + (blue - red) / delta
+        } else {
+            hue = 4 + (red - green) / delta
+        }
+        hue = (hue / 6 + amount).truncatingRemainder(dividingBy: 1)
+        if hue < 0 { hue += 1 }
+
+        let saturation = maximum == 0 ? 0 : delta / maximum
+        return EffectColor(hue: hue, saturation: saturation, value: maximum)
+    }
+
+    private init(hue: Double, saturation: Double, value: Double) {
+        let sector = hue * 6
+        let index = Int(sector) % 6
+        let fraction = sector - Double(Int(sector))
+
+        let p = value * (1 - saturation)
+        let q = value * (1 - saturation * fraction)
+        let t = value * (1 - saturation * (1 - fraction))
+
+        let (red, green, blue): (Double, Double, Double) = switch index {
+        case 0: (value, t, p)
+        case 1: (q, value, p)
+        case 2: (p, value, t)
+        case 3: (p, q, value)
+        case 4: (t, p, value)
+        default: (value, p, q)
+        }
+
+        self.init(r: red * 255, g: green * 255, b: blue * 255)
+    }
 }
 
 /// One parameter's current value.

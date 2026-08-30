@@ -10,6 +10,7 @@ struct TrackBlock<Thumbnail: View, Badge: View>: View {
     private let tint: Color
     private let label: String?
     private let isDimmed: Bool
+    private let isSelected: Bool
     private let cornerRadius: CGFloat
     private let thumbnail: Thumbnail
     private let badge: Badge
@@ -18,6 +19,7 @@ struct TrackBlock<Thumbnail: View, Badge: View>: View {
         tint: Color,
         label: String? = nil,
         isDimmed: Bool = false,
+        isSelected: Bool = false,
         cornerRadius: CGFloat = Theme.Radius.bar,
         @ViewBuilder thumbnail: () -> Thumbnail = { EmptyView() },
         @ViewBuilder badge: () -> Badge = { EmptyView() },
@@ -25,6 +27,7 @@ struct TrackBlock<Thumbnail: View, Badge: View>: View {
         self.tint = tint
         self.label = label
         self.isDimmed = isDimmed
+        self.isSelected = isSelected
         self.cornerRadius = cornerRadius
         self.thumbnail = thumbnail()
         self.badge = badge()
@@ -86,6 +89,16 @@ struct TrackBlock<Thumbnail: View, Badge: View>: View {
             )
         }
         .clipShape(shape)
+        .overlay {
+            // Selection reads as a solid ring rather than a change of fill: the
+            // fill is the layer's colour and carries meaning of its own, so
+            // tinting it to show selection would say two things at once. Drawn
+            // after the clip so the full stroke width shows — inside it, half
+            // of the line is cut away by the block's own edge.
+            if isSelected {
+                shape.strokeBorder(.white.opacity(0.9), lineWidth: Theme.Size.hairline * 2)
+            }
+        }
         .elevated(isDimmed ? Theme.Elevation.low : Theme.Elevation.medium)
     }
 }

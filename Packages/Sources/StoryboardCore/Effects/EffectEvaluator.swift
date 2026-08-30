@@ -71,6 +71,17 @@ public struct EffectEvaluator: Sendable {
         nodes.flatMap { evaluate($0) }
     }
 
+    /// Evaluates a whole document, track by track.
+    ///
+    /// Track order is draw order within a layer, and a hidden track contributes
+    /// nothing regardless of what its effects say — hiding a lane has to hide
+    /// what is on it, which is the only reading of the control that makes sense.
+    public func evaluate(_ document: EffectDocument) -> [StoryboardSprite] {
+        document.tracks.flatMap { track in
+            track.isVisible ? evaluate(track.nodes) : []
+        }
+    }
+
     /// Moves a locally-timed sprite onto the project timeline.
     private func shift(
         _ sprite: StoryboardSprite,

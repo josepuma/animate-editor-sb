@@ -143,4 +143,44 @@ struct BeatmapFolderTests {
         #expect(BeatmapFolder.normalise("sb/../../etc/passwd") == "etc/passwd")
         #expect(!BeatmapFolder.normalise("../../x.png").hasPrefix(".."))
     }
+
+    // ─── Files added after opening ───────────────────────────────────────────
+
+    /// The index is a snapshot from when the folder was opened, which is right
+    /// for reading a finished storyboard and wrong for editing one: dropping an
+    /// image into `sb/` while the editor runs is how an asset gets added.
+    @Test("a file added after opening is still found")
+    func fileAddedAfterOpening() throws {
+        let temporary = try TemporaryFolder(files: ["map.osu": "x"])
+        let folder = try BeatmapFolder(url: temporary.url)
+
+        #expect(folder.fileURL(forRelativePath: "sb/new.png") == nil)
+
+        let added = temporary.url.appending(path: "sb", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: added, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: added.appending(path: "new.png"))
+
+        #expect(folder.fileURL(forRelativePath: "sb/new.png") != nil)
+        #expect(folder.data(forRelativePath: "sb/new.png") != nil)
+    }
+
+    @Test("a path that is still absent stays absent")
+    func absentPathStaysAbsent() throws {
+        let temporary = try TemporaryFolder(files: ["map.osu": "x"])
+        let folder = try BeatmapFolder(url: temporary.url)
+
+        #expect(folder.fileURL(forRelativePath: "sb/never.png") == nil)
+    }
+
+    /// A directory is not a file, however much its name looks like one.
+    @Test("a directory is not resolved as a file")
+    func directoryIsNotAFile() throws {
+        let temporary = try TemporaryFolder(files: ["map.osu": "x"])
+        let folder = try BeatmapFolder(url: temporary.url)
+
+        let directory = temporary.url.appending(path: "looks-like.png", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        #expect(folder.fileURL(forRelativePath: "looks-like.png") == nil)
+    }
 }

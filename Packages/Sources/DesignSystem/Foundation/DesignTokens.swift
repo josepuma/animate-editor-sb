@@ -85,8 +85,13 @@ public enum Theme {
         /// 1.5 — a ring drawn around a control, thicker than a hairline so it
         /// reads as a deliberate outline rather than an edge.
         public static let ring: CGFloat = 1.5
-        /// 58 — label column in an inspector row, wide enough for "Rotation".
-        public static let propertyLabel: CGFloat = 58
+        /// 78 — label column in an inspector row, wide enough for a two-word
+        /// parameter name on one line ("Velocity Random", "Rotation Random").
+        ///
+        /// Sized to the names that exist rather than to the shortest: at 58 the
+        /// two-word ones wrapped, and a wrapped label makes its row taller than
+        /// its neighbours, which reads as uneven spacing rather than as a form.
+        public static let propertyLabel: CGFloat = 78
         /// 38 — a numeric readout beside a slider, fixed so it stops jittering.
         public static let valueReadout: CGFloat = 38
 

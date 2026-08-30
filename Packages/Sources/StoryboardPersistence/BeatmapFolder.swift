@@ -37,6 +37,7 @@ public struct BeatmapFolder: Sendable {
         filesByLowercasedPath = Self.indexFiles(under: url, using: fileManager)
     }
 
+
     private static func indexFiles(under root: URL, using fileManager: FileManager) -> [String: URL] {
         var index: [String: URL] = [:]
 
@@ -78,7 +79,36 @@ public struct BeatmapFolder: Sendable {
     public func fileURL(forRelativePath path: String) -> URL? {
         let normalised = Self.normalise(path)
         guard !normalised.isEmpty else { return nil }
-        return filesByLowercasedPath[normalised]
+        if let known = filesByLowercasedPath[normalised] { return known }
+        return resolveOnDisk(normalised)
+    }
+
+    /// Looks for one file the index does not know about.
+    ///
+    /// The index is a snapshot taken when the folder was opened, which is right
+    /// for reading a finished storyboard and wrong for editing one: dropping an
+    /// image into `sb/` while the editor runs is the ordinary way to add an
+    /// asset, and without this the file does not exist as far as the app is
+    /// concerned until the project is reopened.
+    ///
+    /// A miss checks that one path rather than walking the folder again. A
+    /// beatmap carries hundreds of files, and re-indexing all of them to find
+    /// one is work proportional to the wrong thing — and it would run on every
+    /// genuinely missing path, which is exactly the case a storyboard with a
+    /// typo hits on every sprite.
+    private func resolveOnDisk(_ normalisedPath: String) -> URL? {
+        let candidate = url.appending(path: normalisedPath, directoryHint: .notDirectory)
+
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue
+        else { return nil }
+
+        // The index is case-insensitive because osu! storyboards are written
+        // against filenames on a case-insensitive filesystem; this check is
+        // not, so only an exact match is found here. That is the common case —
+        // a file just added, named as the storyboard spells it.
+        return candidate
     }
 
     /// Reads a storyboard-relative file, or `nil` when it cannot be found.
@@ -132,7 +162,12 @@ public struct BeatmapFolder: Sendable {
 public enum BeatmapFolderError: Error, CustomStringConvertible, Equatable {
     case notFound(URL)
     case notADirectory(URL)
-    case noStoryboardFound(String)
+    /// The folder holds nothing to build a storyboard against — no difficulty,
+    /// no audio, no `.osb`.
+    ///
+    /// An *empty* storyboard is not an error: a folder with audio and a
+    /// difficulty is where a new storyboard starts.
+    case notABeatmapFolder(String)
 
     public var description: String {
         switch self {
@@ -140,8 +175,8 @@ public enum BeatmapFolderError: Error, CustomStringConvertible, Equatable {
             "No folder at \(url.path)."
         case let .notADirectory(url):
             "\(url.lastPathComponent) is a file, not a folder."
-        case let .noStoryboardFound(name):
-            "\(name) contains no .osb file and no .osu file with storyboard events."
+        case let .notABeatmapFolder(name):
+            "\(name) has no .osu difficulty and no audio file."
         }
     }
 }

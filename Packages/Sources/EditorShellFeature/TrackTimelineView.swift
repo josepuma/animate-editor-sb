@@ -39,8 +39,23 @@ struct TrackTimelineView: View {
     /// How far the current pan drag had travelled at the last event.
     @State private var lastPanTranslation: CGFloat = 0
 
+    /// The span the timeline actually has to cover.
+    ///
+    /// `timelineRange` describes the loaded storyboard and its audio, and knows
+    /// nothing about effects placed on top. An effect dragged past the end of
+    /// the track would fall outside the window, where the row drops it for
+    /// being off screen — the block vanishing mid-drag, taking the gesture with
+    /// it. With no project open at all the range is `0...1`, so the first
+    /// effect placed would never be visible.
+    private var fullRange: ClosedRange<Double> {
+        guard let effects = shell.effects.timeRange else { return timelineRange }
+        let lower = min(timelineRange.lowerBound, effects.lowerBound)
+        let upper = max(timelineRange.upperBound, effects.upperBound)
+        return lower...upper
+    }
+
     private var zoom: TimelineZoom {
-        TimelineZoom(full: timelineRange, state: zoomState)
+        TimelineZoom(full: fullRange, state: zoomState)
     }
 
     /// Applies a change to the zoom, keeping only what the view stores.
@@ -83,14 +98,23 @@ struct TrackTimelineView: View {
     /// Total height for `trackCount` rows, so the shell can size the workspace
     /// around a timeline that grows with its content.
     static func height(trackCount: Int) -> CGFloat {
-        rulerHeight
+        let rows = (trackHeight + Theme.Spacing.tight) * CGFloat(max(trackCount, 1))
+
+        return rulerHeight
             // The gap the stack puts between the ruler and the first row.
             + Theme.Spacing.snug
             // The audio row, which is always there once a track is loaded.
             + audioTrackHeight + Theme.Spacing.tight
-            + (trackHeight + Theme.Spacing.tight) * CGFloat(max(trackCount, 1))
+            + min(rows, maximumRowsHeight)
             + Theme.Spacing.compact * 2
     }
+
+    /// Ceiling on the space the effect rows take, after which they scroll.
+    ///
+    /// Roughly five rows. Without a ceiling the timeline grows with every
+    /// effect placed and eventually squeezes the canvas — which is the thing
+    /// the editor is for — off the window.
+    private static let maximumRowsHeight: CGFloat = (trackHeight + Theme.Spacing.tight) * 5
 
     var body: some View {
         // The padding goes outside the reader, so `proxy.size` is the space the
@@ -132,9 +156,9 @@ struct TrackTimelineView: View {
             }
         }
         .padding(Theme.Spacing.compact)
-        .frame(height: Self.height(trackCount: shell.tracks.count))
+        .frame(height: Self.height(trackCount: shell.effects.tracks.count))
         .surface(.panel)
-        .onChange(of: shell.tracks.count) { _, _ in
+        .onChange(of: shell.effects.tracks.count) { _, _ in
             // A new storyboard is a new span, so the view starts whole again
             // rather than keeping a window onto the last one. Keyed on the
             // track count rather than the range: the range settles in stages as
@@ -155,13 +179,16 @@ struct TrackTimelineView: View {
     ///
     /// None of these act yet — sprite editing does not exist — but they sit
     /// where the real controls will, so the strip's proportions are settled.
+    ///
+    /// `+` is real now: two effects can only overlap on separate lanes, so
+    /// making one has to be reachable without placing an effect first.
     private var tools: some View {
         HStack(spacing: Theme.Spacing.tight) {
             IconButton(
                 systemImage: "plus",
                 size: Theme.Size.controlTiny,
-                help: "Add script",
-            ) {}
+                help: "New track",
+            ) { shell.addTrack() }
 
             IconButton(
                 systemImage: "scissors",
@@ -417,24 +444,82 @@ struct TrackTimelineView: View {
 
     // ─── Tracks ──────────────────────────────────────────────────────────────
 
+    /// One lane, with everything it is allowed to change.
+    ///
+    /// Built here rather than inline in the loop: assembled in place, the
+    /// closure list grows past what the type-checker will infer in reasonable
+    /// time.
+    private func row(_ track: EffectTrack, contentWidth: CGFloat) -> some View {
+        let index = shell.effects.tracks.firstIndex { $0.id == track.id } ?? 0
+
+        let actions = TrackActions(
+            moveNode: { shell.moveEffect($0, to: $1) },
+            resizeNode: { shell.resizeEffect($0, startTime: $1, duration: $2) },
+            removeNode: { shell.removeEffect($0) },
+            moveNodeToTrack: { shell.moveEffect($0, toTrack: $1) },
+            removeTrack: { shell.removeTrack(track.id) },
+            rename: { shell.renameTrack(track.id, to: $0) },
+            raise: { shell.raiseTrack(track.id) },
+            lower: { shell.lowerTrack(track.id) },
+            canRaise: shell.effects.canRaiseTrack(track.id),
+            canLower: shell.effects.canLowerTrack(track.id),
+            otherTracks: shell.effects.tracks.filter { $0.id != track.id },
+            previewDrop: { trackID, nodeID, range in
+                guard let trackID, let nodeID, let range else {
+                    shell.dropPreview = nil
+                    return
+                }
+                shell.dropPreview = EditorShellModel.DropPreview(
+                    nodeID: nodeID,
+                    trackID: trackID,
+                    range: range,
+                )
+            },
+            trackID: { rows in
+                guard rows != 0 else { return nil }
+                let target = index + rows
+                guard shell.effects.tracks.indices.contains(target) else { return nil }
+                return shell.effects.tracks[target].id
+            },
+        )
+
+        return TrackRowView(
+            track: track,
+            isSelected: track.id == shell.selectedTrackID,
+            selectedNodeID: shell.selectedNodeID,
+            scale: TimelineScale(range: visibleRange, width: contentWidth),
+            headerWidth: Self.headerWidth,
+            height: Self.trackHeight,
+            select: {
+                shell.selectedTrackID = track.id
+                shell.selectedNodeID = nil
+            },
+            selectNode: { shell.selectedNodeID = $0 },
+            toggleVisibility: { shell.toggleVisibility(of: track.id) },
+            toggleLock: { shell.toggleLock(of: track.id) },
+            actions: actions,
+            dropPreview: shell.dropPreview?.trackID == track.id ? shell.dropPreview : nil,
+        )
+    }
+
     /// - Parameter contentWidth: measured once by the body. A reader of its own
     ///   here would report whatever the enclosing stack offered rather than the
     ///   span the ruler was drawn against, and the two would disagree.
     private func tracks(contentWidth: CGFloat) -> some View {
         ZStack(alignment: .topLeading) {
             VStack(spacing: Theme.Spacing.tight) {
-                ForEach(shell.tracks) { track in
-                    TrackRowView(
-                        track: track,
-                        isSelected: track.id == shell.selectedTrackID,
-                        scale: TimelineScale(range: visibleRange, width: contentWidth),
-                        headerWidth: Self.headerWidth,
-                        height: Self.trackHeight,
-                        select: { shell.selectedTrackID = track.id },
-                        toggleVisibility: { shell.toggleVisibility(of: track.id) },
-                        toggleLock: { shell.toggleLock(of: track.id) },
-                    )
+                // Scrolled rather than grown: the timeline has a ceiling so a
+                // project with many effects cannot squeeze the canvas — the
+                // thing the editor exists for — off the window.
+                ScrollView(.vertical) {
+                    VStack(spacing: Theme.Spacing.tight) {
+                        ForEach(shell.effects.tracks) { track in
+                            row(track, contentWidth: contentWidth)
+                        }
+                    }
                 }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(maxHeight: Self.maximumRowsHeight)
 
                 // The soundtrack sits under the layers it is written against,
                 // the way a video editor puts audio beneath its video tracks.
@@ -467,7 +552,7 @@ struct TrackTimelineView: View {
         )
         .frame(
             height: (Self.trackHeight + Theme.Spacing.tight)
-                * CGFloat(max(shell.tracks.count, 1))
+                * CGFloat(max(shell.effects.tracks.count, 1))
                 + (waveformPeaks.isEmpty ? 0 : Self.audioTrackHeight + Theme.Spacing.tight),
         )
     }
@@ -560,9 +645,15 @@ struct TrackTimelineView: View {
 
 // ─── Track row ───────────────────────────────────────────────────────────────
 
+/// One lane of the timeline: a header, and every effect placed along it.
+///
+/// A lane holds many clips rather than being one. One row per effect turns a
+/// project with thirty of them into thirty rows nobody can scan, and leaves no
+/// way to say that these four belong together.
 struct TrackRowView: View {
-    let track: ScriptTrack
+    let track: EffectTrack
     let isSelected: Bool
+    let selectedNodeID: EffectNode.ID?
     /// The span and width the clips are drawn against, measured once by the
     /// timeline.
     ///
@@ -573,10 +664,35 @@ struct TrackRowView: View {
     let headerWidth: CGFloat
     let height: CGFloat
     let select: () -> Void
+    let selectNode: (EffectNode.ID) -> Void
     let toggleVisibility: () -> Void
     let toggleLock: () -> Void
+    let actions: TrackActions
+    /// Where a clip dragged from elsewhere would land, when this lane is the
+    /// destination.
+    let dropPreview: EditorShellModel.DropPreview?
 
     @State private var isHovered = false
+    /// Which clip the pointer is over, so only its ears appear.
+    @State private var hoveredNodeID: EffectNode.ID?
+    /// The lane a drag has crossed into, applied when it ends.
+    @State private var pendingTrackID: EffectTrack.ID?
+    /// The name as it is being typed, committed on return or on leaving.
+    @State private var editedName: String?
+    @FocusState private var isNamingFocused: Bool
+    /// The clip's span while a drag is in flight.
+    ///
+    /// Held locally so the row redraws at pointer speed. Committing on every
+    /// change would re-evaluate the effect — thousands of sprites — for each
+    /// pixel of movement.
+    @State private var draft: (id: EffectNode.ID, range: ClosedRange<Double>)?
+    /// The span the current drag started from.
+    ///
+    /// A gesture reports its translation from where it began, so every frame
+    /// has to be measured against that same starting span. Measuring against
+    /// the previous frame's draft applies the whole translation again on each
+    /// event, and the clip accelerates off the timeline.
+    @State private var dragOrigin: ClosedRange<Double>?
 
     var body: some View {
         HStack(spacing: Theme.Spacing.snug) {
@@ -600,6 +716,7 @@ struct TrackRowView: View {
         .contentShape(.rect)
         .onTapGesture(perform: select)
         .onHover { isHovered = $0 }
+        .contextMenu { rowMenu }
         .animation(Theme.Motion.quick, value: isSelected)
         .animation(Theme.Motion.quick, value: isHovered)
     }
@@ -612,18 +729,33 @@ struct TrackRowView: View {
         return isHovered ? Theme.Fill.rowHover : .clear
     }
 
-    /// Track name with its own underline, and the per-track toggles — the
-    /// layout the reference uses for a clip lane.
+    /// Track name with its own underline, and the per-track toggles.
     private var header: some View {
         HStack(spacing: Theme.Spacing.snug) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(track.name.uppercased())
-                    .font(Theme.Typography.micro)
-                    .tracking(0.6)
-                    .foregroundStyle(
-                        track.isVisible ? Theme.Palette.secondary : Theme.Palette.tertiary,
-                    )
-                    .lineLimit(1)
+                // Renamed in place: a lane's name is the one thing about it
+                // worth changing often, and a dialog for a single field is a
+                // dialog nobody opens.
+                TextField("", text: Binding(
+                    get: { editedName ?? track.name },
+                    set: { editedName = $0 },
+                ))
+                .textFieldStyle(.plain)
+                .font(Theme.Typography.micro)
+                .tracking(0.6)
+                .foregroundStyle(
+                    track.isVisible ? Theme.Palette.secondary : Theme.Palette.tertiary,
+                )
+                .lineLimit(1)
+                .focused($isNamingFocused)
+                .onSubmit(commitName)
+                .onChange(of: isNamingFocused) { _, focused in
+                    if !focused { commitName() }
+                }
+                .onExitCommand {
+                    editedName = nil
+                    isNamingFocused = false
+                }
 
                 Rectangle()
                     .fill(track.layer.tint)
@@ -654,51 +786,385 @@ struct TrackRowView: View {
         .frame(width: headerWidth, alignment: .leading)
     }
 
-    private var visibleSpans: [VisibleSpan] {
-        VisibleSpan.spans(of: track.activeRanges, scale: scale)
-    }
-
-    /// Spans drawn as clip pills rather than filled rectangles, so a track
-    /// reads as content sitting on the timeline.
+    /// Every clip on this lane, drawn as pills against the lane's own strip.
     private var content: some View {
         ZStack(alignment: .leading) {
             RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
                 .fill(Theme.Fill.subtle)
 
-            ForEach(visibleSpans, id: \.index) { span in
-                let start = span.start
-                let spanWidth = span.width
-                let index = span.index
-
-                    TrackBlock(
-                        tint: track.layer.tint,
-                        // A narrow pill has no room for text, and a truncated
-                        // label reads as a rendering fault.
-                        label: spanWidth > 90 ? spanLabel(index: index) : nil,
-                        isDimmed: !track.isVisible,
-                    ) {
-                        if spanWidth > 56 {
-                            SpanThumbnail(tint: track.layer.tint, height: height - 16)
-                        }
-                    } badge: {
-                        if spanWidth > 140 {
-                            BlockBadge(systemImage: "photo")
-                        }
-                    }
-                .frame(width: spanWidth)
-                .offset(x: start)
+            ForEach(track.nodes) { node in
+                clip(node)
             }
+
+            ghost
         }
         .padding(.vertical, Theme.Spacing.tight)
+        // Which clip is under the pointer is measured across the whole lane
+        // rather than asked of each clip.
+        //
+        // The ears are revealed by a clip's hover but sit *outside* it, so a
+        // per-clip `onHover` ended the moment the pointer crossed onto one —
+        // the ear vanished from under the cursor on its way there, visible and
+        // impossible to grab. Measuring here treats a clip and its ears as one
+        // region, with no seam between them to fall through.
+        .onContinuousHover(coordinateSpace: .local) { phase in
+            switch phase {
+            case let .active(location):
+                hoveredNodeID = nodeID(atX: location.x)
+            case .ended:
+                hoveredNodeID = nil
+            }
+        }
+        // The ears fade in with the hover rather than appearing at once, which
+        // at the speed a pointer crosses a timeline reads as flicker.
+        .animation(Theme.Motion.quick, value: hoveredNodeID)
+        // The ghost fades too, so crossing a lane boundary reads as a preview
+        // settling in rather than as something blinking on.
+        .animation(Theme.Motion.quick, value: dropPreview)
     }
 
-    /// A span covers thousands of sprites, so it is named by what it is rather
-    /// than by a file: the layer, and how many spans came before it.
-    private func spanLabel(index: Int) -> String {
-        track.activeRanges.count > 1
-            ? "\(track.name) \(index + 1)"
-            : track.name
+    /// An outline of where a clip dragged from another lane would land.
+    ///
+    /// Dimming the clip being dragged says where it is leaving from; without
+    /// this there is nothing saying where it arrives, and the move only becomes
+    /// visible once the mouse is already up.
+    @ViewBuilder
+    private var ghost: some View {
+        if let preview = dropPreview,
+           preview.trackID == track.id,
+           let span = VisibleSpan.spans(of: [preview.range], scale: scale).first
+        {
+            RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
+                .strokeBorder(track.layer.tint, style: StrokeStyle(
+                    lineWidth: Theme.Size.ring,
+                    dash: [4, 3],
+                ))
+                .background {
+                    RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
+                        .fill(track.layer.tint.opacity(0.15))
+                }
+                .frame(width: span.width)
+                .offset(x: span.start)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+        }
     }
+
+    /// The clip at a horizontal position, counting its ears as part of it.
+    ///
+    /// A drag in flight keeps its clip: the pointer runs ahead of the pill it
+    /// is dragging, and losing the hover mid-drag would take the ears away
+    /// while they are being used.
+    private func nodeID(atX x: CGFloat) -> EffectNode.ID? {
+        if let draft { return draft.id }
+
+        for node in track.nodes {
+            guard let span = span(of: node) else { continue }
+            let from = span.start - Self.earWidth
+            let to = span.start + span.width + Self.earWidth
+            if x >= from, x <= to { return node.id }
+        }
+        return nil
+    }
+
+    /// The span a clip is drawn at: its draft while dragging, otherwise its own.
+    private func span(of node: EffectNode) -> VisibleSpan? {
+        let range = draft?.id == node.id ? draft!.range : node.timeRange
+        return VisibleSpan.spans(of: [range], scale: scale).first
+    }
+
+    @ViewBuilder
+    private func clip(_ node: EffectNode) -> some View {
+        if let span = span(of: node) {
+            let width = span.width
+
+            TrackBlock(
+                tint: track.layer.tint,
+                // A narrow pill has no room for text, and a truncated label
+                // reads as a rendering fault.
+                label: width > 90 ? node.name : nil,
+                isDimmed: !track.isVisible,
+                isSelected: node.id == selectedNodeID,
+            ) {
+                if width > 56 {
+                    SpanThumbnail(tint: track.layer.tint, height: height - 16)
+                }
+            } badge: {
+                if width > 140 {
+                    BlockBadge(systemImage: "sparkles")
+                }
+            }
+            .frame(width: width)
+            .offset(x: span.start)
+            // Faded while it is on its way to another lane, so the drag says
+            // where the clip is going before it gets there — otherwise the
+            // change only appears on release, which reads as an accident.
+            .opacity(isLeaving(node) ? 0.35 : 1)
+            // Clicking a clip selects it, so the inspector follows what was
+            // pointed at. Without this, only dragging selected — and on a lane
+            // with several clips there was no way to pick one to edit.
+            .onTapGesture { selectNode(node.id) }
+            .gesture(moveGesture(node))
+            .contextMenu { clipMenu(node) }
+
+            // Siblings in the stack rather than overlays on the clip. An
+            // overlay shares its host's place in the hit test, and the clip's
+            // own drag gesture — the one that wraps it — wins every time,
+            // leaving the edges dead.
+            if hoveredNodeID == node.id {
+                ear(node, edge: .leading, span: span)
+                ear(node, edge: .trailing, span: span)
+            }
+        }
+    }
+
+    // ─── Resizing ────────────────────────────────────────────────────────────
+
+    /// A grab handle just outside one edge of a clip.
+    ///
+    /// Outside, not within. Sitting inside the pill, two handles and a
+    /// draggable middle share whatever width the clip has — so they had to be
+    /// hidden below a threshold, and at the default zoom a four-second effect
+    /// on a three-minute track is under it. Resizing was simply absent until
+    /// you zoomed in, which is not where anyone starts.
+    @ViewBuilder
+    private func ear(_ node: EffectNode, edge: HorizontalEdge, span: VisibleSpan) -> some View {
+        if !track.isLocked {
+            // Tucked inside when there is no room outside: the lane is clipped,
+            // so an ear on a clip against either edge would be cut in half.
+            let outside = edge == .leading
+                ? span.start - Self.earWidth
+                : span.start + span.width
+            let inside = edge == .leading
+                ? span.start
+                : span.start + span.width - Self.earWidth
+            let margin: CGFloat = 1
+            let fitsOutside = edge == .leading
+                ? outside >= margin
+                : outside + Self.earWidth <= scale.width - margin
+
+            // The clip's own colour, at its own radius: the ear reads as the
+            // same piece extending past its edge rather than as a separate
+            // control resting against it.
+            RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
+                .fill(track.layer.tint.opacity(0.55))
+                .frame(width: Self.earWidth)
+                .padding(.vertical, Theme.Spacing.compact)
+                .contentShape(.rect)
+                .offset(x: fitsOutside ? outside : inside)
+                .gesture(resizeGesture(node, edge: edge))
+                .onHover { hovering in
+                    // The cursor is the only thing telling a resize edge apart
+                    // from the body that moves the whole clip.
+                    if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                }
+                .transition(.opacity)
+        }
+    }
+
+    /// Big enough to grab without aiming. Fixed rather than proportional: an
+    /// ear that shrank with the clip would be unusable exactly where it is
+    /// needed most.
+    private static let earWidth: CGFloat = 10
+
+    /// Shortest clip a drag can leave behind, so one cannot be shrunk to a
+    /// sliver too small to grab again.
+    private static let minimumDuration: Double = 100
+
+    private func moveGesture(_ node: EffectNode) -> some Gesture {
+        DragGesture(minimumDistance: 3)
+            .onChanged { value in
+                guard !track.isLocked else { return }
+                let origin = beginDrag(node)
+
+                // Converted through the scale rather than tracked in pixels: at
+                // any zoom but 1:1 the two disagree and the clip drifts away
+                // from the pointer.
+                let shift = scale.duration(ofWidth: value.translation.width)
+                let length = origin.upperBound - origin.lowerBound
+                let start = max(0, origin.lowerBound + shift)
+                draft = (node.id, start...(start + length))
+
+                // Which lane the pointer has crossed into, if any.
+                //
+                // One gesture doing two things is normally a gesture people
+                // undo — but dragging a clip between lanes is what every video
+                // editor does, and it is what a hand reaches for before it
+                // reads a menu. The threshold is what keeps them apart: an
+                // ordinary horizontal drag never travels far enough vertically
+                // to count.
+                pendingTrackID = actions.trackID(rowsCrossed(value.translation.height))
+                actions.previewDrop(pendingTrackID, node.id, start...(start + length))
+            }
+            .onEnded { _ in commit(.move) }
+    }
+
+    /// Whether this clip is being dragged onto a different lane.
+    private func isLeaving(_ node: EffectNode) -> Bool {
+        pendingTrackID != nil && draft?.id == node.id
+    }
+
+    /// How many lanes up or down the pointer has travelled.
+    ///
+    /// Measured against the row's own height, so the clip changes lane at the
+    /// moment it visually reaches one, and needs more than half a row of
+    /// deliberate vertical movement before anything happens.
+    private func rowsCrossed(_ verticalTranslation: CGFloat) -> Int {
+        let rowPitch = height + Theme.Spacing.tight
+        return Int((verticalTranslation / rowPitch).rounded())
+    }
+
+    private func resizeGesture(_ node: EffectNode, edge: HorizontalEdge) -> some Gesture {
+        DragGesture(minimumDistance: 2)
+            .onChanged { value in
+                guard !track.isLocked else { return }
+                let origin = beginDrag(node)
+                let shift = scale.duration(ofWidth: value.translation.width)
+
+                switch edge {
+                case .leading:
+                    // Clamped against the far edge so dragging past it does not
+                    // invert the clip into a negative duration.
+                    let start = min(
+                        max(0, origin.lowerBound + shift),
+                        origin.upperBound - Self.minimumDuration,
+                    )
+                    draft = (node.id, start...origin.upperBound)
+                case .trailing:
+                    let end = max(
+                        origin.upperBound + shift,
+                        origin.lowerBound + Self.minimumDuration,
+                    )
+                    draft = (node.id, origin.lowerBound...end)
+                }
+            }
+            .onEnded { _ in commit(.resize) }
+    }
+
+    /// Records where a drag started, and selects what is being dragged.
+    ///
+    /// Grabbing a clip selects it, so the inspector follows what the pointer is
+    /// working on — dragging one thing while editing another is the confusing
+    /// case.
+    private func beginDrag(_ node: EffectNode) -> ClosedRange<Double> {
+        if let dragOrigin { return dragOrigin }
+        dragOrigin = node.timeRange
+        if node.id != selectedNodeID { selectNode(node.id) }
+        return node.timeRange
+    }
+
+    private func commitName() {
+        defer {
+            editedName = nil
+            // Handing focus back: a field that keeps it goes on swallowing
+            // keystrokes meant for the app, and space is play/pause.
+            isNamingFocused = false
+        }
+        guard let editedName, editedName != track.name else { return }
+        actions.rename(editedName)
+    }
+
+    private enum EditKind { case move, resize }
+
+    /// Writes the draft back to the model once the drag ends.
+    private func commit(_ kind: EditKind) {
+        defer {
+            draft = nil
+            dragOrigin = nil
+            pendingTrackID = nil
+            actions.previewDrop(nil, nil, nil)
+        }
+        guard let draft else { return }
+
+        switch kind {
+        case .move:
+            actions.moveNode(draft.id, draft.range.lowerBound)
+            // The lane change goes last: moving between tracks re-homes the
+            // node, and applying the time to a node that has already moved
+            // would have to find it again.
+            if let pendingTrackID {
+                actions.moveNodeToTrack(draft.id, pendingTrackID)
+            }
+        case .resize:
+            actions.resizeNode(
+                draft.id,
+                draft.range.lowerBound,
+                draft.range.upperBound - draft.range.lowerBound,
+            )
+        }
+    }
+
+    // ─── Menus ───────────────────────────────────────────────────────────────
+
+    /// Right-click on the lane itself.
+    @ViewBuilder
+    private var rowMenu: some View {
+        Button("Bring Forward", systemImage: "square.3.layers.3d.top.filled", action: actions.raise)
+            .disabled(!actions.canRaise)
+        Button("Send Backward", systemImage: "square.3.layers.3d.bottom.filled", action: actions.lower)
+            .disabled(!actions.canLower)
+
+        Divider()
+
+        Button(track.isVisible ? "Hide" : "Show", action: toggleVisibility)
+        Button(track.isLocked ? "Unlock" : "Lock", action: toggleLock)
+
+        Divider()
+
+        Button("Delete Track", systemImage: "trash", role: .destructive, action: actions.removeTrack)
+    }
+
+    /// Right-click on one clip.
+    @ViewBuilder
+    private func clipMenu(_ node: EffectNode) -> some View {
+        // Moving between lanes is a menu rather than a vertical drag: dragging
+        // a clip already means moving it in time, and one gesture that does two
+        // things depending on which way it went is a gesture people undo.
+        if !actions.otherTracks.isEmpty {
+            Menu("Move to Track") {
+                ForEach(actions.otherTracks, id: \.id) { other in
+                    Button(other.name) { actions.moveNodeToTrack(node.id, other.id) }
+                }
+            }
+            Divider()
+        }
+
+        Button("Delete Effect", systemImage: "trash", role: .destructive) {
+            actions.removeNode(node.id)
+        }
+    }
+}
+
+// ─── Track actions ───────────────────────────────────────────────────────────
+
+/// What a lane can do to itself and to what is on it.
+///
+/// Passed as closures rather than the model itself: a row that held the model
+/// could reach anything, and this states exactly what a timeline row is allowed
+/// to change.
+struct TrackActions {
+    let moveNode: (EffectNode.ID, Double) -> Void
+    let resizeNode: (EffectNode.ID, Double, Double) -> Void
+    let removeNode: (EffectNode.ID) -> Void
+    let moveNodeToTrack: (EffectNode.ID, EffectTrack.ID) -> Void
+    let removeTrack: () -> Void
+    let rename: (String) -> Void
+    let raise: () -> Void
+    let lower: () -> Void
+    let canRaise: Bool
+    let canLower: Bool
+    /// The lanes a clip could be moved to — every track but this one.
+    let otherTracks: [EffectTrack]
+    /// Shows where a dragged clip would land, on whichever lane that is.
+    ///
+    /// Routed through the model because the preview is drawn by the
+    /// destination row, and a row cannot draw into its neighbour.
+    let previewDrop: (EffectTrack.ID?, EffectNode.ID?, ClosedRange<Double>?) -> Void
+    /// The lane `rows` away from this one, or `nil` when there is none there.
+    ///
+    /// Rows are counted the way the timeline draws them — the list is reversed
+    /// for display, so dragging up moves *later* in the document.
+    let trackID: (Int) -> EffectTrack.ID?
 }
 
 // ─── Span thumbnail ──────────────────────────────────────────────────────────

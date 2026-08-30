@@ -25,6 +25,7 @@ public struct EmitterEffect: Effect {
     public enum Param {
         public static let count = "count"
         public static let emission = "emission"
+        public static let burstCount = "burstCount"
         public static let sprite = "sprite"
 
         public static let x = "x"
@@ -45,10 +46,16 @@ public struct EmitterEffect: Effect {
         public static let scaleStart = "scaleStart"
         public static let scaleEnd = "scaleEnd"
         public static let scaleRandom = "scaleRandom"
+        public static let stretch = "stretch"
         public static let rotation = "rotation"
+        public static let alignToMotion = "alignToMotion"
         public static let spin = "spin"
 
         public static let color = "color"
+        public static let colorEnd = "colorEnd"
+        public static let colorMid = "colorMid"
+        public static let usesColorMid = "usesColorMid"
+        public static let colorVariety = "colorVariety"
         public static let opacity = "opacity"
         public static let fadeIn = "fadeIn"
         public static let fadeOut = "fadeOut"
@@ -61,6 +68,12 @@ public struct EmitterEffect: Effect {
         case burst = "Burst"
         /// Spread evenly across the duration.
         case continuous = "Continuous"
+        /// In clumps, with gaps between them.
+        ///
+        /// An even drip is right for fire and snow and wrong for anything that
+        /// happens: lightning strikes two or three times in a moment and then
+        /// stops. Spreading those strikes evenly turns an event into a metronome.
+        case bursts = "Repeating Bursts"
     }
 
     /// Ceiling on the particle count.
@@ -70,6 +83,13 @@ public struct EmitterEffect: Effect {
     /// this is the point past which the result stops being usable in the game
     /// rather than just slow in the editor.
     public static let maximumCount = 2000
+
+    /// Path of the particle an emitter starts with.
+    ///
+    /// Mirrors `BuiltInTextures.particle`, spelled out here because
+    /// `StoryboardCore` sits below the renderer and cannot import it. A test
+    /// checks the two agree.
+    public static let defaultSpritePath = BuiltInSprite.soft
 
     public static let descriptor = EffectDescriptor(
         type: "emitter",
@@ -93,11 +113,26 @@ public struct EmitterEffect: Effect {
                 defaultValue: .choice(Emission.continuous.rawValue),
                 options: Emission.allCases.map(\.rawValue),
             ),
+            // Stays `.text` rather than a menu of the built-in shapes: the
+            // point is that a beatmap's own image can be typed in, and a choice
+            // parameter can only hold what it declares. The inspector offers
+            // the shapes alongside the field.
+            EffectParameter(
+                id: Param.burstCount,
+                name: "Bursts",
+                group: "Emission",
+                defaultValue: .integer(3),
+                range: 1...40,
+                step: 1,
+            ),
             EffectParameter(
                 id: Param.sprite,
                 name: "Sprite",
                 group: "Emission",
-                defaultValue: .text("sb/particle.png"),
+                // The app's own particle, so a freshly dropped emitter draws
+                // something before any file has been chosen. Kept as a plain
+                // path because that is what it becomes on export.
+                defaultValue: .text(EmitterEffect.defaultSpritePath),
             ),
 
             // ── Position ────────────────────────────────────────────────────
@@ -119,9 +154,13 @@ public struct EmitterEffect: Effect {
                 step: 1,
                 unit: "px",
             ),
+            // Named for what they are — the area particles are born across —
+            // rather than "Width" and "Height", which sit next to a "Sprite"
+            // parameter and read as the size of that image. Zero emits every
+            // particle from a single point.
             EffectParameter(
                 id: Param.width,
-                name: "Width",
+                name: "Emitter Width",
                 group: "Position",
                 defaultValue: .number(0),
                 range: 0...854,
@@ -130,7 +169,7 @@ public struct EmitterEffect: Effect {
             ),
             EffectParameter(
                 id: Param.height,
-                name: "Height",
+                name: "Emitter Height",
                 group: "Position",
                 defaultValue: .number(0),
                 range: 0...480,
@@ -242,6 +281,20 @@ public struct EmitterEffect: Effect {
                 step: 0.05,
                 presentation: .slider,
             ),
+            // Stretch along the direction of travel, using `_V`.
+            //
+            // Uniform scale is the wrong tool for anything that moves fast: a
+            // raindrop is long and thin, and scaling it up to get the length
+            // gives it the width too — the drops end up as grey bars. `_V`
+            // scales the axes separately, which is what osu! provides it for.
+            EffectParameter(
+                id: Param.stretch,
+                name: "Stretch",
+                group: "Particle",
+                defaultValue: .number(1),
+                range: 0.1...20,
+                step: 0.1,
+            ),
             EffectParameter(
                 id: Param.rotation,
                 name: "Rotation Random",
@@ -251,6 +304,18 @@ public struct EmitterEffect: Effect {
                 step: 1,
                 unit: "°",
                 presentation: .slider,
+            ),
+            // Point the sprite where the particle is going.
+            //
+            // Without this, rotation is pure noise and a shaped texture faces a
+            // random way regardless of travel: a raindrop falling at an angle
+            // is drawn upright, sliding sideways through its own path. Round
+            // particles do not care, which is why it is off by default.
+            EffectParameter(
+                id: Param.alignToMotion,
+                name: "Align to Motion",
+                group: "Particle",
+                defaultValue: .toggle(false),
             ),
             EffectParameter(
                 id: Param.spin,
@@ -263,11 +328,49 @@ public struct EmitterEffect: Effect {
             ),
 
             // ── Appearance ──────────────────────────────────────────────────
+            // Colour over life, which is most of what makes a particle field
+            // read as a material rather than as dots. Real fire is white at its
+            // base, orange as it rises and red as it cools; one flat colour
+            // looks like moving specks whatever the sprite behind it is.
             EffectParameter(
                 id: Param.color,
-                name: "Colour",
+                name: "Colour Start",
                 group: "Appearance",
                 defaultValue: .color(.white),
+            ),
+            EffectParameter(
+                id: Param.colorEnd,
+                name: "Colour End",
+                group: "Appearance",
+                defaultValue: .color(.white),
+            ),
+            EffectParameter(
+                id: Param.usesColorMid,
+                name: "Use Midpoint",
+                group: "Appearance",
+                defaultValue: .toggle(false),
+            ),
+            EffectParameter(
+                id: Param.colorMid,
+                name: "Colour Mid",
+                group: "Appearance",
+                defaultValue: .color(.white),
+            ),
+            // How far each particle's colour strays from the ramp.
+            //
+            // The ramp runs over a particle's life, so on its own every
+            // particle is the same colour at the same moment. That is right for
+            // fire, where the whole field cools together, and wrong for
+            // confetti, which is many colours *at once* — one ramp cannot say
+            // that, so the variety has to be per particle.
+            EffectParameter(
+                id: Param.colorVariety,
+                name: "Colour Variety",
+                group: "Appearance",
+                defaultValue: .number(0),
+                range: 0...1,
+                step: 0.05,
+                presentation: .slider,
             ),
             EffectParameter(
                 id: Param.opacity,
@@ -318,6 +421,7 @@ public struct EmitterEffect: Effect {
         guard count > 0, context.duration > 0 else { return [] }
 
         let emission = Emission(rawValue: context.choice(Param.emission)) ?? .continuous
+        let burstCount = max(1, context.integer(Param.burstCount))
         let filePath = context.text(Param.sprite)
         guard !filePath.isEmpty else { return [] }
 
@@ -339,10 +443,16 @@ public struct EmitterEffect: Effect {
         let scaleStart = context.number(Param.scaleStart)
         let scaleEnd = context.number(Param.scaleEnd)
         let scaleRandom = context.number(Param.scaleRandom)
+        let stretch = context.number(Param.stretch)
         let rotationRandom = context.number(Param.rotation)
+        let alignToMotion = context.toggle(Param.alignToMotion)
         let spin = context.number(Param.spin)
 
         let colour = context.color(Param.color)
+        let colourEnd = context.color(Param.colorEnd)
+        let colourMid = context.color(Param.colorMid)
+        let usesMid = context.toggle(Param.usesColorMid)
+        let colourVariety = context.number(Param.colorVariety)
         let opacity = context.number(Param.opacity)
         let fadeIn = context.number(Param.fadeIn)
         let fadeOut = context.number(Param.fadeOut)
@@ -363,6 +473,14 @@ public struct EmitterEffect: Effect {
                 // a random release makes a continuous emitter clump, which
                 // reads as a stuttering emitter rather than a steady one.
                 count == 1 ? 0 : context.duration * Double(index) / Double(count)
+            case .bursts:
+                // Particles are dealt round-robin into `burstCount` groups, so
+                // each group fires together and the groups are spread across
+                // the duration. Dealing them in blocks instead would make the
+                // first burst the first N particles, and every burst would draw
+                // from a different part of the random stream — the strikes
+                // would not look like siblings.
+                context.duration * Double(index % burstCount) / Double(burstCount)
             }
 
             let particleLife = max(1, life * (1 + particle.symmetric(lifeRandom)))
@@ -381,7 +499,11 @@ public struct EmitterEffect: Effect {
             let startScale = scaleStart * scaleJitter
             let endScale = scaleEnd * scaleJitter
 
-            let startAngle = particle.symmetric(rotationRandom) * .pi / 180
+            // The built-in shapes are drawn pointing up, so "aligned" means the
+            // sprite's up axis follows the velocity — a quarter turn off the
+            // travel angle itself.
+            let alignment = alignToMotion ? angle - .pi / 2 : 0
+            let startAngle = alignment + particle.symmetric(rotationRandom) * .pi / 180
 
             var commands: [Command] = []
 
@@ -468,7 +590,22 @@ public struct EmitterEffect: Effect {
             }
 
             // ── Scale ───────────────────────────────────────────────────────
-            if startScale != endScale {
+            //
+            // `_V` only when the axes differ: it costs the same as `_S` but
+            // writes twice the numbers, and a storyboard is a text file.
+            if stretch != 1 {
+                commands.append(Command(
+                    easing: .linear,
+                    startTime: birth,
+                    endTime: startScale == endScale ? birth : death,
+                    payload: .vectorScale(
+                        startX: startScale,
+                        startY: startScale * stretch,
+                        endX: endScale,
+                        endY: endScale * stretch,
+                    ),
+                ))
+            } else if startScale != endScale {
                 commands.append(Command(
                     easing: .linear,
                     startTime: birth,
@@ -496,16 +633,39 @@ public struct EmitterEffect: Effect {
             }
 
             // ── Colour ──────────────────────────────────────────────────────
-            if colour != .white {
-                commands.append(Command(
-                    easing: .linear,
-                    startTime: birth,
-                    endTime: birth,
-                    payload: .color(
-                        startR: colour.r, startG: colour.g, startB: colour.b,
-                        endR: colour.r, endG: colour.g, endB: colour.b,
-                    ),
-                ))
+            //
+            // Each particle's own shift through hue, so a field can be many
+            // colours at the same instant rather than one colour moving
+            // through time.
+            let shift = particle.symmetric(colourVariety)
+            let colour = colour.varied(by: shift)
+            let colourMid = colourMid.varied(by: shift)
+            let colourEnd = colourEnd.varied(by: shift)
+
+            //
+            // `_C` interpolates between two colours on its own, so a start and
+            // an end cost a single command. A midpoint costs a second, which is
+            // why it is opt-in: every command here is multiplied by the
+            // particle count in the exported file.
+            //
+            // Nothing is written when the whole ramp is white, since white is
+            // what a sprite draws as untinted.
+            if usesMid {
+                let half = birth + particleLife / 2
+                if colour != colourMid {
+                    commands.append(colourCommand(from: colour, to: colourMid, start: birth, end: half))
+                } else if colour != .white {
+                    commands.append(colourCommand(from: colour, to: colour, start: birth, end: birth))
+                }
+                if colourMid != colourEnd {
+                    commands.append(colourCommand(from: colourMid, to: colourEnd, start: half, end: death))
+                }
+            } else if colour != colourEnd {
+                commands.append(colourCommand(from: colour, to: colourEnd, start: birth, end: death))
+            } else if colour != .white {
+                // A constant tint: held from birth, so it applies for the whole
+                // life without a second command to end it.
+                commands.append(colourCommand(from: colour, to: colour, start: birth, end: birth))
             }
 
             if additive {
@@ -529,6 +689,23 @@ public struct EmitterEffect: Effect {
         }
 
         return sprites
+    }
+
+    private func colourCommand(
+        from: EffectColor,
+        to: EffectColor,
+        start: Double,
+        end: Double,
+    ) -> Command {
+        Command(
+            easing: .linear,
+            startTime: start,
+            endTime: end,
+            payload: .color(
+                startR: from.r, startG: from.g, startB: from.b,
+                endR: to.r, endG: to.g, endB: to.b,
+            ),
+        )
     }
 
     /// Where a particle is `time` milliseconds after its birth.

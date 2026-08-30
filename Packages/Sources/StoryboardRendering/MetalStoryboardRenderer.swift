@@ -253,8 +253,28 @@ public final class MetalStoryboardRenderer {
             }
             .map(\.element)
 
+        // Rebuild the atlas only when the set of images actually changed.
+        //
+        // Editing an effect's parameters changes where its particles go, never
+        // which files they use — and rebuilding means decoding every PNG in the
+        // beatmap again, packing them, and uploading 4096² pages. That is a
+        // visible stall on every drag of a slider, spent to arrive at the atlas
+        // already on the GPU.
+        //
+        // This is the same split any compositor makes: the pixels of an asset
+        // and the transform applied to them change for different reasons and at
+        // different rates.
         let paths = Array(Set(sprites.map(\.filePath))).sorted()
-        try loadTextures(paths: paths, textureProvider: textureProvider)
+        // Rebuild when the set of images changed, and also when the last build
+        // could not find one of them: a path that resolved to nothing is drawn
+        // as a flat quad, and the file it names is exactly the one someone is
+        // about to drop into the folder. Without this the sprite stays a blank
+        // square until the project is reopened, since the paths themselves
+        // never changed.
+        if paths != atlasPaths || atlas?.hasMissingTextures == true {
+            try loadTextures(paths: paths, textureProvider: textureProvider)
+            atlasPaths = paths
+        }
 
         if drawOrder.count > instanceCapacity {
             try growInstanceBuffers(to: drawOrder.count)
@@ -262,6 +282,10 @@ public final class MetalStoryboardRenderer {
         scratchStates.reserveCapacity(drawOrder.count)
         instances.reserveCapacity(drawOrder.count)
     }
+
+    /// The image paths the current atlas was built from, so an unchanged set
+    /// can skip the rebuild.
+    private var atlasPaths: [String] = []
 
     private func loadTextures(
         paths: [String],

@@ -32,6 +32,7 @@ struct FieldsPage: View {
     @State private var scale = 1.0
     @State private var rotation = 0.0
     @State private var colour = Color(red: 0.55, green: 0.36, blue: 0.96)
+    @State private var spritePath = "sb/particle.png"
     @State private var isAdditive = true
 
     var body: some View {
@@ -51,6 +52,9 @@ struct FieldsPage: View {
                 }
                 PropertyRow("Rotation") {
                     NumberField(value: $rotation, unit: "°", step: 15, range: -360...360)
+                }
+                PropertyRow("Sprite") {
+                    TextInputField(text: $spritePath, placeholder: "sb/particle.png")
                 }
                 PropertyRow("Colour") {
                     ColorField(color: $colour, hex: "#8C5CF6")

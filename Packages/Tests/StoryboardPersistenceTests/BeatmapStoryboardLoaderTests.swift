@@ -154,9 +154,51 @@ struct BeatmapStoryboardLoaderTests {
         #expect(result.osuPaths.isEmpty)
     }
 
-    @Test("a folder with no storyboard throws")
-    func noStoryboardThrows() throws {
+    // ─── Empty storyboards ───────────────────────────────────────────────────
+    //
+    // An empty storyboard is where a new one starts, not a failure. Refusing
+    // these folders would leave the editor able to open only work that had
+    // already been done somewhere else.
+
+    @Test("a folder with audio but no storyboard loads empty")
+    func audioOnlyLoadsEmpty() throws {
         let temporary = try TemporaryFolder(files: ["audio.mp3": "x"])
+        let result = try BeatmapStoryboardLoader.load(from: BeatmapFolder(url: temporary.url))
+
+        #expect(result.sprites.isEmpty)
+        #expect(result.audioURL?.lastPathComponent == "audio.mp3")
+    }
+
+    /// The folder someone opens to write a storyboard from scratch.
+    @Test("a folder with a difficulty and audio loads empty, keeping its timing")
+    func difficultyAndAudioLoadEmpty() throws {
+        let temporary = try TemporaryFolder(files: [
+            "hard.osu": "[General]\nAudioFilename: audio.mp3\n\n[TimingPoints]\n0,500,4,2,0,100,1,0\n",
+            "audio.mp3": "x",
+        ])
+        let result = try BeatmapStoryboardLoader.load(from: BeatmapFolder(url: temporary.url))
+
+        #expect(result.sprites.isEmpty)
+        #expect(result.timing != nil)
+        #expect(result.audioURL?.lastPathComponent == "audio.mp3")
+    }
+
+    @Test("a folder with a difficulty and no audio still loads")
+    func difficultyOnlyLoads() throws {
+        let temporary = try TemporaryFolder(files: [
+            "hard.osu": "[General]\nAudioFilename: missing.mp3\n",
+        ])
+        let result = try BeatmapStoryboardLoader.load(from: BeatmapFolder(url: temporary.url))
+
+        #expect(result.sprites.isEmpty)
+        #expect(result.audioURL == nil)
+    }
+
+    /// Still refused: nothing to build against is the wrong folder, not an
+    /// empty project.
+    @Test("a folder with neither a difficulty nor audio throws")
+    func unrelatedFolderThrows() throws {
+        let temporary = try TemporaryFolder(files: ["notes.txt": "x"])
         let folder = try BeatmapFolder(url: temporary.url)
 
         #expect(throws: BeatmapFolderError.self) {

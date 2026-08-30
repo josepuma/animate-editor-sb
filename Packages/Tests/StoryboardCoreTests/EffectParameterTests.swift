@@ -77,7 +77,8 @@ struct EffectParameterTests {
     func readIdsAreDeclared() {
         let declared = Set(EmitterEffect.descriptor.parameters.map(\.id))
         let read = [
-            EmitterEffect.Param.count, EmitterEffect.Param.emission, EmitterEffect.Param.sprite,
+            EmitterEffect.Param.count, EmitterEffect.Param.emission,
+            EmitterEffect.Param.burstCount, EmitterEffect.Param.sprite,
             EmitterEffect.Param.x, EmitterEffect.Param.y,
             EmitterEffect.Param.width, EmitterEffect.Param.height,
             EmitterEffect.Param.direction, EmitterEffect.Param.spread,
@@ -85,9 +86,13 @@ struct EffectParameterTests {
             EmitterEffect.Param.gravity, EmitterEffect.Param.drag,
             EmitterEffect.Param.life, EmitterEffect.Param.lifeRandom,
             EmitterEffect.Param.scaleStart, EmitterEffect.Param.scaleEnd,
-            EmitterEffect.Param.scaleRandom, EmitterEffect.Param.rotation,
+            EmitterEffect.Param.scaleRandom, EmitterEffect.Param.stretch,
+            EmitterEffect.Param.rotation, EmitterEffect.Param.alignToMotion,
             EmitterEffect.Param.spin,
-            EmitterEffect.Param.color, EmitterEffect.Param.opacity,
+            EmitterEffect.Param.color, EmitterEffect.Param.colorEnd,
+            EmitterEffect.Param.colorMid, EmitterEffect.Param.usesColorMid,
+            EmitterEffect.Param.colorVariety,
+            EmitterEffect.Param.opacity,
             EmitterEffect.Param.fadeIn, EmitterEffect.Param.fadeOut,
             EmitterEffect.Param.additive,
         ]

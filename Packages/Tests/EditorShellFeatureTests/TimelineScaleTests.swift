@@ -61,3 +61,41 @@ struct TimelineScaleTests {
         #expect(scale.time(atX: 50) == 0)
     }
 }
+
+@Suite("TimelineScale — drag distances")
+struct TimelineScaleDragTests {
+    /// A window that does not start at zero, which is the case that catches
+    /// formulas assuming an origin of 0.
+    private let scale = TimelineScale(range: 2000...6000, width: 400)
+
+    @Test("a distance converts to the time it covers")
+    func distanceToDuration() {
+        // 400pt spans 4000ms, so a quarter of the width is a quarter of the span.
+        #expect(scale.duration(ofWidth: 100) == 1000)
+    }
+
+    /// The bug this pins: `time(atX:)` clamps to the visible span, so a
+    /// leftward drag translation came back as 0 and a block could be dragged
+    /// right but never back.
+    @Test("a leftward distance converts to negative time")
+    func negativeDistance() {
+        #expect(scale.duration(ofWidth: -100) == -1000)
+    }
+
+    @Test("a distance beyond the width is not clamped")
+    func beyondTheWindow() {
+        #expect(scale.duration(ofWidth: 800) == 8000)
+    }
+
+    @Test("distance and width are inverses of each other")
+    func roundTrip() {
+        for span in [250.0, 1000, 4000, 9000] {
+            #expect(abs(scale.duration(ofWidth: scale.width(of: span)) - span) < 1e-9)
+        }
+    }
+
+    @Test("a zero-width timeline yields no duration rather than dividing by zero")
+    func zeroWidth() {
+        #expect(TimelineScale(range: 0...1000, width: 0).duration(ofWidth: 50) == 0)
+    }
+}
