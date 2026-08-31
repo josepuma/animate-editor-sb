@@ -390,10 +390,27 @@ public final class PlaybackModel {
         }
     }
 
-    public func frameRendered(drawnCount: Int, framesPerSecond: Double) {
+    public func frameRendered(
+        drawnCount: Int,
+        framesPerSecond: Double,
+        selectionBounds: ClipBounds? = nil,
+    ) {
         self.drawnCount = drawnCount
         self.framesPerSecond = framesPerSecond
+
+        // Written only when it actually moved: this runs 60 times a second, and
+        // an observed property assigned every frame redraws every view that
+        // reads it, whether or not anything changed.
+        if selectionBounds != self.selectionBounds {
+            self.selectionBounds = selectionBounds
+        }
     }
+
+    /// Which clip the selection box should frame, if any.
+    public var selectedClipID: String?
+
+    /// Where that clip is on the stage, measured as it was last drawn.
+    public private(set) var selectionBounds: ClipBounds?
 
     // ─── Formatting ──────────────────────────────────────────────────────────
 

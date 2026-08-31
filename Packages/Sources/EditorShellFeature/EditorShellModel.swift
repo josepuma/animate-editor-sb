@@ -569,6 +569,126 @@ public final class EditorShellModel {
         effectsChanged()
     }
 
+    /// The transform values a canvas drag started from.
+    ///
+    /// Held here rather than in the view: a gesture spans many events, and a
+    /// `@State` tuple in a `View` struct does not survive between them — so
+    /// every frame re-read the value it had just written, compounding each step
+    /// until moving cancelled itself out and scaling ran away backwards.
+    @ObservationIgnored private var canvasDragOrigin: (
+        x: Double, y: Double, scaleX: Double, scaleY: Double
+    )?
+
+    /// Records where a canvas drag began, once per gesture.
+    private func canvasDragBaseline(for node: EffectNode, at time: Double) -> (
+        x: Double, y: Double, scaleX: Double, scaleY: Double
+    ) {
+        if let canvasDragOrigin { return canvasDragOrigin }
+        let local = min(max(0, time - node.startTime), node.duration)
+        let origin = (
+            x: node.transform.value(.x, at: local),
+            y: node.transform.value(.y, at: local),
+            scaleX: node.transform.value(.scaleX, at: local),
+            scaleY: node.transform.value(.scaleY, at: local)
+        )
+        canvasDragOrigin = origin
+        return origin
+    }
+
+    /// Applies a drag from the canvas to the selected clip.
+    ///
+    /// Deltas are measured against the values the gesture started from, never
+    /// the current ones: reading back what the last frame wrote compounds every
+    /// step.
+    public func applyCanvasDrag(
+        dx: Double,
+        dy: Double,
+        scaleX: Double,
+        scaleY: Double,
+        isFinished: Bool,
+        at time: Double,
+    ) {
+        guard let nodeID = selectedNodeID,
+              let node = effects[nodeID],
+              !isLocked(nodeID)
+        else { return }
+
+        _ = canvasDragBaseline(for: node, at: time)
+
+        // Nothing is written until the hand comes up.
+        //
+        // Every write re-evaluates the clip — thousands of sprites — and
+        // re-uploads them to the GPU. Doing that per drag event meant the image
+        // was always rebuilding from an edit already superseded by the next
+        // one, so the picture lagged behind the pointer and the frame rate came
+        // apart. This is the same bargain the timeline already makes when a
+        // clip is dragged along its lane: preview locally, commit once.
+        guard isFinished else { return }
+
+        let origin = canvasDragBaseline(for: node, at: time)
+        var updated = node
+        let local = min(max(0, time - node.startTime), node.duration)
+
+        if dx != 0 { write(origin.x + dx, for: .x, on: &updated, at: local) }
+        if dy != 0 { write(origin.y + dy, for: .y, on: &updated, at: local) }
+        // Both axes, so a uniform corner drag stays uniform and a side drag
+        // can stretch one on its own.
+        if scaleX != 1 { write(origin.scaleX * scaleX, for: .scaleX, on: &updated, at: local) }
+        if scaleY != 1 { write(origin.scaleY * scaleY, for: .scaleY, on: &updated, at: local) }
+
+        effects[nodeID] = updated
+        effectsChanged()
+        canvasDragOrigin = nil
+    }
+
+    /// One transform write, following the same rule the inspector's fields do:
+    /// a keyframe when the property animates, the resting value when it does
+    /// not.
+    private func write(
+        _ value: Double,
+        for property: TransformProperty,
+        on node: inout EffectNode,
+        at localTime: Double,
+    ) {
+        if node.transform[property].isActive {
+            _ = node.transform[property].set(value, at: localTime)
+        } else {
+            node.transform[value: property] = value
+        }
+    }
+
+    /// Writes a transform property the way an edit from the canvas means it.
+    ///
+    /// The same rule the inspector's fields follow, and deliberately the one
+    /// place both go through: with the property animated this plants a keyframe
+    /// at the playhead, and without it this moves the resting value. Two paths
+    /// to the same edit would eventually disagree about which one a drag meant.
+    ///
+    /// This is what makes dragging on the canvas honest — the box moves what
+    /// the panel says it moves.
+    public func setTransformValueFromCanvas(
+        _ value: Double,
+        for property: TransformProperty,
+        on nodeID: EffectNode.ID,
+        at time: Double,
+    ) {
+        guard let node = effects[nodeID], !isLocked(nodeID) else { return }
+
+        if node.transform[property].isActive {
+            // Local to the clip, like every other keyframe time.
+            let local = min(max(0, time - node.startTime), node.duration)
+            setKeyframe(value, for: property, at: local, on: nodeID)
+        } else {
+            setTransformValue(value, for: property, on: nodeID)
+        }
+    }
+
+    /// Whether a clip cannot be edited, because its lane is locked.
+    public func isLocked(_ nodeID: EffectNode.ID) -> Bool {
+        guard let trackID = effects.trackID(of: nodeID) else { return false }
+        return effects.track(id: trackID)?.isLocked ?? false
+    }
+
     /// Switches a property's animation on or off, keeping its keys.
     public func setAnimationEnabled(
         _ isEnabled: Bool,

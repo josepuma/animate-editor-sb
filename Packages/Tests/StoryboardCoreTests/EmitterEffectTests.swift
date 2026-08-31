@@ -614,8 +614,8 @@ struct GroupTransformTests {
 
     @Test("a scaled clip scales its sprites")
     func scaleReachesSprites() {
-        let plain = emitter { $0.transform[value: .scale] = 1 }
-        let doubled = emitter { $0.transform[value: .scale] = 2 }
+        let plain = emitter { $0.transform[value: .scaleX] = 1 }
+        let doubled = emitter { $0.transform[value: .scaleX] = 2 }
 
         let prepared = StoryboardResolver.prepare(evaluator.evaluate(doubled))
         var states: [SpriteRenderState] = []
@@ -724,7 +724,7 @@ struct GroupTransformTests {
             switch property {
             case .x: state.x
             case .y: state.y
-            case .scale: state.scaleX
+            case .scaleX: state.scaleX
             case .rotation: state.rotation
             case .opacity: state.opacity
             }

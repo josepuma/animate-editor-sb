@@ -12,14 +12,28 @@ public struct PlaybackView: View {
     @Bindable private var timeline: TimelineModel
     private let source: any StoryboardSource
 
+    /// What a drag on the selection box should do, if anything.
+    ///
+    /// Supplied from outside because moving a clip is an edit to a document
+    /// this feature knows nothing about — the same seam the canvas already sits
+    /// on. Absent, the box is not drawn at all.
+    private let onClipDrag: ((ClipDrag) -> Void)?
+
+    /// Whether the framed clip refuses edits.
+    private let isClipLocked: Bool
+
     public init(
         model: PlaybackModel,
         timeline: TimelineModel,
         source: any StoryboardSource,
+        isClipLocked: Bool = false,
+        onClipDrag: ((ClipDrag) -> Void)? = nil,
     ) {
         _model = Bindable(model)
         _timeline = Bindable(timeline)
         self.source = source
+        self.isClipLocked = isClipLocked
+        self.onClipDrag = onClipDrag
     }
 
     public var body: some View {
@@ -36,7 +50,13 @@ public struct PlaybackView: View {
     /// `PlaybackView` that never enters the view tree — and `@State` on a view
     /// SwiftUI never installs has no identity, so writes to it go nowhere.
     public var canvas: PlaybackCanvas {
-        PlaybackCanvas(model: model, timeline: timeline, source: source)
+        PlaybackCanvas(
+            model: model,
+            timeline: timeline,
+            source: source,
+            isClipLocked: isClipLocked,
+            onClipDrag: onClipDrag,
+        )
     }
 }
 
@@ -45,6 +65,8 @@ public struct PlaybackCanvas: View {
     @Bindable var model: PlaybackModel
     @Bindable var timeline: TimelineModel
     let source: any StoryboardSource
+    var isClipLocked = false
+    var onClipDrag: ((ClipDrag) -> Void)?
 
     /// The pointer is over the picture.
     ///
@@ -82,6 +104,29 @@ public struct PlaybackCanvas: View {
                 HoverReporter { isHovered = $0 }
                     .frame(width: size.width, height: size.height)
                     .allowsHitTesting(false)
+
+                // Under the controls, so a transport button is never blocked
+                // by an invisible drag area behind it.
+                if let onClipDrag {
+                    let stage = OsuCanvas.size(widescreen: model.isWidescreen)
+                    SelectionBox(
+                        bounds: model.selectionBounds,
+                        stageSize: (Double(stage.width), Double(stage.height)),
+                        viewSize: size,
+                        isLocked: isClipLocked,
+                        onDrag: onClipDrag,
+                    )
+                    .frame(width: size.width, height: size.height)
+                    // One identity for the life of the canvas.
+                    //
+                    // Behind an `if let` on the measurement, SwiftUI tore the
+                    // box down and built a new one every time the bounds
+                    // changed — losing the gesture's local offset with it, and
+                    // briefly showing the outgoing view beside the incoming
+                    // one. Two borders, flickering. The box decides for itself
+                    // when it has nothing to draw.
+                    .id("selection-box")
+                }
 
                 overlay(canvasSize: size)
                     .frame(width: size.width, height: size.height)

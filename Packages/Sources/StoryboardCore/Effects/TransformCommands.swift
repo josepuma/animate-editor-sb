@@ -21,9 +21,12 @@ public enum TransformCommands {
         var commands: [Command] = []
 
         commands.append(contentsOf: positionCommands(transform, duration: duration))
-        commands.append(contentsOf: propertyCommands(
-            transform, .scale, duration: duration,
-            payload: { .scale(start: $0, end: $1) },
+        commands.append(contentsOf: buildScale(
+            x: transform[.scaleX],
+            y: transform[.scaleY],
+            restingX: transform[value: .scaleX],
+            restingY: transform[value: .scaleY],
+            duration: duration,
         ))
         commands.append(contentsOf: propertyCommands(
             transform, .rotation, duration: duration,
@@ -43,6 +46,86 @@ public enum TransformCommands {
     /// An unanimated property still reaches the file when its resting value is
     /// not the default — a sprite set to half scale and never animated has to
     /// say so somewhere.
+    /// Scale commands for one clip, `_S` or `_V` as the axes require.
+    ///
+    /// The two axes share a command, so they cannot be built independently: a
+    /// `_V` carries both, and a segment boundary on either axis has to be one
+    /// for both or the other axis's curve is lost inside it — the same rule
+    /// position already follows for `_M`.
+    ///
+    /// When the axes agree throughout, `_S` is written instead. It says the
+    /// same thing in one number rather than two, and a storyboard pays for
+    /// every number in it.
+    public static func buildScale(
+        x: KeyframeTrack,
+        y: KeyframeTrack,
+        restingX: Double,
+        restingY: Double,
+        duration: Double,
+    ) -> [Command] {
+        let animatesX = x.isActive
+        let animatesY = y.isActive
+
+        // Neither animates: one command holding whatever they rest at, and
+        // nothing at all when they rest at the default.
+        guard animatesX || animatesY else {
+            guard restingX != 1 || restingY != 1 else { return [] }
+            return [Command(
+                easing: .linear, startTime: 0, endTime: 0,
+                payload: restingX == restingY
+                    ? .scale(start: restingX, end: restingX)
+                    : .vectorScale(
+                        startX: restingX, startY: restingY,
+                        endX: restingX, endY: restingY,
+                    ),
+            )]
+        }
+
+        // One axis animating alone still moves both, because the still axis
+        // holds its resting value across the same spans.
+        let times = boundaries(x: animatesX ? x : nil, y: animatesY ? y : nil, duration: duration)
+        guard times.count >= 2 else { return [] }
+
+        var commands: [Command] = []
+        for (start, end) in zip(times, times.dropFirst()) {
+            let startX = animatesX ? x.value(at: start) : restingX
+            let startY = animatesY ? y.value(at: start) : restingY
+            let endX = animatesX ? x.value(at: end) : restingX
+            let endY = animatesY ? y.value(at: end) : restingY
+
+            // The easing belongs to the key the segment leaves, as everywhere
+            // else. With both axes animating, the one that owns this boundary
+            // supplies it.
+            let easingX: Easing? = animatesX
+                ? x.keyframes.first { $0.time == start }?.easing : nil
+            let easingY: Easing? = animatesY
+                ? y.keyframes.first { $0.time == start }?.easing : nil
+            let easing: Easing = easingX ?? easingY ?? .linear
+
+            commands.append(Command(
+                easing: easing, startTime: start, endTime: end,
+                payload: startX == startY && endX == endY
+                    ? .scale(start: startX, end: endX)
+                    : .vectorScale(startX: startX, startY: startY, endX: endX, endY: endY),
+            ))
+        }
+        return commands
+    }
+
+    /// Every moment either axis names, so no key falls inside a segment.
+    private static func boundaries(
+        x: KeyframeTrack?,
+        y: KeyframeTrack?,
+        duration: Double,
+    ) -> [Double] {
+        var times = Set<Double>()
+        for track in [x, y].compactMap({ $0 }) {
+            for keyframe in track.keyframes { times.insert(keyframe.time) }
+        }
+        guard !times.isEmpty else { return [] }
+        return times.sorted()
+    }
+
     private static func propertyCommands(
         _ transform: Transform,
         _ property: TransformProperty,

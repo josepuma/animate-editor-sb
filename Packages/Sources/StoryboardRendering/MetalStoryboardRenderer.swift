@@ -98,6 +98,17 @@ public final class MetalStoryboardRenderer {
     /// Sprites drawn in the most recent frame, for on-screen diagnostics.
     public private(set) var lastDrawnCount = 0
 
+    /// The clip whose sprites should be measured, if any.
+    ///
+    /// Set by whoever owns the selection. Measuring happens inside the frame
+    /// the renderer already resolves rather than in a pass of its own: the
+    /// states are right there, and resolving a second time is how the inspector
+    /// once cost 12ms a frame.
+    public var measuredClipID: String?
+
+    /// The box around `measuredClipID`'s sprites, as of the last frame drawn.
+    public private(set) var measuredBounds: ClipBounds?
+
     // ─── Setup ───────────────────────────────────────────────────────────────
 
     public init(device: MTLDevice, pixelFormat: MTLPixelFormat) throws {
@@ -273,6 +284,9 @@ public final class MetalStoryboardRenderer {
         // This is the same split any compositor makes: the pixels of an asset
         // and the transform applied to them change for different reasons and at
         // different rates.
+        // Compared before sorting: building the set is proportional to the
+        // sprite count and runs on every drag event, while sorting it only
+        // matters when it has actually changed.
         let paths = Array(Set(sprites.map(\.filePath))).sorted()
         // Rebuild when the set of images changed, and also when the last build
         // could not find one of them: a path that resolved to nothing is drawn
@@ -421,6 +435,7 @@ public final class MetalStoryboardRenderer {
 
         instances.removeAll(keepingCapacity: true)
         batches.removeAll(keepingCapacity: true)
+        var measured: ClipBounds?
 
         // `resolve` preserves `drawOrder`, so walking both in step keeps the
         // per-sprite metadata aligned without a dictionary lookup.
@@ -439,6 +454,13 @@ public final class MetalStoryboardRenderer {
             // broken path is visible rather than silently absent.
             let entry = atlas?.entries[sprite.filePath]
             let size = entry?.pixelSize ?? SIMD2<Float>(100, 100)
+
+            if let measuredClipID, ClipBounds.sprite(sprite.id, belongsTo: measuredClipID) {
+                let box = ClipBounds.around([state]) { _ in
+                    (width: Double(size.x), height: Double(size.y))
+                }
+                if let box { measured = measured.map { $0.union(box) } ?? box }
+            }
 
             let scaledWidth = size.x * Float(state.scaleX)
             let scaledHeight = size.y * Float(state.scaleY)
@@ -489,6 +511,8 @@ public final class MetalStoryboardRenderer {
 
             instances.append(instance)
         }
+
+        measuredBounds = measured
     }
 
     /// Orthographic projection from canvas space to clip space.

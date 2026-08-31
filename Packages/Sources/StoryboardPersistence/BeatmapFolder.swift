@@ -61,6 +61,16 @@ public struct BeatmapFolder: Sendable {
                 .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             guard !relative.isEmpty else { continue }
 
+            // The editor's own output is not the beatmap's art.
+            //
+            // An export writes a complete copy of the storyboard's images into
+            // this folder — the generated ones *and* the mapper's own. Indexed
+            // alongside the originals they compete for the same keys, and since
+            // the first match wins, whichever the enumerator reached first
+            // became the image the canvas drew. An emitter started rendering
+            // the background: `export/` had answered for `glow.png`.
+            guard !isExportOutput(relative) else { continue }
+
             // First match wins, so a folder holding both `SB/a.png` and
             // `sb/a.png` resolves deterministically by enumeration order.
             let key = relative.lowercased()
@@ -69,6 +79,16 @@ public struct BeatmapFolder: Sendable {
 
         return index
     }
+
+    /// Whether a path is inside the folder an export writes to.
+    private static func isExportOutput(_ relative: String) -> Bool {
+        let lowered = relative.lowercased()
+        return lowered == exportFolderName || lowered.hasPrefix(exportFolderName + "/")
+    }
+
+    /// The folder `StoryboardExport` writes into, named here as well because
+    /// persistence cannot import the renderer. A test keeps the two in step.
+    public static let exportFolderName = "export"
 
     // ─── Lookup ──────────────────────────────────────────────────────────────
 
@@ -79,6 +99,9 @@ public struct BeatmapFolder: Sendable {
     public func fileURL(forRelativePath path: String) -> URL? {
         let normalised = Self.normalise(path)
         guard !normalised.isEmpty else { return nil }
+        // Checked on both routes: the on-disk fallback below would otherwise
+        // walk straight into the export folder the index just excluded.
+        guard !Self.isExportOutput(normalised) else { return nil }
         if let known = filesByLowercasedPath[normalised] { return known }
         return resolveOnDisk(normalised)
     }

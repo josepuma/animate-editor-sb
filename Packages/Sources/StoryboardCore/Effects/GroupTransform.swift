@@ -42,7 +42,7 @@ public enum GroupTransform {
         let movesX = transform.isSet(.x)
         let movesY = transform.isSet(.y)
         let rotates = transform.isSet(.rotation)
-        let scales = transform.isSet(.scale)
+        let scales = transform.isSet(.scaleX) || transform.isSet(.scaleY)
         let fades = transform.isSet(.opacity)
 
         guard movesX || movesY || rotates || scales || fades else { return sprites }
@@ -78,7 +78,9 @@ public enum GroupTransform {
         } else if transform[.x].isActive || transform[.y].isActive {
             commands += max(1, transform[.x].keyframes.count + transform[.y].keyframes.count - 1)
         }
-        if transform[.scale].isActive { commands += 1 }
+        // Two, when the axes animate apart: `_V` carries both, but an axis
+        // animated alone still needs its own command.
+        if transform[.scaleX].isActive || transform[.scaleY].isActive { commands += 1 }
         if transform[.opacity].isActive { commands += 1 }
         return commands
     }
@@ -107,7 +109,8 @@ public enum GroupTransform {
         let isAnimated = transform[.x].isActive
             || transform[.y].isActive
             || transform[.rotation].isActive
-            || transform[.scale].isActive
+            || transform[.scaleX].isActive
+            || transform[.scaleY].isActive
 
         if isAnimated {
             result.commands = rebuiltMotion(
@@ -129,25 +132,38 @@ public enum GroupTransform {
             result.defaultX = placed.x
             result.defaultY = placed.y
 
-            let groupScale = transform.value(.scale, at: 0)
+            let groupScaleX = transform.value(.scaleX, at: 0)
+            let groupScaleY = transform.value(.scaleY, at: 0)
             let groupShift = (
                 x: transform.value(.x, at: 0) - TransformProperty.x.defaultValue,
                 y: transform.value(.y, at: 0) - TransformProperty.y.defaultValue
             )
             result.commands = sprite.commands.map {
-                carried(scaled($0, by: groupScale), pivot: pivot, scale: groupScale, shift: groupShift)
+                carried(
+                    scaled($0, byX: groupScaleX, byY: groupScaleY),
+                    pivot: pivot,
+                    // The pivot carries with the average: a group scaled
+                    // unevenly still sits around one centre.
+                    scale: (groupScaleX + groupScaleY) / 2,
+                    shift: groupShift,
+                )
             }
 
             // A sprite with no scale command of its own draws at 1, so scaling
             // by multiplying its commands reaches nothing — the group's scale
             // has to be stated outright.
-            if groupScale != 1,
+            if groupScaleX != 1 || groupScaleY != 1,
                !sprite.commands.contains(where: { $0.kind == .scale || $0.kind == .vectorScale })
             {
                 let start = sprite.commands.map(\.startTime).min() ?? 0
                 result.commands.append(Command(
                     easing: .linear, startTime: start, endTime: start,
-                    payload: .scale(start: groupScale, end: groupScale),
+                    payload: groupScaleX == groupScaleY
+                        ? .scale(start: groupScaleX, end: groupScaleX)
+                        : .vectorScale(
+                            startX: groupScaleX, startY: groupScaleY,
+                            endX: groupScaleX, endY: groupScaleY,
+                        ),
                 ))
             }
         }
@@ -231,20 +247,32 @@ public enum GroupTransform {
         // — the sprite came out frozen at whatever the scale happened to be
         // when it was born, while the inspector showed the value moving. That
         // is the same mistake the opacity path made.
-        if transform[.scale].isActive {
+        if transform[.scaleX].isActive || transform[.scaleY].isActive {
             commands.removeAll { $0.kind == .scale || $0.kind == .vectorScale }
-            commands.append(contentsOf: TransformCommands.build(
-                from: Transform(tracks: ["scale": transform[.scale]]),
+            commands.append(contentsOf: TransformCommands.buildScale(
+                x: transform[.scaleX],
+                y: transform[.scaleY],
+                restingX: transform[value: .scaleX],
+                restingY: transform[value: .scaleY],
                 duration: duration,
             ))
         } else {
-            let groupScale = transform.value(.scale, at: birth)
-            if groupScale != 1 {
-                commands = commands.map { scaled($0, by: groupScale) }
+            let scaleX = transform.value(.scaleX, at: birth)
+            let scaleY = transform.value(.scaleY, at: birth)
+            if scaleX != 1 || scaleY != 1 {
+                commands = commands.map { scaled($0, byX: scaleX, byY: scaleY) }
                 if !sprite.commands.contains(where: { $0.kind == .scale || $0.kind == .vectorScale }) {
+                    // `_S` when the axes agree, `_V` when they do not: a
+                    // uniform scale said as a vector is two numbers where one
+                    // would do, and a storyboard pays for every one of them.
                     commands.append(Command(
                         easing: .linear, startTime: birth, endTime: birth,
-                        payload: .scale(start: groupScale, end: groupScale),
+                        payload: scaleX == scaleY
+                            ? .scale(start: scaleX, end: scaleX)
+                            : .vectorScale(
+                                startX: scaleX, startY: scaleY,
+                                endX: scaleX, endY: scaleY,
+                            ),
                     ))
                 }
             }
@@ -365,7 +393,7 @@ public enum GroupTransform {
         transform: Transform,
         at time: Double,
     ) -> (x: Double, y: Double) {
-        let scale = transform.value(.scale, at: time)
+        let scale = (transform.value(.scaleX, at: time) + transform.value(.scaleY, at: time)) / 2
         let angle = transform.value(.rotation, at: time) * .pi / 180
 
         // Scaled first, then turned: scaling after a rotation would stretch
@@ -433,15 +461,25 @@ public enum GroupTransform {
         }
     }
 
-    private static func scaled(_ command: Command, by factor: Double) -> Command {
-        guard factor != 1 else { return command }
+    private static func scaled(_ command: Command, byX x: Double, byY y: Double) -> Command {
+        guard x != 1 || y != 1 else { return command }
         switch command.payload {
         case let .scale(start, end):
-            return Command(timing: command.timing, payload: .scale(start: start * factor, end: end * factor))
+            // A uniform command under a non-uniform group becomes a vector one:
+            // the sprite's own scale still applies, but the axes now differ.
+            return x == y
+                ? Command(timing: command.timing, payload: .scale(start: start * x, end: end * x))
+                : Command(timing: command.timing, payload: .vectorScale(
+                    startX: start * x, startY: start * y,
+                    endX: end * x, endY: end * y,
+                ))
         case let .vectorScale(sx, sy, ex, ey):
             return Command(
                 timing: command.timing,
-                payload: .vectorScale(startX: sx * factor, startY: sy * factor, endX: ex * factor, endY: ey * factor),
+                payload: .vectorScale(
+                    startX: sx * x, startY: sy * y,
+                    endX: ex * x, endY: ey * y,
+                ),
             )
         default:
             return command

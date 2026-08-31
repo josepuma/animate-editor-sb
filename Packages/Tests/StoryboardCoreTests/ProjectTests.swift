@@ -18,7 +18,7 @@ struct ProjectTests {
         var node = document.add(EmitterEffect.descriptor, at: 1000, duration: 3000, on: track.id)
         node.values[EmitterEffect.Param.count] = .integer(42)
         node.values[EmitterEffect.Param.color] = .color(EffectColor(r: 255, g: 100, b: 0))
-        node.transform[value: .scale] = 0.4
+        node.transform[value: .scaleX] = 0.4
         node.transform[.x] = KeyframeTrack([
             Keyframe(time: 0, value: 100, easing: .out),
             Keyframe(time: 3000, value: 500),
@@ -40,7 +40,7 @@ struct ProjectTests {
 
         let node = try #require(restored.nodes.first)
         #expect(node.values[EmitterEffect.Param.count] == .integer(42))
-        #expect(node.transform[value: .scale] == 0.4)
+        #expect(node.transform[value: .scaleX] == 0.4)
         #expect(node.transform[.x].keyframes.count == 2)
         #expect(node.transform[.x].keyframes[0].easing == .out)
     }

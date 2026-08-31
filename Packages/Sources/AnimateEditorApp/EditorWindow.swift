@@ -1,5 +1,6 @@
 import EditorShellFeature
 import PlaybackFeature
+import StoryboardCore
 import StoryboardRendering
 import SwiftUI
 
@@ -25,7 +26,19 @@ struct EditorWindow: View {
     @State private var shell = EditorShellModel()
 
     var body: some View {
-        let view = PlaybackView(model: playback, timeline: timeline, source: source)
+        let view = PlaybackView(
+            model: playback,
+            timeline: timeline,
+            source: source,
+            isClipLocked: shell.selectedNodeID.map { shell.isLocked($0) } ?? false,
+            onClipDrag: { drag in
+                shell.applyCanvasDrag(
+                    dx: drag.dx, dy: drag.dy,
+                    scaleX: drag.scaleX, scaleY: drag.scaleY,
+                    isFinished: drag.isFinished, at: playback.currentTime,
+                )
+            },
+        )
         // Read here, in the body itself.
         //
         // `@Observable` re-evaluates a view when it *reads* a property while
@@ -39,6 +52,9 @@ struct EditorWindow: View {
         // re-evaluated this view, so the `onChange` that bounds playback to the
         // clip never fired and a two-second clip played the whole song.
         let keyframeNodeID = shell.keyframeNodeID
+        // Read here for the same reason: the canvas frames whatever this says,
+        // and a selection the view never reads is a selection it never notices.
+        let selectedNodeID = shell.selectedNodeID
 
         EditorShellView(
             shell: shell,
@@ -100,6 +116,9 @@ struct EditorWindow: View {
         // outlive this view otherwise, so the track keeps playing behind the
         // browser and the next beatmap loads on top of the last one.
         // The project loads with the folder and saves back into it.
+        .onChange(of: selectedNodeID, initial: true) { _, id in
+            playback.selectedClipID = id
+        }
         .onAppear {
             guard let folder else { return }
             shell.loadProject(fromFolder: folder)

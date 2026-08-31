@@ -150,13 +150,13 @@ struct EffectDocumentTests {
         var document = document(count: 1)
         let original = document.nodes[0]
         document.setValue(.integer(42), for: EmitterEffect.Param.count, on: original.id)
-        document.setKeyframe(2, for: .scale, at: 100, on: original.id)
+        document.setKeyframe(2, for: .scaleX, at: 100, on: original.id)
 
         let copy = document.duplicate(original.id)!
 
         #expect(copy.id != original.id)
         #expect(copy.values[EmitterEffect.Param.count] == .integer(42))
-        #expect(copy.transform[.scale].keyframes.count == 1)
+        #expect(copy.transform[.scaleX].keyframes.count == 1)
         #expect(copy.duration == original.duration)
     }
 

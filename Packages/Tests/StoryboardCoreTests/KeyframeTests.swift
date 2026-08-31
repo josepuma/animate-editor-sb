@@ -104,20 +104,20 @@ struct KeyframeTrackTests {
     @Test("a property has a resting value before it is animated")
     func restingValue() {
         var transform = Transform()
-        transform[value: .scale] = 2
+        transform[value: .scaleX] = 2
 
-        #expect(!transform.isAnimated(.scale))
-        #expect(transform.value(.scale, at: 0) == 2)
-        #expect(transform.value(.scale, at: 5000) == 2)
+        #expect(!transform.isAnimated(.scaleX))
+        #expect(transform.value(.scaleX, at: 0) == 2)
+        #expect(transform.value(.scaleX, at: 5000) == 2)
     }
 
     @Test("an unset property reads the system default")
     func unsetProperty() {
         let transform = Transform()
 
-        #expect(transform.value(.scale, at: 0) == 1)
+        #expect(transform.value(.scaleX, at: 0) == 1)
         #expect(transform.value(.x, at: 0) == 320)
-        #expect(!transform.isSet(.scale))
+        #expect(!transform.isSet(.scaleX))
     }
 
     /// Animation wins while it exists; the resting value waits underneath.
@@ -142,7 +142,7 @@ struct KeyframeTrackTests {
         #expect(transform.isEmpty)
         #expect(!transform.isAnimated(.x))
         // An unanimated property reads as its default.
-        #expect(transform.value(.scale, at: 0) == 1)
+        #expect(transform.value(.scaleX, at: 0) == 1)
     }
 
     @Test("animated properties come out in declaration order")
@@ -171,7 +171,7 @@ struct TransformCommandTests {
     @Test("each segment becomes one command")
     func segmentsBecomeCommands() {
         let moving = transform {
-            $0[.scale] = KeyframeTrack([
+            $0[.scaleX] = KeyframeTrack([
                 Keyframe(time: 0, value: 1),
                 Keyframe(time: 500, value: 2),
                 Keyframe(time: 1000, value: 0.5),
@@ -247,7 +247,7 @@ struct TransformCommandTests {
     @Test("a property at its default writes nothing")
     func defaultsAreSilent() {
         let still = transform {
-            $0[.scale] = KeyframeTrack(constant: 1)
+            $0[.scaleX] = KeyframeTrack(constant: 1)
             $0[.rotation] = KeyframeTrack(constant: 0)
         }
 
@@ -256,7 +256,7 @@ struct TransformCommandTests {
 
     @Test("a held value that is not the default is written once")
     func heldValuesAreWritten() {
-        let scaled = transform { $0[.scale] = KeyframeTrack(constant: 2) }
+        let scaled = transform { $0[.scaleX] = KeyframeTrack(constant: 2) }
         let commands = TransformCommands.build(from: scaled, duration: 1000)
 
         #expect(commands.count == 1)
@@ -302,10 +302,10 @@ struct AnimationTogglingTests {
     @Test("editing an unanimated property sets its value, not a keyframe")
     func editingSetsTheValue() {
         var (document, nodeID) = document()
-        document.setTransformValue(3, for: .scale, on: nodeID)
+        document.setTransformValue(3, for: .scaleX, on: nodeID)
 
-        #expect(document[nodeID]?.transform.isAnimated(.scale) == false)
-        #expect(document[nodeID]?.transform.value(.scale, at: 0) == 3)
+        #expect(document[nodeID]?.transform.isAnimated(.scaleX) == false)
+        #expect(document[nodeID]?.transform.value(.scaleX, at: 0) == 3)
     }
 
     /// The bug this pins: with editing always keyframing, moving the playhead
@@ -314,11 +314,11 @@ struct AnimationTogglingTests {
     func valuesDoNotAnimate() {
         var (document, nodeID) = document()
 
-        document.setTransformValue(2, for: .scale, on: nodeID)
-        document.setTransformValue(5, for: .scale, on: nodeID)
+        document.setTransformValue(2, for: .scaleX, on: nodeID)
+        document.setTransformValue(5, for: .scaleX, on: nodeID)
 
-        #expect(document[nodeID]?.transform[.scale].isEmpty == true)
-        #expect(document[nodeID]?.transform.value(.scale, at: 0) == 5)
+        #expect(document[nodeID]?.transform[.scaleX].isEmpty == true)
+        #expect(document[nodeID]?.transform.value(.scaleX, at: 0) == 5)
     }
 
     /// Switching animation off should not also change what is on screen.
@@ -373,25 +373,25 @@ struct AnimationTogglingTests {
     @Test("adding a key to a switched-off property switches it back on")
     func addingReenables() {
         var (document, nodeID) = document()
-        document.setKeyframe(0.5, for: .scale, at: 0, on: nodeID)
-        document.setAnimationEnabled(false, for: .scale, on: nodeID)
+        document.setKeyframe(0.5, for: .scaleX, at: 0, on: nodeID)
+        document.setAnimationEnabled(false, for: .scaleX, on: nodeID)
 
-        document.setKeyframe(2, for: .scale, at: 500, on: nodeID)
+        document.setKeyframe(2, for: .scaleX, at: 500, on: nodeID)
 
-        #expect(document[nodeID]?.transform[.scale].isActive == true)
+        #expect(document[nodeID]?.transform[.scaleX].isActive == true)
     }
 
     /// Deleting is still available — as its own action.
     @Test("clearing removes the keys and keeps the value")
     func clearingIsDeliberate() {
         var (document, nodeID) = document()
-        document.setKeyframe(0.2, for: .scale, at: 0, on: nodeID)
-        document.setKeyframe(1.5, for: .scale, at: 1000, on: nodeID)
+        document.setKeyframe(0.2, for: .scaleX, at: 0, on: nodeID)
+        document.setKeyframe(1.5, for: .scaleX, at: 1000, on: nodeID)
 
-        document.clearKeyframes(for: .scale, on: nodeID, keeping: 1000)
+        document.clearKeyframes(for: .scaleX, on: nodeID, keeping: 1000)
 
-        #expect(document[nodeID]?.transform[.scale].isEmpty == true)
-        #expect(document[nodeID]?.transform.value(.scale, at: 0) == 1.5)
+        #expect(document[nodeID]?.transform[.scaleX].isEmpty == true)
+        #expect(document[nodeID]?.transform.value(.scaleX, at: 0) == 1.5)
     }
 
     /// A switched-off track must not reach the file.
@@ -412,7 +412,7 @@ struct AnimationTogglingTests {
     @Test("a resting value that is not the default is written out")
     func restingValuesAreExported() {
         var transform = Transform()
-        transform[value: .scale] = 0.5
+        transform[value: .scaleX] = 0.5
 
         let commands = TransformCommands.build(from: transform, duration: 1000)
         #expect(commands.count == 1)
@@ -422,7 +422,7 @@ struct AnimationTogglingTests {
     @Test("a resting value equal to the default writes nothing")
     func defaultsStaySilent() {
         var transform = Transform()
-        transform[value: .scale] = 1
+        transform[value: .scaleX] = 1
 
         #expect(TransformCommands.build(from: transform, duration: 1000).isEmpty)
     }
@@ -489,19 +489,19 @@ struct KeyframeResizeTests {
     @Test("resizing leaves resting values alone")
     func restingValuesSurvive() {
         var (document, nodeID) = document(duration: 4000)
-        document.setTransformValue(0.3, for: .scale, on: nodeID)
+        document.setTransformValue(0.3, for: .scaleX, on: nodeID)
 
         document.resize(nodeID, startTime: 0, duration: 26_337)
 
-        #expect(document[nodeID]?.transform.value(.scale, at: 0) == 0.3)
-        #expect(document[nodeID]?.transform.value(.scale, at: 26_000) == 0.3)
+        #expect(document[nodeID]?.transform.value(.scaleX, at: 0) == 0.3)
+        #expect(document[nodeID]?.transform.value(.scaleX, at: 26_000) == 0.3)
     }
 
     /// The case the user hit: scale set, nothing animated, clip stretched.
     @Test("an unanimated property holds for the whole clip")
     func heldForTheWholeClip() {
         var (document, nodeID) = document(duration: 26_337)
-        document.setTransformValue(0.3, for: .scale, on: nodeID)
+        document.setTransformValue(0.3, for: .scaleX, on: nodeID)
 
         let prepared = StoryboardResolver.prepare(EffectEvaluator().evaluate(document))
 
@@ -551,7 +551,7 @@ struct PlacedEffectLifeTests {
             document[node.id] = node
 
             document.resize(node.id, startTime: 0, duration: 32_983)
-            document.setTransformValue(scale, for: .scale, on: node.id)
+            document.setTransformValue(scale, for: .scaleX, on: node.id)
 
             let prepared = StoryboardResolver.prepare(EffectEvaluator().evaluate(document))
             let sprite = prepared.first

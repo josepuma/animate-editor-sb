@@ -160,10 +160,12 @@ struct MetalCanvasView: NSViewRepresentable {
             lastFrameTimestamp = now
 
             guard let renderer else { return }
+            renderer.measuredClipID = model.selectedClipID
             renderer.draw(at: model.currentTime, in: view)
             model.frameRendered(
                 drawnCount: renderer.lastDrawnCount,
                 framesPerSecond: smoothedFPS,
+                selectionBounds: renderer.measuredBounds,
             )
         }
     }

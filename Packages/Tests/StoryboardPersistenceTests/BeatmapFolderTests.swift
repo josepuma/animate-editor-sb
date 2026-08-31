@@ -43,6 +43,36 @@ struct BeatmapFolderTests {
         #expect(folder.fileURL(forRelativePath: "sb/nested/deep.png") != nil)
     }
 
+    /// An export writes a copy of every image the storyboard uses back into
+    /// this folder. Indexed alongside the originals they compete for the same
+    /// keys, and the first match wins — so after one export an emitter started
+    /// drawing the background, because `export/` had answered for its particle.
+    @Test("the export folder is not part of the beatmap's assets")
+    func exportOutputIsIgnored() throws {
+        let temporary = try TemporaryFolder(files: [
+            "sb/particle.png": "real",
+            "export/sb/particle.png": "copy",
+            "export/sb/_generated/glow.png": "generated",
+            "export/map.osb": "[Events]",
+        ])
+        let folder = try BeatmapFolder(url: temporary.url)
+
+        // Only the mapper's own file is indexed.
+        #expect(folder.fileCount == 1)
+        #expect(folder.fileURL(forRelativePath: "sb/particle.png") != nil)
+        #expect(folder.fileURL(forRelativePath: "export/sb/particle.png") == nil)
+        #expect(folder.fileURL(forRelativePath: "sb/_generated/glow.png") == nil)
+    }
+
+    /// A folder that merely starts with the same letters is someone's own.
+    @Test("a folder named like the export folder is still indexed")
+    func similarNamesAreKept() throws {
+        let temporary = try TemporaryFolder(files: ["exported/logo.png": "x"])
+        let folder = try BeatmapFolder(url: temporary.url)
+
+        #expect(folder.fileURL(forRelativePath: "exported/logo.png") != nil)
+    }
+
     @Test("resolves paths regardless of case")
     func resolvesCaseInsensitively() throws {
         let temporary = try TemporaryFolder(files: ["sb/logo.png": "x"])

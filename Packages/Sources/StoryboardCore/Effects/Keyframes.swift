@@ -169,15 +169,22 @@ public struct KeyframeTrack: Sendable, Equatable, Codable {
 public enum TransformProperty: String, CaseIterable, Sendable {
     case x
     case y
-    case scale
+    /// Horizontal scale. Paired with `scaleY`, and written as `_V` whenever the
+    /// two differ — the format scales per axis, so a clip can be stretched.
+    case scaleX
+    case scaleY
     case rotation
     case opacity
+
+    /// The two axes of scale, in the order they are shown.
+    public static let scaleAxes: [TransformProperty] = [.scaleX, .scaleY]
 
     public var title: String {
         switch self {
         case .x: "Position X"
         case .y: "Position Y"
-        case .scale: "Scale"
+        case .scaleX: "Scale X"
+        case .scaleY: "Scale Y"
         case .rotation: "Rotation"
         case .opacity: "Opacity"
         }
@@ -188,7 +195,7 @@ public enum TransformProperty: String, CaseIterable, Sendable {
         switch self {
         case .x: 320
         case .y: 240
-        case .scale: 1
+        case .scaleX, .scaleY: 1
         case .rotation: 0
         case .opacity: 1
         }
@@ -198,7 +205,7 @@ public enum TransformProperty: String, CaseIterable, Sendable {
         switch self {
         case .x, .y: "px"
         case .rotation: "°"
-        case .scale, .opacity: nil
+        case .scaleX, .scaleY, .opacity: nil
         }
     }
 
@@ -206,7 +213,7 @@ public enum TransformProperty: String, CaseIterable, Sendable {
         switch self {
         case .x: -400...1100
         case .y: -300...800
-        case .scale: 0...20
+        case .scaleX, .scaleY: 0...20
         case .rotation: -1080...1080
         case .opacity: 0...1
         }
@@ -215,8 +222,7 @@ public enum TransformProperty: String, CaseIterable, Sendable {
     public var step: Double {
         switch self {
         case .x, .y, .rotation: 1
-        case .scale: 0.05
-        case .opacity: 0.05
+        case .scaleX, .scaleY, .opacity: 0.05
         }
     }
 }
