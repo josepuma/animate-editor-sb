@@ -309,12 +309,36 @@ public enum GroupTransform {
         // The group's own turn, on top of whatever the sprite was already
         // doing: a particle spinning inside a rotating clip does both.
         if transform[.rotation].isActive {
-            let start = transform.value(.rotation, at: birth) * .pi / 180
-            let end = transform.value(.rotation, at: death) * .pi / 180
-            if start != end {
+            // One command per keyframe span, not one across the sprite's whole
+            // life.
+            //
+            // Reading only the value at birth and at death stretched the turn
+            // over everything: keys at 0 and 15s inside a 30s clip produced a
+            // single `_R` running 0..30833, so the image was halfway round at
+            // the moment it should have finished and went on turning to the
+            // end. It also threw away every key in between and every easing,
+            // since two samples cannot describe a curve.
+            let track = transform[.rotation]
+            for segment in track.segments {
+                let start = segment.from.value * .pi / 180
+                let end = segment.to.value * .pi / 180
+                guard start != end else { continue }
                 commands.append(Command(
-                    easing: .linear, startTime: birth, endTime: death,
+                    easing: segment.from.easing,
+                    startTime: birth + segment.from.time,
+                    endTime: birth + segment.to.time,
                     payload: .rotate(start: start, end: end),
+                ))
+            }
+
+            // A single key is a fixed angle held, not a turn.
+            if !track.isAnimated, let only = track.first, only.value != 0 {
+                let angle = only.value * .pi / 180
+                commands.append(Command(
+                    easing: .linear,
+                    startTime: birth + only.time,
+                    endTime: birth + only.time,
+                    payload: .rotate(start: angle, end: angle),
                 ))
             }
         }

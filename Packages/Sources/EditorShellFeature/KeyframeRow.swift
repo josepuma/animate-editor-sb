@@ -149,16 +149,6 @@ private struct KeyframeRow: View {
                         ? "Pause to add a keyframe"
                         : (isOnAKey ? "On a keyframe" : "Add a keyframe here"),
                 ) {
-                    // TEMPORARY DIAGNOSTIC — everything at the moment of click.
-                    let line = "[click] property=\(property.rawValue) localTime=\(localTime) "
-                        + "nodeStart=\(nodeStart) range=\(scale.range.lowerBound)..\(scale.range.upperBound) "
-                        + "scaleWidth=\(scale.width) "
-                        + "wouldDrawAtX=\(scale.x(of: nodeStart + localTime)) "
-                        + "playheadWouldBeAtX=\(scale.x(of: nodeStart + localTime))\n"
-                    let url = URL(fileURLWithPath: "/tmp/animate-diag.log")
-                    if let h = try? FileHandle(forWritingTo: url) {
-                        h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close()
-                    } else { try? line.write(to: url, atomically: true, encoding: .utf8) }
                     addKeyframe(localTime)
                 }
                 .disabled(isPlaying)
@@ -207,16 +197,6 @@ private struct KeyframeRow: View {
 
                 ForEach(track.keyframes) { key in
                     diamond(key)
-                }
-                .onAppear {
-                    guard !track.keyframes.isEmpty else { return }
-                    let line = "[drawn] \(property.rawValue) keys=\(track.keyframes.map { $0.time }) "
-                        + "xs=\(track.keyframes.map { scale.x(of: nodeStart + $0.time) }) "
-                        + "nodeStart=\(nodeStart) range=\(scale.range.lowerBound)..\(scale.range.upperBound)\n"
-                    let url = URL(fileURLWithPath: "/tmp/animate-diag.log")
-                    if let h = try? FileHandle(forWritingTo: url) {
-                        h.seekToEndOfFile(); h.write(Data(line.utf8)); try? h.close()
-                    } else { try? line.write(to: url, atomically: true, encoding: .utf8) }
                 }
             }
             .background {

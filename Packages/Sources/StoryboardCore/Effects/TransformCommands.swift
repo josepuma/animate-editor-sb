@@ -70,28 +70,53 @@ public enum TransformCommands {
         // nothing at all when they rest at the default.
         guard animatesX || animatesY else {
             guard restingX != 1 || restingY != 1 else { return [] }
+
+            // An axis left at 1 while the other was set follows it: setting
+            // "scale" from one field is the ordinary case, and it must not
+            // arrive in the file as a stretch.
+            let valueX = restingX == 1 ? restingY : restingX
+            let valueY = restingY == 1 ? restingX : restingY
+
             return [Command(
                 easing: .linear, startTime: 0, endTime: 0,
-                payload: restingX == restingY
-                    ? .scale(start: restingX, end: restingX)
+                payload: valueX == valueY
+                    ? .scale(start: valueX, end: valueX)
                     : .vectorScale(
-                        startX: restingX, startY: restingY,
-                        endX: restingX, endY: restingY,
+                        startX: valueX, startY: valueY,
+                        endX: valueX, endY: valueY,
                     ),
             )]
         }
 
-        // One axis animating alone still moves both, because the still axis
-        // holds its resting value across the same spans.
-        let times = boundaries(x: animatesX ? x : nil, y: animatesY ? y : nil, duration: duration)
+        // An axis that is neither animated nor set follows the other.
+        //
+        // Scaling uniformly is the common case, and it reaches here as one axis
+        // animating while the other rests at 1. Read literally that is a
+        // stretch, and it wrote `_V` — two numbers, every time, for a sprite
+        // that was only ever getting bigger. Treating an untouched axis as
+        // "same as the other" keeps `_S` for uniform scaling and reserves `_V`
+        // for a stretch someone actually asked for.
+        let mirrorsY = !animatesY && restingY == 1
+        let mirrorsX = !animatesX && restingX == 1
+        var times = boundaries(x: animatesX ? x : nil, y: animatesY ? y : nil, duration: duration)
+
+        // A single key is a value held, not a segment: one command that starts
+        // and ends at the same moment says so, and dropping it would lose a
+        // scale the clip is meant to keep.
+        if times.count == 1 { times.append(times[0]) }
         guard times.count >= 2 else { return [] }
 
         var commands: [Command] = []
         for (start, end) in zip(times, times.dropFirst()) {
-            let startX = animatesX ? x.value(at: start) : restingX
-            let startY = animatesY ? y.value(at: start) : restingY
-            let endX = animatesX ? x.value(at: end) : restingX
-            let endY = animatesY ? y.value(at: end) : restingY
+            let rawStartX = animatesX ? x.value(at: start) : restingX
+            let rawStartY = animatesY ? y.value(at: start) : restingY
+            let rawEndX = animatesX ? x.value(at: end) : restingX
+            let rawEndY = animatesY ? y.value(at: end) : restingY
+
+            let startX = mirrorsX ? rawStartY : rawStartX
+            let startY = mirrorsY ? rawStartX : rawStartY
+            let endX = mirrorsX ? rawEndY : rawEndX
+            let endY = mirrorsY ? rawEndX : rawEndY
 
             // The easing belongs to the key the segment leaves, as everywhere
             // else. With both axes animating, the one that owns this boundary
@@ -101,6 +126,9 @@ public enum TransformCommands {
             let easingY: Easing? = animatesY
                 ? y.keyframes.first { $0.time == start }?.easing : nil
             let easing: Easing = easingX ?? easingY ?? .linear
+
+            // A segment that holds the default on both axes says nothing.
+            if startX == 1, startY == 1, endX == 1, endY == 1 { continue }
 
             commands.append(Command(
                 easing: easing, startTime: start, endTime: end,

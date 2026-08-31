@@ -372,12 +372,15 @@ public struct EffectDocument: Sendable, Codable {
         on nodeID: EffectNode.ID,
     ) {
         guard let location = locate(nodeID) else { return }
-        var track = tracks[location.track].nodes[location.node].transform[property]
+        let node = tracks[location.track].nodes[location.node]
+        var track = node.transform[property]
         // Adding a key to a switched-off track switches it back on: putting one
         // down is a request to animate, and leaving it inert would look like
         // the click did nothing.
         track.isEnabled = true
-        track.set(value, at: max(0, time), easing: easing)
+        // Both ends, not just the floor: a key past the clip's end is one the
+        // clip never reaches.
+        track.set(value, at: min(max(0, time), node.duration), easing: easing)
         tracks[location.track].nodes[location.node].transform[property] = track
     }
 
@@ -409,8 +412,18 @@ public struct EffectDocument: Sendable, Codable {
         on nodeID: EffectNode.ID,
     ) {
         guard let location = locate(nodeID) else { return }
-        var track = tracks[location.track].nodes[location.node].transform[property]
-        track.move(keyframeID, to: time)
+        let node = tracks[location.track].nodes[location.node]
+
+        // Held inside the clip.
+        //
+        // Keyframe times are local to the clip, so one dragged past its end is
+        // a moment the clip never reaches — the key is still in the file, still
+        // shown in the row, and can never be played. Clamped here rather than
+        // in the row that drags it, so every route in obeys the same bound.
+        let bounded = min(max(0, time), node.duration)
+
+        var track = node.transform[property]
+        track.move(keyframeID, to: bounded)
         tracks[location.track].nodes[location.node].transform[property] = track
     }
 

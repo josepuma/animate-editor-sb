@@ -407,7 +407,17 @@ public final class PlaybackModel {
     }
 
     /// Which clip the selection box should frame, if any.
-    public var selectedClipID: String?
+    ///
+    /// Clearing the measurement on a change rather than leaving the old one:
+    /// the bounds belong to whichever clip was measured last, so keeping them
+    /// draws the previous clip's frame around the new selection until the next
+    /// frame corrects it — a box that visibly jumps from the wrong place.
+    public var selectedClipID: String? {
+        didSet {
+            guard selectedClipID != oldValue else { return }
+            selectionBounds = nil
+        }
+    }
 
     /// Where that clip is on the stage, measured as it was last drawn.
     public private(set) var selectionBounds: ClipBounds?

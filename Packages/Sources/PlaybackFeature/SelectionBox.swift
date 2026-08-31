@@ -59,11 +59,13 @@ struct SelectionBox: View {
     enum Zone: Equatable {
         case body
         case corner(Corner)
+        case side(Side)
 
         var cursor: NSCursor {
             switch self {
             case .body: .openHand
             case let .corner(corner): corner.cursor
+            case let .side(side): side.cursor
             }
         }
     }
@@ -192,6 +194,10 @@ struct SelectionBox: View {
                             setZone(.body, hovering)
                         }
 
+                    ForEach(Side.allCases, id: \.self) { side in
+                        sideHandle(side, in: box)
+                    }
+
                     ForEach(Corner.allCases, id: \.self) { corner in
                         handle(corner, in: box)
                     }
@@ -277,6 +283,35 @@ struct SelectionBox: View {
 
     // ─── Resizing ────────────────────────────────────────────────────────────
 
+    /// A mid-edge handle, which stretches one axis.
+    ///
+    /// Corners keep both axes together; sides are how a clip is stretched, and
+    /// stretching is the reason per-axis scale exists at all.
+    enum Side: CaseIterable {
+        case leading, trailing, top, bottom
+
+        var isHorizontal: Bool { self == .leading || self == .trailing }
+
+        /// Which way this edge travels to make the box bigger.
+        var growth: Double {
+            switch self {
+            case .leading, .top: -1
+            case .trailing, .bottom: 1
+            }
+        }
+
+        func point(in size: CGSize) -> CGPoint {
+            switch self {
+            case .leading: CGPoint(x: 0, y: size.height / 2)
+            case .trailing: CGPoint(x: size.width, y: size.height / 2)
+            case .top: CGPoint(x: size.width / 2, y: 0)
+            case .bottom: CGPoint(x: size.width / 2, y: size.height)
+            }
+        }
+
+        var cursor: NSCursor { isHorizontal ? .resizeLeftRight : .resizeUpDown }
+    }
+
     enum Corner: CaseIterable {
         case topLeading, topTrailing, bottomLeading, bottomTrailing
 
@@ -329,6 +364,49 @@ struct SelectionBox: View {
             case .bottomTrailing: (1, 1)
             }
         }
+    }
+
+    private func sideHandle(_ side: Side, in box: CGRect) -> some View {
+        Rectangle()
+            .fill(.white)
+            .frame(
+                width: side.isHorizontal ? Self.handleSize : Self.sideLength,
+                height: side.isHorizontal ? Self.sideLength : Self.handleSize,
+            )
+            .contentShape(.rect.inset(by: -Self.handleSize))
+            .position(side.point(in: box.size))
+            .gesture(stretchGesture(side))
+            .onHover { hovering in setZone(.side(side), hovering) }
+    }
+
+    private func stretchGesture(_ side: Side) -> some Gesture {
+        DragGesture(minimumDistance: 1)
+            .onChanged {
+                let drag = stretchDrag(side, $0.translation)
+                liveScaleX = drag.scaleX
+                liveScaleY = drag.scaleY
+                onDrag(drag)
+            }
+            .onEnded {
+                var drag = stretchDrag(side, $0.translation)
+                drag.isFinished = true
+                liveScaleX = 1
+                liveScaleY = 1
+                onDrag(drag)
+            }
+    }
+
+    /// One axis, measured against that axis's own extent.
+    private func stretchDrag(_ side: Side, _ translation: CGSize) -> ClipDrag {
+        let extent = bounds ?? ClipBounds(minX: 0, minY: 0, maxX: 1, maxY: 1)
+        let travel = (side.isHorizontal ? translation.width : translation.height)
+            * side.growth / scale
+        let span = max(side.isHorizontal ? extent.width : extent.height, 1)
+        let factor = max(0.05, 1 + travel / span)
+
+        return side.isHorizontal
+            ? ClipDrag(scaleX: factor, scaleY: 1)
+            : ClipDrag(scaleX: 1, scaleY: factor)
     }
 
     private func handle(_ corner: Corner, in box: CGRect) -> some View {
@@ -422,6 +500,9 @@ struct SelectionBox: View {
     }
 
     private static let handleSize: CGFloat = 7
+
+    /// How long a side handle runs along its edge.
+    private static let sideLength: CGFloat = 18
 
     /// The centre grip, larger than a corner because it is aimed at directly.
     private static let gripSize: CGFloat = 11

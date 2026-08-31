@@ -725,6 +725,7 @@ struct GroupTransformTests {
             case .x: state.x
             case .y: state.y
             case .scaleX: state.scaleX
+            case .scaleY: state.scaleY
             case .rotation: state.rotation
             case .opacity: state.opacity
             }

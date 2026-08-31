@@ -238,6 +238,37 @@ public enum TransformProperty: String, CaseIterable, Sendable {
 /// playhead, moving along the timeline and typing a number planted keys nobody
 /// asked for, on properties nobody was animating.
 public struct Transform: Sendable, Equatable, Codable {
+    /// Opens a project written before scale had two axes.
+    ///
+    /// Scale used to be one property keyed `"scale"`, and nothing reads that
+    /// key any more — a project saved then would open with its scaling silently
+    /// gone. The old value becomes both axes, which is what it meant.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        var tracks = try container.decodeIfPresent(
+            [String: KeyframeTrack].self, forKey: .tracks,
+        ) ?? [:]
+        var values = try container.decodeIfPresent(
+            [String: Double].self, forKey: .values,
+        ) ?? [:]
+
+        if let legacy = tracks.removeValue(forKey: "scale") {
+            tracks[TransformProperty.scaleX.rawValue] = legacy
+            tracks[TransformProperty.scaleY.rawValue] = legacy
+        }
+        if let legacy = values.removeValue(forKey: "scale") {
+            values[TransformProperty.scaleX.rawValue] = legacy
+            values[TransformProperty.scaleY.rawValue] = legacy
+        }
+
+        self.tracks = tracks
+        self.values = values
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case tracks, values
+    }
+
     private var tracks: [String: KeyframeTrack]
     /// What a property is worth when it is not animated.
     private var values: [String: Double]

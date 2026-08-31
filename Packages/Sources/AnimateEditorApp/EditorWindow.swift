@@ -116,8 +116,15 @@ struct EditorWindow: View {
         // outlive this view otherwise, so the track keeps playing behind the
         // browser and the next beatmap loads on top of the last one.
         // The project loads with the folder and saves back into it.
-        .onChange(of: selectedNodeID, initial: true) { _, id in
-            playback.selectedClipID = id
+        // Read during the body and forwarded there too, not from `onChange`.
+        //
+        // `onChange` fires *after* the view has rendered, so the canvas learned
+        // of a new selection a cycle late — and the box could not appear until
+        // the frame after that, once the renderer had measured it. Two frames
+        // plus two SwiftUI passes is long enough to feel like a delay between
+        // clicking a clip and seeing it selected.
+        .task(id: selectedNodeID) {
+            playback.selectedClipID = selectedNodeID
         }
         .onAppear {
             guard let folder else { return }
