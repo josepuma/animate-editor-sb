@@ -52,7 +52,7 @@ struct TextureDecodingTests {
         let png = try #require(Self.makeTestPNG())
 
         let loader = MTKTextureLoader(device: device)
-        let texture = try MTKTextureLoader.Source.data(png).load(with: loader)
+        let texture = try MTKTextureLoader.Source.data(png).load(with: loader).texture
 
         // Compared against the atlas rather than against a literal: pages are
         // assembled with a blit, which copies bytes and requires both sides to
@@ -69,7 +69,7 @@ struct TextureDecodingTests {
         let png = try #require(Self.makeTestPNG())
 
         let loader = MTKTextureLoader(device: device)
-        let texture = try MTKTextureLoader.Source.data(png).load(with: loader)
+        let texture = try MTKTextureLoader.Source.data(png).load(with: loader).texture
 
         var pixels = [UInt8](repeating: 0, count: 2 * 2 * 4)
         pixels.withUnsafeMutableBytes { buffer in

@@ -629,6 +629,85 @@ struct GroupTransformTests {
         #expect(abs(states[0].scaleX - plainStates[0].scaleX * 2) < 1e-9)
     }
 
+    /// A position set once and never animated is still a position.
+    ///
+    /// The bug this pins: the guard asked whether X and Y were *animated* while
+    /// asking of every other property whether it was *set*, so an emitter
+    /// dragged to the top of the canvas went on emitting from the middle. The
+    /// same confusion between "animated" and "set" had already been made twice
+    /// before this.
+    @Test("a set position moves the clip without any keyframes")
+    func setPositionPlacesTheClip() {
+        func births(x: Double, y: Double) -> (x: Double, y: Double) {
+            var document = EffectDocument()
+            var node = document.add(EmitterEffect.descriptor, at: 0, duration: 2000)
+            node.values[EmitterEffect.Param.count] = .integer(4)
+            node.values[EmitterEffect.Param.width] = .number(0)
+            node.values[EmitterEffect.Param.height] = .number(0)
+            node.transform[value: .x] = x
+            node.transform[value: .y] = y
+            document[node.id] = node
+
+            let sprites = evaluator.evaluate(document)
+            return (sprites[0].defaultX, sprites[0].defaultY)
+        }
+
+        let centred = births(x: 320, y: 240)
+        let raised = births(x: 320, y: 0)
+
+        #expect(abs(centred.y - 240) < 1)
+        #expect(abs(raised.y) < 1)
+        #expect(abs(centred.x - raised.x) < 1)
+    }
+
+    @Test("a set position places an image too")
+    func setPositionPlacesAnImage() {
+        var document = EffectDocument()
+        var node = document.add(ImageEffect.descriptor, at: 0, duration: 2000)
+        node.values[ImageEffect.Param.sprite] = .text("a.png")
+        node.transform[value: .x] = 100
+        node.transform[value: .y] = 50
+        document[node.id] = node
+
+        let sprite = evaluator.evaluate(document)[0]
+        #expect(sprite.defaultX == 100)
+        #expect(sprite.defaultY == 50)
+    }
+
+    /// The half that `defaultX` alone does not cover.
+    ///
+    /// A particle spends its whole life inside an `_M`, and osu! draws the
+    /// command, not the default — so moving only the default placed a sprite
+    /// that then immediately moved back. The emitter looked pinned to the
+    /// canvas centre while the inspector reported it elsewhere.
+    @Test("a set position carries the motion commands with it")
+    func setPositionCarriesMotionCommands() {
+        func firstMove(y: Double) -> (start: Double, end: Double)? {
+            var document = EffectDocument()
+            var node = document.add(EmitterEffect.descriptor, at: 0, duration: 2000)
+            node.values[EmitterEffect.Param.count] = .integer(4)
+            node.transform[value: .y] = y
+            document[node.id] = node
+
+            for sprite in EffectEvaluator().evaluate(document) {
+                for command in sprite.commands {
+                    if case let .move(_, startY, _, endY) = command.payload {
+                        return (startY, endY)
+                    }
+                }
+            }
+            return nil
+        }
+
+        let resting = try? #require(firstMove(y: 240))
+        let raised = try? #require(firstMove(y: 0))
+        guard let resting, let raised else { return }
+
+        // Raised by exactly the distance asked for, both ends of the path.
+        #expect(abs((resting.start - raised.start) - 240) < 0.001)
+        #expect(abs((resting.end - raised.end) - 240) < 0.001)
+    }
+
     /// Every transform property has to reach the sprites.
     ///
     /// The bug this pins: an animated scale was folded in as a *factor* — its

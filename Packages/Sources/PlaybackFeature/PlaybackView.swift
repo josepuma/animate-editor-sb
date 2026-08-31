@@ -63,6 +63,16 @@ public struct PlaybackCanvas: View {
                     .clipShape(
                         RoundedRectangle(cornerRadius: Theme.Radius.stage, style: .continuous),
                     )
+                    // The stage reads as black on black, so without an edge
+                    // there is no telling where the storyboard stops and the
+                    // letterbox behind it starts — a sprite parked just off
+                    // screen looks the same as one that is simply dark.
+                    // Matches the panels around it, since the canvas is a
+                    // surface among them.
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.stage, style: .continuous)
+                            .strokeBorder(Theme.Border.panel, lineWidth: 1),
+                    )
                     .elevated(Theme.Elevation.high)
 
                 // Watches the whole picture, including the space the controls

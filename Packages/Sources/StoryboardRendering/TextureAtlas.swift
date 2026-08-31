@@ -87,7 +87,7 @@ struct TextureAtlas {
 
         // Load first, then pack: packing needs every size up front, and tall
         // images should be placed before short ones to reduce wasted rows.
-        var loaded: [(path: String, texture: MTLTexture)] = []
+        var loaded: [(path: String, loaded: LoadedTexture)] = []
         var missing: Set<String> = []
         for path in paths {
             guard let source = textureProvider(path),
@@ -101,13 +101,13 @@ struct TextureAtlas {
         guard !loaded.isEmpty else { return nil }
 
         loaded.sort { lhs, rhs in
-            lhs.texture.height == rhs.texture.height
-                ? lhs.texture.width > rhs.texture.width
-                : lhs.texture.height > rhs.texture.height
+            lhs.loaded.texture.height == rhs.loaded.texture.height
+                ? lhs.loaded.texture.width > rhs.loaded.texture.width
+                : lhs.loaded.texture.height > rhs.loaded.texture.height
         }
 
         var packer = ShelfPacker(pageSize: Self.pageSize)
-        var placements: [(entry: (path: String, texture: MTLTexture), slot: ShelfPacker.Slot)] = []
+        var placements: [(entry: (path: String, loaded: LoadedTexture), slot: ShelfPacker.Slot)] = []
 
         // Reserve the gutter as part of each sprite's footprint, so neighbours
         // are always at least `padding` texels apart.
@@ -117,8 +117,8 @@ struct TextureAtlas {
         // stretched image, which looks like an animation bug.
         for entry in loaded {
             guard let slot = packer.place(
-                width: entry.texture.width + Self.padding * 2,
-                height: entry.texture.height + Self.padding * 2,
+                width: entry.loaded.texture.width + Self.padding * 2,
+                height: entry.loaded.texture.height + Self.padding * 2,
             ) else {
                 // Too large for a page. Recorded as missing so the sprite is
                 // known to be drawing without its image, though rebuilding will
@@ -176,8 +176,8 @@ struct TextureAtlas {
             // The slot includes the gutter; the pixels go inside it.
             let originX = slot.x + Self.padding
             let originY = slot.y + Self.padding
-            let width = entry.texture.width
-            let height = entry.texture.height
+            let width = entry.loaded.texture.width
+            let height = entry.loaded.texture.height
 
             // The packer guarantees the whole sprite fits, so a copy that would
             // run past the page edge means the two disagree. Skipping is the
@@ -191,7 +191,7 @@ struct TextureAtlas {
             }
 
             blit.copy(
-                from: entry.texture,
+                from: entry.loaded.texture,
                 sourceSlice: 0,
                 sourceLevel: 0,
                 sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
@@ -213,10 +213,10 @@ struct TextureAtlas {
                     Float(originX + width) * inversePageSize - halfTexel,
                     Float(originY + height) * inversePageSize - halfTexel,
                 ),
-                pixelSize: SIMD2<Float>(
-                    Float(entry.texture.width),
-                    Float(entry.texture.height),
-                ),
+                // The size drawn on the stage, not the texture's own — an
+                // oversized image is shrunk before upload, and reading the
+                // texture here would shrink the sprite on screen with it.
+                pixelSize: entry.loaded.drawnSize,
             )
         }
 

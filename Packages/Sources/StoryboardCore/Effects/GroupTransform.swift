@@ -35,8 +35,12 @@ public enum GroupTransform {
         to sprites: [StoryboardSprite],
         duration: Double,
     ) -> [StoryboardSprite] {
-        let movesX = transform[.x].isActive
-        let movesY = transform[.y].isActive
+        // `isSet`, not `isActive`: a position moved once and never animated is
+        // still a position. Asking whether it is *animated* skipped it entirely
+        // — an emitter dragged to the top of the canvas went on emitting from
+        // the middle. The same confusion had already been made twice.
+        let movesX = transform.isSet(.x)
+        let movesY = transform.isSet(.y)
         let rotates = transform.isSet(.rotation)
         let scales = transform.isSet(.scale)
         let fades = transform.isSet(.opacity)
@@ -98,6 +102,8 @@ public enum GroupTransform {
         let offsetX = sprite.defaultX - pivot.x
         let offsetY = sprite.defaultY - pivot.y
 
+        // Only *animation* needs the path rebuilt; a static offset is a
+        // placement, and placing costs nothing.
         let isAnimated = transform[.x].isActive
             || transform[.y].isActive
             || transform[.rotation].isActive
@@ -124,7 +130,13 @@ public enum GroupTransform {
             result.defaultY = placed.y
 
             let groupScale = transform.value(.scale, at: 0)
-            result.commands = sprite.commands.map { scaled($0, by: groupScale) }
+            let groupShift = (
+                x: transform.value(.x, at: 0) - TransformProperty.x.defaultValue,
+                y: transform.value(.y, at: 0) - TransformProperty.y.defaultValue
+            )
+            result.commands = sprite.commands.map {
+                carried(scaled($0, by: groupScale), pivot: pivot, scale: groupScale, shift: groupShift)
+            }
 
             // A sprite with no scale command of its own draws at 1, so scaling
             // by multiplying its commands reaches nothing — the group's scale
@@ -377,6 +389,48 @@ public enum GroupTransform {
         let x = sprites.reduce(0.0) { $0 + $1.defaultX } / Double(sprites.count)
         let y = sprites.reduce(0.0) { $0 + $1.defaultY } / Double(sprites.count)
         return (x, y)
+    }
+
+    /// Carries a sprite's own motion commands with the group.
+    ///
+    /// This is the half that was missing. Moving `defaultX`/`defaultY` places a
+    /// sprite that never moves, but a particle spends its whole life inside an
+    /// `_M`, and osu! reads the command, not the default — so an emitter dragged
+    /// across the canvas went on drawing exactly where it always had, while the
+    /// model insisted it had moved. Every coordinate a command names has to
+    /// travel too, scaled about the pivot the same way the sprite's own place
+    /// was.
+    private static func carried(
+        _ command: Command,
+        pivot: (x: Double, y: Double),
+        scale: Double,
+        shift: (x: Double, y: Double),
+    ) -> Command {
+        func moveX(_ value: Double) -> Double { pivot.x + (value - pivot.x) * scale + shift.x }
+        func moveY(_ value: Double) -> Double { pivot.y + (value - pivot.y) * scale + shift.y }
+
+        switch command.payload {
+        case let .move(sx, sy, ex, ey):
+            return Command(
+                timing: command.timing,
+                payload: .move(
+                    startX: moveX(sx), startY: moveY(sy),
+                    endX: moveX(ex), endY: moveY(ey),
+                ),
+            )
+        case let .moveX(start, end):
+            return Command(
+                timing: command.timing,
+                payload: .moveX(start: moveX(start), end: moveX(end)),
+            )
+        case let .moveY(start, end):
+            return Command(
+                timing: command.timing,
+                payload: .moveY(start: moveY(start), end: moveY(end)),
+            )
+        default:
+            return command
+        }
     }
 
     private static func scaled(_ command: Command, by factor: Double) -> Command {

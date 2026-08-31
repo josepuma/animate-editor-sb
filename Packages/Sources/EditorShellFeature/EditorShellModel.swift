@@ -366,6 +366,45 @@ public final class EditorShellModel {
         }
     }
 
+    // ─── Exporting ───────────────────────────────────────────────────────────
+
+    /// Writes the storyboard out, if someone has wired up how.
+    ///
+    /// The shell does not export it itself: the images an export has to write
+    /// are the renderer's, and a feature cannot import another. So the app —
+    /// which already connects the canvas to the shell — supplies this, the same
+    /// way it supplies everything else that crosses that line.
+    ///
+    /// Takes the evaluated sprites and the folder, and returns where it wrote
+    /// to, or throws.
+    @ObservationIgnored
+    public var exportHandler: ((_ sprites: [StoryboardSprite], _ folder: URL) throws -> URL)?
+
+    /// Where the last export landed, so the UI can offer to reveal it.
+    public private(set) var lastExport: URL?
+
+    /// Why the last export failed, if it did.
+    public private(set) var exportError: String?
+
+    public var canExport: Bool { projectFolder != nil && exportHandler != nil }
+
+    @discardableResult
+    public func exportStoryboard() -> Bool {
+        guard let projectFolder, let exportHandler else { return false }
+        do {
+            // The same sprites the canvas is drawing, not a fresh evaluation:
+            // what was on screen is what should be in the file, and evaluating
+            // again is a second chance to disagree.
+            lastExport = try exportHandler(evaluated, projectFolder)
+            exportError = nil
+            return true
+        } catch {
+            exportError = String(describing: error)
+            lastExport = nil
+            return false
+        }
+    }
+
     /// The clip that was copied, if any.
     ///
     /// Kept in the model rather than the system pasteboard: a clip is a value
@@ -637,7 +676,49 @@ public final class EditorShellModel {
     /// Evaluated rather than guessed: an emitter's count is a parameter, but a
     /// preset can cap it and a hidden node produces none.
     public func spriteCount(of node: EffectNode) -> Int {
-        evaluator.evaluate(node).count
+        invalidateCachesIfNeeded()
+        return cached(node.id, in: &spriteCounts) { evaluator.evaluate(node).count }
+    }
+
+    /// Answers the inspector asks every time it draws, kept until the effects
+    /// change.
+    ///
+    /// Both of these run an effect in full — a 640-particle emitter under a
+    /// ×4 loop costs about 12ms between them, and the inspector reads them from
+    /// its `body`, which SwiftUI re-runs on every frame the playhead moves.
+    /// Selecting such a clip dropped the whole editor to 24fps while nothing
+    /// about it had changed. Neither answer can change without an edit, and an
+    /// edit already bumps the revision.
+    /// Not observed. These are written *during* a view's `body`, and observed
+    /// state written while rendering invalidates the view that just read it —
+    /// which redraws, writes again, and never settles. The app hung on load.
+    /// A cache is not state anyone should redraw for: `effectsRevision` already
+    /// says when the answers changed.
+    @ObservationIgnored private var spriteCounts: [EffectNode.ID: Int] = [:]
+    @ObservationIgnored private var seamSeverities: [EffectNode.ID: Double] = [:]
+    @ObservationIgnored private var cacheRevision = -1
+
+    /// Drops both caches when the effects have moved on.
+    ///
+    /// Kept apart from the read below: clearing touches the same dictionaries
+    /// that are held `inout` there, and Swift rejects the overlapping access
+    /// outright rather than letting the two disagree.
+    private func invalidateCachesIfNeeded() {
+        guard cacheRevision != effectsRevision else { return }
+        cacheRevision = effectsRevision
+        spriteCounts.removeAll(keepingCapacity: true)
+        seamSeverities.removeAll(keepingCapacity: true)
+    }
+
+    private func cached<Value>(
+        _ id: EffectNode.ID,
+        in store: inout [EffectNode.ID: Value],
+        make: () -> Value,
+    ) -> Value {
+        if let existing = store[id] { return existing }
+        let made = make()
+        store[id] = made
+        return made
     }
 
     /// How badly a looped track thins at its seams, from 0 to 1.
@@ -652,9 +733,12 @@ public final class EditorShellModel {
 
         // Measured before the loop wraps them: afterwards the commands live in
         // a loop body and every sprite looks like it runs the whole span.
-        var bare = node
-        bare.filters = []
-        return LoopFilter.seamSeverity(of: evaluator.evaluate(bare))
+        invalidateCachesIfNeeded()
+        return cached(nodeID, in: &seamSeverities) {
+            var bare = node
+            bare.filters = []
+            return LoopFilter.seamSeverity(of: evaluator.evaluate(bare))
+        }
     }
 
     /// How long a clip on this track actually runs, once its filters are

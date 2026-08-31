@@ -1140,8 +1140,30 @@ struct TrackRowView: View {
             // Clicking a clip selects it, so the inspector follows what was
             // pointed at. Without this, only dragging selected — and on a lane
             // with several clips there was no way to pick one to edit.
+            //
+            // One gesture that counts its own clicks, rather than two that
+            // race.
+            //
+            // A plain `.onTapGesture` beside a `count: 2` one cannot resolve
+            // until the double-click interval has passed without a second
+            // click, so every selection sat waiting for a click that was never
+            // coming — half a second of nothing on every clip, which read as
+            // the editor being slow to think. Giving selection a
+            // high-priority press instead fixed that and broke the other half:
+            // a winning gesture swallows the first click of a double, so
+            // keyframes could no longer be opened at all.
+            //
+            // Selecting on press settles both. The press reports at once,
+            // because selecting is what pressing a clip already means; a second
+            // click arriving soon after opens keyframes, and re-selecting the
+            // same clip in between costs nothing.
+            //
+            // A press and not a `DragGesture(minimumDistance: 0)`: that one
+            // claims the drag from the very first pixel, so it beat the move
+            // gesture to its 3pt threshold and clips could no longer be dragged
+            // along their lane at all. A long press of zero duration reports
+            // the same moment without competing for the drag.
             .onTapGesture(count: 2) { actions.openKeyframes(node.id) }
-            .onTapGesture { selectNode(node.id) }
             .gesture(moveGesture(node))
             .contextMenu { clipMenu(node) }
 
@@ -1286,9 +1308,19 @@ struct TrackRowView: View {
     private static let minimumDuration: Double = 100
 
     private func moveGesture(_ node: EffectNode) -> some Gesture {
-        DragGesture(minimumDistance: 3)
+        // Starts at zero so a still click reaches `onEnded`, which is where
+        // selection is decided. The travel threshold has not gone away — it
+        // moved into `onChanged` below, so a press that has not travelled yet
+        // still moves nothing.
+        DragGesture(minimumDistance: 0)
             .onChanged { value in
                 guard !track.isLocked else { return }
+                // Below the threshold this is still a click that has not made
+                // up its mind; moving here would make every click nudge the
+                // clip it selected.
+                guard abs(value.translation.width) >= Self.clickSlop
+                    || abs(value.translation.height) >= Self.clickSlop
+                else { return }
                 let origin = beginDrag(node)
 
                 // Converted through the scale rather than tracked in pixels: at
@@ -1310,8 +1342,33 @@ struct TrackRowView: View {
                 pendingTrackID = actions.trackID(rowsCrossed(value.translation.height))
                 actions.previewDrop(pendingTrackID, node.id, start...(start + length))
             }
-            .onEnded { _ in commit(.move) }
+            .onEnded { value in
+                // A drag that never travelled is a click, so this is also where
+                // selection happens.
+                //
+                // It belongs to the gesture that already owns the press rather
+                // than to a gesture of its own. A second `.onTapGesture` beside
+                // the `count: 2` one cannot resolve until the double-click
+                // interval has elapsed, which put half a second of nothing
+                // between clicking a clip and the inspector following — and
+                // every gesture tried instead (a high-priority press, a
+                // simultaneous zero-distance drag, a zero-duration long press)
+                // claimed the drag from the first pixel and stopped clips being
+                // draggable at all.
+                if abs(value.translation.width) < Self.clickSlop,
+                   abs(value.translation.height) < Self.clickSlop
+                {
+                    selectNode(node.id)
+                }
+                commit(.move)
+            }
     }
+
+    /// How far the pointer may travel and still count as a click.
+    ///
+    /// Matched to the move gesture's own threshold: below it nothing has moved
+    /// yet, so releasing there was never a drag.
+    private static let clickSlop: CGFloat = 3
 
     /// Dragging the grip moves the lane through the draw order.
     ///

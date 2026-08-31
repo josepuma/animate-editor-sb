@@ -1,5 +1,6 @@
 import EditorShellFeature
 import PlaybackFeature
+import StoryboardRendering
 import SwiftUI
 
 /// Places playback inside the editor layout.
@@ -102,6 +103,23 @@ struct EditorWindow: View {
         .onAppear {
             guard let folder else { return }
             shell.loadProject(fromFolder: folder)
+
+            // Installed here because exporting needs images the renderer owns
+            // and the shell cannot import it. The app already stands between
+            // the two for the canvas; this is the same seam.
+            shell.exportHandler = { sprites, projectFolder in
+                let prepared = StoryboardExport.prepareUsingAppImages(sprites) { path in
+                    // Read straight off the folder being edited. A sprite path
+                    // is relative to it, which is exactly how the exported file
+                    // will name it again.
+                    try? Data(contentsOf: projectFolder.appendingPathComponent(path))
+                }
+                return try StoryboardExport.write(
+                    prepared,
+                    toFolder: projectFolder,
+                    named: projectFolder.lastPathComponent,
+                )
+            }
         }
         .onDisappear {
             // Saved on the way out: a project abandoned by closing the window

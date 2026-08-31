@@ -14,6 +14,15 @@ public enum OsuCanvas {
     /// Added to storyboard x to reach canvas x.
     public static let xOffset: Float = 107
 
+    /// The largest dimension the storyboard format accepts for an image.
+    ///
+    /// Anything above this is rejected by the player outright, so an editor
+    /// that displayed it at full size would be showing something the
+    /// storyboard cannot deliver. It is well past useful anyway: the stage is
+    /// 854×480, so even 2048 carries more than twice the detail that can reach
+    /// a pixel.
+    public static let maximumTextureSize = 2048
+
     /// The 4:3 stage, for beatmaps whose `.osu` has widescreen support off.
     ///
     /// Those storyboards were authored against the narrower frame, so osu!
@@ -537,6 +546,17 @@ public enum RendererError: Error, CustomStringConvertible {
 
 // ─── Texture sources ─────────────────────────────────────────────────────────
 
+/// A decoded texture together with the size the storyboard draws it at.
+///
+/// The two differ once an oversized image is shrunk to fit: the texture holds
+/// fewer texels while the sprite still covers the same area of stage. Keeping
+/// them apart is what makes the downscale invisible — taking the size from the
+/// texture would shrink the sprite on screen with it.
+public struct LoadedTexture {
+    public let texture: MTLTexture
+    public let drawnSize: SIMD2<Float>
+}
+
 extension MTKTextureLoader {
     /// Where a sprite's pixels come from.
     ///
@@ -551,11 +571,55 @@ extension MTKTextureLoader {
         case data(Data)
 
         /// Decodes the image into a `.rgba8Unorm` texture.
-        func load(with loader: MTKTextureLoader) throws -> MTLTexture {
+        func load(with loader: MTKTextureLoader) throws -> LoadedTexture {
             guard let image = decodeImage() else {
                 throw RendererError.imageDecodingFailed
             }
-            return try Self.makeTexture(from: image, device: loader.device)
+
+            // The size the storyboard draws at, which is the file's own size —
+            // kept before any downscaling so a shrunken texture still covers
+            // the same area of canvas.
+            let drawnSize = SIMD2<Float>(Float(image.width), Float(image.height))
+            let fitted = Self.fitted(image) ?? image
+
+            return LoadedTexture(
+                texture: try Self.makeTexture(from: fitted, device: loader.device),
+                drawnSize: drawnSize,
+            )
+        }
+
+        /// Shrinks an image that exceeds what the format accepts.
+        ///
+        /// Sprites wider than the limit are refused at playback, so an image
+        /// above it is already invalid — showing it at full size would be the
+        /// editor promising something the storyboard cannot deliver. It is also
+        /// wasted work: the canvas is 854×480, so 2048 is already more than
+        /// twice the resolution anything can display, and the extra texels cost
+        /// atlas pages and bandwidth on every frame that samples them.
+        ///
+        /// The file on disk is untouched — only the copy handed to the GPU.
+        private static func fitted(_ image: CGImage) -> CGImage? {
+            let limit = OsuCanvas.maximumTextureSize
+            let longest = max(image.width, image.height)
+            guard longest > limit else { return nil }
+
+            let ratio = Double(limit) / Double(longest)
+            let width = max(1, Int((Double(image.width) * ratio).rounded()))
+            let height = max(1, Int((Double(image.height) * ratio).rounded()))
+
+            guard let context = CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
+            ) else { return nil }
+
+            context.interpolationQuality = .high
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return context.makeImage()
         }
 
         private func decodeImage() -> CGImage? {

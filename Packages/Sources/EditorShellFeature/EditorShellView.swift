@@ -194,6 +194,9 @@ public struct EditorShellView<Canvas: View>: View {
             Button("Save") { shell.saveProject() }
                 .keyboardShortcut("s", modifiers: .command)
 
+            Button("Export") { shell.exportStoryboard() }
+                .keyboardShortcut("e", modifiers: .command)
+
             Button("Copy") { shell.copySelectedEffect() }
                 .keyboardShortcut("c", modifiers: .command)
 
@@ -240,7 +243,25 @@ public struct EditorShellView<Canvas: View>: View {
                     .frame(width: Theme.Size.ring * 4, height: Theme.Size.ring * 4)
                     .help("Unsaved changes — ⌘S to save")
             }
+
+            if shell.canExport {
+                // Visible rather than only a shortcut: exporting is the point
+                // of the editor, and a command no one can see is one no one
+                // finds.
+                Button("Export", systemImage: "square.and.arrow.up") {
+                    shell.exportStoryboard()
+                }
+                .buttonStyle(.themed(.secondary, size: .small, capsule: true))
+                .help(exportHelp)
+            }
         }
+    }
+
+    /// What the export button says it will do, or what went wrong.
+    private var exportHelp: String {
+        if let error = shell.exportError { return "Export failed: \(error)" }
+        if let last = shell.lastExport { return "Last exported to \(last.path)" }
+        return "Write the storyboard and its images to an export folder — ⌘E"
     }
 
     /// What the window's own title bar shows for this editor.
