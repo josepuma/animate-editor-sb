@@ -10,16 +10,34 @@ public struct ClipBounds: Sendable, Equatable {
     public var maxX: Double
     public var maxY: Double
 
+    /// The angle the clip is turned by, in radians.
+    ///
+    /// Carried so a frame can be drawn turned rather than grown. An
+    /// axis-aligned box around a rotated sprite swells to about 1.41× at 45°
+    /// and shrinks back at 90°, so a steady spin reads as the clip pulsing —
+    /// the box is right about what it contains and wrong about what it is
+    /// showing. Only meaningful when every sprite shares one angle; a clip
+    /// whose sprites turn independently reports none, and the upright box is
+    /// then the honest answer.
+    public var rotation: Double = 0
+
     public var width: Double { maxX - minX }
     public var height: Double { maxY - minY }
     public var centreX: Double { (minX + maxX) / 2 }
     public var centreY: Double { (minY + maxY) / 2 }
 
-    public init(minX: Double, minY: Double, maxX: Double, maxY: Double) {
+    public init(
+        minX: Double,
+        minY: Double,
+        maxX: Double,
+        maxY: Double,
+        rotation: Double = 0,
+    ) {
         self.minX = minX
         self.minY = minY
         self.maxX = maxX
         self.maxY = maxY
+        self.rotation = rotation
     }
 
     /// The box around a clip's sprites at one moment.
@@ -39,28 +57,38 @@ public struct ClipBounds: Sendable, Equatable {
     ) -> ClipBounds? {
         var box: ClipBounds?
 
+        var sharedAngle: Double?
+        var anglesAgree = true
+
         for state in states where state.visible && state.opacity > 0 {
             let size = sizeOf(state.spriteId)
             let halfWidth = abs((size?.width ?? 0) * state.scaleX) / 2
             let halfHeight = abs((size?.height ?? 0) * state.scaleY) / 2
 
-            // Rotation is folded in by taking the extent of the rotated
-            // rectangle, so a spinning sprite is contained at every angle
-            // rather than only at zero.
-            let cosine = abs(cos(state.rotation))
-            let sine = abs(sin(state.rotation))
-            let reachX = halfWidth * cosine + halfHeight * sine
-            let reachY = halfWidth * sine + halfHeight * cosine
+            if let sharedAngle {
+                if abs(sharedAngle - state.rotation) > 0.0001 { anglesAgree = false }
+            } else {
+                sharedAngle = state.rotation
+            }
 
+            // Measured upright, about each sprite's own centre. The angle is
+            // reported alongside instead of being folded in, so the frame can
+            // be turned to match rather than grown to cover.
             let sprite = ClipBounds(
-                minX: state.x - reachX,
-                minY: state.y - reachY,
-                maxX: state.x + reachX,
-                maxY: state.y + reachY,
+                minX: state.x - halfWidth,
+                minY: state.y - halfHeight,
+                maxX: state.x + halfWidth,
+                maxY: state.y + halfHeight,
             )
             box = box.map { $0.union(sprite) } ?? sprite
         }
 
+        // Sprites turning independently — a spinning particle field — have no
+        // one angle to draw, so the frame stays upright.
+        if var result = box, anglesAgree, let sharedAngle {
+            result.rotation = sharedAngle
+            return result
+        }
         return box
     }
 

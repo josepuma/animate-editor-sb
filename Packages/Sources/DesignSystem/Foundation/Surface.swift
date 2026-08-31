@@ -31,11 +31,18 @@ public enum SurfaceRole {
 
     // ─── Glass: floating over the canvas ─────────────────────────────────────
 
-    /// Controls floating over the storyboard: the transport, the coordinate
-    /// readout.
+    /// Controls that genuinely float over arbitrary artwork.
     ///
     /// Carries a scrim, because glass takes its tone from what sits behind it
     /// and a storyboard frame can be any colour at all.
+    ///
+    /// **Nothing uses this at the moment.** The transport and its neighbours
+    /// were the reason it existed, and they now sit in a band beneath the
+    /// stage rather than on top of it — with only the window behind them,
+    /// refracting adds no depth and costs contrast, which is the same argument
+    /// that kept every other role opaque. Kept because the role is right for
+    /// what it describes: the day something really does hover over the picture,
+    /// it belongs here.
     case floating
 
     /// Deprecated spelling of `.floating`.

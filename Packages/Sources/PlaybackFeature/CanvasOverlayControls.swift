@@ -8,7 +8,6 @@ import SwiftUI
 /// preview controls.
 struct CanvasOverlayControls: View {
     @Bindable var model: PlaybackModel
-    let isRevealed: Bool
 
     var body: some View {
         HStack(spacing: Theme.Spacing.compact) {
@@ -49,7 +48,7 @@ struct CanvasOverlayControls: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .revealed(isRevealed)
+        .capsuleSurface(.bar)
         .help(aspectRatioHelp)
     }
 
@@ -113,7 +112,7 @@ struct CanvasOverlayControls: View {
         }
         .padding(.horizontal, Theme.Spacing.regular)
         .frame(height: Theme.Size.pill)
-        .revealed(isRevealed)
+        .capsuleSurface(.bar)
     }
 
     private var tools: some View {
@@ -146,7 +145,7 @@ struct CanvasOverlayControls: View {
         }
         .padding(.horizontal, Theme.Spacing.regular)
         .frame(height: Theme.Size.pill)
-        .revealed(isRevealed)
+        .capsuleSurface(.bar)
     }
 
 }
@@ -231,14 +230,13 @@ private struct ScrubBar: View {
 /// A vertical volume slider, as the reference places beside the preview.
 struct CanvasVolumeControl: View {
     @Bindable var model: PlaybackModel
-    let isRevealed: Bool
 
     @State private var volume: Double = 1
     /// What to restore on unmute, so silencing is reversible rather than a
     /// one-way trip back to full.
     @State private var volumeBeforeMute: Double = 1
 
-    private static let trackHeight: CGFloat = 84
+    private static let trackLength: CGFloat = 84
 
     private func toggleMute() {
         if volume > 0 {
@@ -251,25 +249,23 @@ struct CanvasVolumeControl: View {
     }
 
     var body: some View {
-        VStack(spacing: Theme.Spacing.compact) {
-            Image(systemName: "speaker.wave.2.fill")
-                .font(Theme.Typography.micro)
-                .foregroundStyle(Theme.Palette.tertiary)
-
-            track
-
-            // Silencing is what the pointer reaches for here, so the lower
-            // glyph is a control rather than a label for the track's floor.
+        // A row, matching the bar it now sits in. Standing upright made sense
+        // floating over a tall canvas; in a horizontal strip it was a column
+        // among pills.
+        HStack(spacing: Theme.Spacing.compact) {
             IconButton(
-                systemImage: volume > 0 ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                systemImage: volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill",
                 size: Theme.Size.controlTiny,
                 help: volume > 0 ? "Mute" : "Unmute",
                 action: toggleMute,
             )
+
+            track
         }
-        .padding(.vertical, Theme.Spacing.compact)
-        .padding(.horizontal, Theme.Spacing.snug)
-        .revealed(isRevealed)
+        .padding(.horizontal, Theme.Spacing.regular)
+        // Matches the pills beside it, so the row reads as one band.
+        .frame(height: Theme.Size.pill)
+        .capsuleSurface(.bar)
         .onAppear { volume = Double(model.volume) }
         // Only the mute jump is animated; a drag already follows the pointer,
         // and animating that would make the thumb lag behind it.
@@ -280,34 +276,33 @@ struct CanvasVolumeControl: View {
     /// so it matches the overlay instead of the platform's control styling.
     private var track: some View {
         GeometryReader { proxy in
-            let height = proxy.size.height
-            let thumbHeight: CGFloat = 18
-            let travel = height - thumbHeight
+            let width = proxy.size.width
+            let thumbWidth: CGFloat = 18
+            let travel = width - thumbWidth
 
-            ZStack(alignment: .top) {
+            ZStack(alignment: .leading) {
                 Capsule()
                     .fill(Theme.Fill.groove)
-                    .frame(width: Theme.Size.grooveThickness)
-                    .frame(maxWidth: .infinity)
+                    .frame(height: Theme.Size.grooveThickness)
+                    .frame(maxHeight: .infinity)
 
                 Capsule()
                     .fill(.white)
-                    .frame(width: Theme.Size.playheadHandleWidth, height: thumbHeight)
-                    // Full volume sits at the top, so the offset is inverted.
-                    .offset(y: travel * (1 - volume))
+                    .frame(width: thumbWidth, height: Theme.Size.playheadHandleWidth)
+                    .offset(x: travel * volume)
                     .elevated(Theme.Elevation.low)
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxHeight: .infinity)
             .contentShape(.rect)
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        let position = (value.location.y - thumbHeight / 2) / travel
-                        volume = min(max(0, 1 - position), 1)
+                        let position = (value.location.x - thumbWidth / 2) / travel
+                        volume = min(max(0, position), 1)
                         model.setVolume(Float(volume))
                     },
             )
         }
-        .frame(width: Theme.Size.controlTiny, height: Self.trackHeight)
+        .frame(width: Self.trackLength, height: Theme.Size.controlTiny)
     }
 }

@@ -451,6 +451,27 @@ public final class EditorShellModel {
 
     /// Deletes whatever is selected — a clip if one is, otherwise its lane.
     public func deleteSelection() {
+        // Most specific first.
+        //
+        // A selected keyframe used to be invisible here, so pressing Delete
+        // while working on one destroyed the whole clip it belonged to — and
+        // there is no undo to take that back. What is selected is what gets
+        // deleted, and a keyframe is a narrower selection than the clip that
+        // holds it.
+        if let selection = selectedKeyframe {
+            removeKeyframe(
+                selection.keyframeID,
+                from: selection.property,
+                on: selection.nodeID,
+            )
+            return
+        }
+
+        // In keyframe mode the clip is selected only because its keys are being
+        // edited. Deleting it from under that is never what the key was aimed
+        // at, so it takes leaving the mode first.
+        guard keyframeNodeID == nil else { return }
+
         if let nodeID = selectedNodeID {
             removeEffect(nodeID)
         } else if let trackID = selectedTrackID {

@@ -68,17 +68,19 @@ public struct PlaybackCanvas: View {
     var isClipLocked = false
     var onClipDrag: ((ClipDrag) -> Void)?
 
-    /// The pointer is over the picture.
-    ///
-    /// Reported by an AppKit tracking area laid over the canvas rather than by
-    /// `onHover`: the Metal view handles its own mouse tracking and does not
-    /// pass those events up, so SwiftUI never sees them.
-    @State private var isHovered = false
-
     public var body: some View {
         GeometryReader { proxy in
-            let size = fittedSize(in: proxy.size)
+            // The stage is fitted into what is left after the bar takes its
+            // share, so the two are stacked rather than one laid over the
+            // other: a control floating on the canvas covers picture, and the
+            // canvas is now the surface being edited.
+            let available = CGSize(
+                width: proxy.size.width,
+                height: proxy.size.height - Self.barHeight,
+            )
+            let size = fittedSize(in: available)
 
+            VStack(spacing: 0) {
             ZStack {
                 MetalCanvasView(model: model, source: source)
                     .frame(width: size.width, height: size.height)
@@ -96,14 +98,6 @@ public struct PlaybackCanvas: View {
                             .strokeBorder(Theme.Border.panel, lineWidth: 1),
                     )
                     .elevated(Theme.Elevation.high)
-
-                // Watches the whole picture, including the space the controls
-                // sit in. Tracking the Metal view itself reports the pointer
-                // leaving the moment it crosses onto a button, which would hide
-                // the controls exactly when they are being reached for.
-                HoverReporter { isHovered = $0 }
-                    .frame(width: size.width, height: size.height)
-                    .allowsHitTesting(false)
 
                 // Under the controls, so a transport button is never blocked
                 // by an invisible drag area behind it.
@@ -128,11 +122,12 @@ public struct PlaybackCanvas: View {
                     .id("selection-box")
                 }
 
-                overlay(canvasSize: size)
-                    .frame(width: size.width, height: size.height)
-                    .clipShape(
-                        RoundedRectangle(cornerRadius: Theme.Radius.stage, style: .continuous),
-                    )
+
+            }
+            .frame(width: available.width, height: available.height)
+
+            controlBar(canvasSize: size)
+                .frame(height: Self.barHeight)
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
@@ -142,28 +137,37 @@ public struct PlaybackCanvas: View {
     }
 
     /// Everything drawn over the canvas, inset so it never touches the edges.
-    private func overlay(canvasSize: CGSize) -> some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .top) {
-                Spacer()
-                RenderStats(model: model, isRevealed: isHovered)
-            }
+    /// The controls, in the band between the stage and the timeline.
+    ///
+    /// Under the canvas rather than floating on it. Hovering to summon a
+    /// control means it is absent until you go looking, and it puts buttons on
+    /// top of the one surface that is now editable — the selection frame and a
+    /// transport pill were competing for the same pixels and the same clicks.
+    /// The gap below the stage was already there; this fills it.
+    private func controlBar(canvasSize: CGSize) -> some View {
+        HStack(alignment: .center, spacing: Theme.Spacing.compact) {
+            CanvasOverlayControls(model: model)
 
-            Spacer()
+            Spacer(minLength: Theme.Spacing.regular)
 
-            HStack(alignment: .bottom) {
-                CanvasOverlayControls(model: model, isRevealed: isHovered)
-                Spacer()
-                if model.hasAudio, canvasSize.height > 260 {
-                    CanvasVolumeControl(model: model, isRevealed: isHovered)
-                }
+            RenderStats(model: model)
+
+            if model.hasAudio {
+                CanvasVolumeControl(model: model)
             }
-            // Extra room beneath the controls: sitting hard against the canvas
-            // edge makes them look clipped rather than placed.
-            .padding(.bottom, Theme.Spacing.snug)
         }
-        .padding(Theme.Spacing.regular)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, Theme.Spacing.regular)
+        // Nothing animates its arrival. The bar takes its share of the layout,
+        // so SwiftUI animated it into place on load and the controls slid up
+        // from the bottom of the window every time a project opened. Appearing
+        // is not a transition: there is no earlier state to come from.
+        .transaction { $0.animation = nil }
     }
+
+    /// The band the controls occupy beneath the stage.
+    /// The pills plus the breathing room the rest of the layout uses.
+    private static let barHeight: CGFloat = Theme.Size.pill + Theme.Spacing.regular * 2
 
     private func fittedSize(in available: CGSize) -> CGSize {
         let size = OsuCanvas.size(widescreen: model.isWidescreen)
@@ -181,7 +185,6 @@ public struct PlaybackCanvas: View {
 /// reading while working — so they appear only on hover.
 private struct RenderStats: View {
     let model: PlaybackModel
-    let isRevealed: Bool
 
     var body: some View {
         HStack(spacing: Theme.Spacing.snug) {
@@ -198,8 +201,10 @@ private struct RenderStats: View {
         }
         .font(Theme.Typography.micro)
         .foregroundStyle(Theme.Palette.tertiary)
-        .padding(.horizontal, Theme.Spacing.snug)
-        .padding(.vertical, Theme.Spacing.hair)
-        .revealed(isRevealed, role: .bar, capsule: false, radius: Theme.Radius.small)
+        .padding(.horizontal, Theme.Spacing.regular)
+        // The same height as everything beside it: a row of pills where one is
+        // shorter reads as uneven, whatever its own proportions are.
+        .frame(height: Theme.Size.pill)
+        .capsuleSurface(.bar)
     }
 }

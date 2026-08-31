@@ -33,18 +33,23 @@ struct ClipBoundsTests {
         #expect(box.maxY == 225)
     }
 
-    /// A box that ignored rotation would cut the corners off a spinning sprite
-    /// — the box has to hold it at every angle, not only at zero.
-    @Test("a rotated sprite is contained at any angle")
-    func rotationExpandsTheBox() throws {
+    /// The box is measured upright and turned by the caller, so its size does
+    /// not change with the angle.
+    ///
+    /// Growing it to cover the rotated extent is correct about containment and
+    /// wrong about what it communicates: at 45° an upright box swells to about
+    /// 1.41× and shrinks back at 90°, so a steady spin reads as the clip
+    /// pulsing. The angle travels with the box instead.
+    @Test("a rotated sprite keeps its measured size")
+    func rotationDoesNotResizeTheBox() throws {
         let flat = try #require(ClipBounds.around([state("a", x: 320, y: 240)], sizeOf: size))
         let turned = try #require(ClipBounds.around(
             [state("a", x: 320, y: 240, rotation: .pi / 2)], sizeOf: size,
         ))
 
-        // Turned a quarter, the 100×50 sprite reads as 50×100.
-        #expect(abs(turned.width - flat.height) < 0.001)
-        #expect(abs(turned.height - flat.width) < 0.001)
+        #expect(abs(turned.width - flat.width) < 0.001)
+        #expect(abs(turned.height - flat.height) < 0.001)
+        #expect(abs(turned.rotation - .pi / 2) < 0.001)
     }
 
     @Test("scale grows the box")
@@ -90,5 +95,47 @@ struct ClipBoundsTests {
     @Test("nothing selected is no box")
     func emptyIsNil() {
         #expect(ClipBounds.around([], sizeOf: size) == nil)
+    }
+}
+
+@Suite("Clip bounds rotation")
+struct ClipBoundsRotationTests {
+    private func state(_ id: String, rotation: Double) -> SpriteRenderState {
+        SpriteRenderState(
+            spriteId: id, x: 320, y: 240,
+            scaleX: 1, scaleY: 1, rotation: rotation, opacity: 1,
+            r: 255, g: 255, b: 255,
+            visible: true, additive: false, flipH: false, flipV: false,
+        )
+    }
+
+    private let size: (String) -> (width: Double, height: Double)? = { _ in (100, 50) }
+
+    /// The box keeps one size through a turn, and reports the angle instead.
+    ///
+    /// Folding rotation into an upright box swelled it to about 1.41× at 45°
+    /// and back at 90°, so a clip spinning at a steady rate looked like it was
+    /// pulsing — right about what it contained, wrong about what it showed.
+    @Test("a turning clip keeps its size and reports its angle")
+    func rotationIsReportedNotFolded() throws {
+        let upright = try #require(ClipBounds.around([state("a", rotation: 0)], sizeOf: size))
+        let turned = try #require(ClipBounds.around(
+            [state("a", rotation: .pi / 4)], sizeOf: size,
+        ))
+
+        #expect(abs(turned.width - upright.width) < 0.001)
+        #expect(abs(turned.height - upright.height) < 0.001)
+        #expect(abs(turned.rotation - .pi / 4) < 0.001)
+    }
+
+    /// A particle field turning every which way has no one angle to draw.
+    @Test("sprites at different angles report none")
+    func disagreeingAnglesReportNone() throws {
+        let box = try #require(ClipBounds.around([
+            state("a", rotation: 0),
+            state("b", rotation: .pi / 2),
+        ], sizeOf: size))
+
+        #expect(box.rotation == 0)
     }
 }

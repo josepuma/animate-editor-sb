@@ -204,6 +204,10 @@ struct SelectionBox: View {
                 }
             }
             .frame(width: box.width, height: box.height)
+            // Turned to match the clip rather than grown to cover it. An
+            // upright box around a rotating sprite swells and shrinks with the
+            // angle, so a steady spin looked like the clip pulsing.
+            .rotationEffect(.radians(bounds?.rotation ?? 0))
             .offset(x: box.minX, y: box.minY)
         }
         // The move gesture lives here, on a layer that does not move.
