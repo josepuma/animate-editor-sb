@@ -599,7 +599,16 @@ struct TrackTimelineView: View {
             addImage: { path, time in
                 shell.addImage(at: path, time: max(0, time), on: track.id)
             },
-            openKeyframes: { shell.keyframeNodeID = $0 },
+            openKeyframes: { id in
+                // Selecting it too, not only opening its keyframes.
+                //
+                // Double-clicking a clip in a freshly opened project left
+                // nothing selected, so the inspector fell back to the lane and
+                // showed a track's heading over the effect's own parameters.
+                // Working on a clip's keyframes is working on that clip.
+                shell.selectedNodeID = id
+                shell.keyframeNodeID = id
+            },
             raise: { shell.raiseTrack(track.id) },
             lower: { shell.lowerTrack(track.id) },
             canRaise: shell.effects.canRaiseTrack(track.id),
