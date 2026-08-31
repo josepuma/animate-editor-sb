@@ -79,7 +79,6 @@ struct EffectParameterTests {
         let read = [
             EmitterEffect.Param.count, EmitterEffect.Param.emission,
             EmitterEffect.Param.burstCount, EmitterEffect.Param.sprite,
-            EmitterEffect.Param.x, EmitterEffect.Param.y,
             EmitterEffect.Param.width, EmitterEffect.Param.height,
             EmitterEffect.Param.direction, EmitterEffect.Param.spread,
             EmitterEffect.Param.velocity, EmitterEffect.Param.velocityRandom,

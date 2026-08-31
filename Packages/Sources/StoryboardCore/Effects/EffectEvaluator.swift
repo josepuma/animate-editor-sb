@@ -34,7 +34,7 @@ public struct EffectLibrary: Sendable {
     }
 
     /// The built-in library.
-    public static let standard = EffectLibrary(effects: [EmitterEffect()])
+    public static let standard = EffectLibrary(effects: [ImageEffect(), EmitterEffect()])
 }
 
 /// Turns placed effect nodes into the sprites the renderer and the exporter
@@ -63,9 +63,19 @@ public struct EffectEvaluator: Sendable {
         let context = EffectContext(descriptor: descriptor, node: node)
         var rng = EffectRandom(seed: node.seed)
 
-        return effect.evaluate(in: context, rng: &rng).map {
-            shift($0, by: node.startTime, layer: node.layer)
-        }
+        let produced = effect.evaluate(in: context, rng: &rng)
+
+        // The clip's transform moves what it produced as one object — its
+        // sprites keep their arrangement, the way a group does in any editor.
+        // Applied here rather than inside each effect so every one of them gets
+        // it, and none has to think about it.
+        let placed = GroupTransform.apply(
+            node.transform,
+            to: produced,
+            duration: node.duration,
+        )
+
+        return placed.map { shift($0, by: node.startTime, layer: node.layer) }
     }
 
     /// Evaluates every node, in the order given.

@@ -75,8 +75,6 @@ struct EmitterParameterEffectTests {
          [EmitterEffect.Param.emission: .choice("Repeating Bursts")]),
         (EmitterEffect.Param.sprite, .text("sb/other.png"), [:]),
 
-        (EmitterEffect.Param.x, .number(100), [:]),
-        (EmitterEffect.Param.y, .number(400), [:]),
         (EmitterEffect.Param.width, .number(200), [:]),
         (EmitterEffect.Param.height, .number(150), [:]),
 

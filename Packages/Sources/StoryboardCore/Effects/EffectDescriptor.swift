@@ -6,6 +6,17 @@ import Foundation
 /// shape as JSON. Nothing downstream — the inspector above all — is told which
 /// of the two it is looking at.
 public struct EffectDescriptor: Sendable, Equatable {
+    public static func == (lhs: EffectDescriptor, rhs: EffectDescriptor) -> Bool {
+        // Compared by what it declares. `initialTransform` is a closure and has
+        // no equality of its own, and two descriptors of the same type are the
+        // same effect however it was built.
+        lhs.type == rhs.type
+            && lhs.name == rhs.name
+            && lhs.category == rhs.category
+            && lhs.systemImage == rhs.systemImage
+            && lhs.parameters == rhs.parameters
+    }
+
     /// Stable identifier used to match a node back to its effect, so a saved
     /// document survives a renamed display title.
     public let type: String
@@ -30,6 +41,25 @@ public struct EffectDescriptor: Sendable, Equatable {
         self.parameters = parameters
     }
 
+    /// A descriptor whose nodes start with something animated.
+    public init(
+        type: String,
+        name: String,
+        category: String,
+        systemImage: String,
+        parameters: [EffectParameter],
+        initialTransform: @escaping @Sendable (Double) -> Transform,
+    ) {
+        self.init(
+            type: type,
+            name: name,
+            category: category,
+            systemImage: systemImage,
+            parameters: parameters,
+        )
+        self.initialTransform = initialTransform
+    }
+
     public func parameter(_ id: String) -> EffectParameter? {
         parameters.first { $0.id == id }
     }
@@ -43,6 +73,14 @@ public struct EffectDescriptor: Sendable, Equatable {
         var seen: Set<String> = []
         return parameters.compactMap { seen.insert($0.group).inserted ? $0.group : nil }
     }
+
+    /// What a freshly placed node of this effect animates.
+    ///
+    /// Declared on the descriptor so every route that places one — the library,
+    /// a preset, a dropped asset — arrives at the same starting state. An
+    /// effect that wants nothing animated returns an empty transform, which is
+    /// the default.
+    public var initialTransform: @Sendable (Double) -> Transform = { _ in Transform() }
 
     /// Every parameter at its default, ready for a newly created node.
     public var defaultValues: [String: EffectValue] {
@@ -73,6 +111,14 @@ public struct EffectNode: Identifiable, Sendable, Equatable {
     /// noticed once a file is out the door.
     public var seed: UInt64
     public var values: [String: EffectValue]
+    /// Keyframed position, scale, rotation and opacity.
+    ///
+    /// Separate from `values` because it is a different shape: a parameter is
+    /// one number, and a transform property is a number over time. Keeping the
+    /// two apart means the inspector can render parameters generically while
+    /// the timeline lays keyframes out, without either pretending to be the
+    /// other.
+    public var transform: Transform
     public var isVisible: Bool
     public var isLocked: Bool
 
@@ -85,6 +131,7 @@ public struct EffectNode: Identifiable, Sendable, Equatable {
         duration: Double,
         seed: UInt64 = 1,
         values: [String: EffectValue] = [:],
+        transform: Transform = Transform(),
         isVisible: Bool = true,
         isLocked: Bool = false,
     ) {
@@ -96,6 +143,7 @@ public struct EffectNode: Identifiable, Sendable, Equatable {
         self.duration = duration
         self.seed = seed
         self.values = values
+        self.transform = transform
         self.isVisible = isVisible
         self.isLocked = isLocked
     }

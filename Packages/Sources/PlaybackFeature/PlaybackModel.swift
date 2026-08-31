@@ -27,6 +27,19 @@ public final class PlaybackModel {
     /// music.
     public private(set) var timelineRange: ClosedRange<Double> = 0...1
 
+    /// A stretch to loop within, when something is being worked on in isolation.
+    ///
+    /// Editing one clip's keyframes, playback belongs to that clip: running on
+    /// past its end carries the playhead somewhere the ruler no longer reaches,
+    /// and every property reads as whatever its last key left behind. `nil`
+    /// plays the whole timeline.
+    public var loopRange: ClosedRange<Double>?
+
+    /// What playback is currently bounded by.
+    private var playbackRange: ClosedRange<Double> {
+        loopRange ?? timelineRange
+    }
+
     public private(set) var spriteCount = 0
     public private(set) var drawnCount = 0
     public private(set) var framesPerSecond: Double = 0
@@ -260,8 +273,8 @@ public final class PlaybackModel {
         // Restart from the top when resuming at the end — the end of the
         // timeline, not of the track: pressing play on a storyboard's closing
         // seconds should play them, not jump back to the beginning.
-        if currentTime >= timelineRange.upperBound - 1 {
-            seek(to: timelineRange.lowerBound)
+        if currentTime >= playbackRange.upperBound - 1 {
+            seek(to: playbackRange.lowerBound)
         }
 
         // Only while the playhead is within the track. Outside it, `advance`
@@ -283,7 +296,9 @@ public final class PlaybackModel {
     /// sprites that live there. The audio is clamped separately, since it has
     /// nothing to play before its own first sample.
     public func seek(to time: Double) {
-        currentTime = min(max(timelineRange.lowerBound, time), timelineRange.upperBound)
+        // Clamped to whatever playback is bounded by, so scrubbing cannot
+        // leave the stretch being worked on either.
+        currentTime = min(max(playbackRange.lowerBound, time), playbackRange.upperBound)
         guard hasAudio else { return }
 
         audio.seek(toMilliseconds: min(max(0, currentTime), duration))
@@ -327,7 +342,7 @@ public final class PlaybackModel {
         guard currentTime >= 0, currentTime < duration, hasAudio, audio.isPlaying else {
             currentTime += delta
 
-            if currentTime > timelineRange.upperBound {
+            if currentTime > playbackRange.upperBound {
                 loopToStart()
             } else if hasAudio, !audio.isPlaying, currentTime >= 0, currentTime < duration {
                 // The playhead has reached the track: start it where the clock
@@ -356,12 +371,12 @@ public final class PlaybackModel {
             audio.pause()
             currentTime = duration
 
-            if currentTime >= timelineRange.upperBound { loopToStart() }
+            if currentTime >= playbackRange.upperBound { loopToStart() }
         }
     }
 
     private func loopToStart() {
-        seek(to: timelineRange.lowerBound)
+        seek(to: playbackRange.lowerBound)
         if hasAudio, isPlaying, currentTime >= 0, currentTime < duration {
             audio.play()
         }

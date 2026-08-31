@@ -52,3 +52,32 @@ struct FilterTransfer: Transferable {
 enum FilterTransferError: Error {
     case notAFilter
 }
+
+/// What travels when an asset is dragged out of the library.
+///
+/// Rides on text for the same reason a filter does: a custom `UTType` has to be
+/// declared in a bundle's `Info.plist`, and a SwiftPM executable has none, so
+/// the type is unknown to the system and no drop destination ever matches it.
+struct AssetTransfer: Transferable {
+    let path: String
+
+    private static let marker = "animate-editor.asset:"
+
+    static var transferRepresentation: some TransferRepresentation {
+        ProxyRepresentation<AssetTransfer, String>(
+            exporting: { "\(marker)\($0.path)" },
+            importing: { text in
+                guard text.hasPrefix(marker) else { throw FilterTransferError.notAFilter }
+                return AssetTransfer(path: String(text.dropFirst(marker.count)))
+            },
+        )
+    }
+
+    static func parse(_ text: String) -> AssetTransfer? {
+        guard text.hasPrefix(marker) else { return nil }
+        return AssetTransfer(path: String(text.dropFirst(marker.count)))
+    }
+
+    var payload: String { "\(Self.marker)\(path)" }
+}
+

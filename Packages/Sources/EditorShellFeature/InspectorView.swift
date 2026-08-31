@@ -108,6 +108,8 @@ struct InspectorView: View {
     @ViewBuilder
     private func effectParameters(descriptor: EffectDescriptor, node: EffectNode) -> some View {
         timingRow(node: node)
+        selectedKeyframeSection(node)
+        transformSection(node)
 
         ForEach(descriptor.groups, id: \.self) { group in
             FieldGroup(group) {
@@ -119,6 +121,152 @@ struct InspectorView: View {
                     )
                 }
             }
+        }
+    }
+
+    /// The selected keyframe: its time, its value, and the curve leaving it.
+    ///
+    /// Above the transform group, because a selected key is what someone is
+    /// working on right now — and because a curve is not something a diamond on
+    /// a timeline can show or a drag can set.
+    @ViewBuilder
+    private func selectedKeyframeSection(_ node: EffectNode) -> some View {
+        if let selection = shell.selectedKeyframe,
+           selection.nodeID == node.id,
+           let key = shell.selectedKeyframeValue
+        {
+            FieldGroup("Keyframe · \(selection.property.title)") {
+                PropertyRow("Time") {
+                    NumberField(
+                        value: Binding(
+                            get: { key.time },
+                            set: {
+                                shell.moveKeyframe(
+                                    key.id, in: selection.property, to: $0, on: node.id,
+                                )
+                            },
+                        ),
+                        unit: "ms",
+                        step: 10,
+                        range: 0...node.duration,
+                        format: "%.0f",
+                    )
+                }
+
+                PropertyRow("Value") {
+                    NumberField(
+                        value: Binding(
+                            get: { key.value },
+                            set: {
+                                shell.setKeyframeValue(
+                                    $0, for: key.id, in: selection.property, on: node.id,
+                                )
+                            },
+                        ),
+                        unit: selection.property.unit,
+                        step: selection.property.step,
+                        range: selection.property.range,
+                        format: selection.property.step < 1 ? "%.2f" : "%.0f",
+                    )
+                }
+
+                // The curve belongs to the key it leaves *from*, which is how a
+                // storyboard command carries its own easing.
+                PropertyRow("Easing") {
+                    MenuField(
+                        items: KeyframeEasing.allCases.map(EasingOption.init),
+                        selection: Binding(
+                            get: { EasingOption(KeyframeEasing.matching(key.easing)) },
+                            set: {
+                                shell.setKeyframeEasing(
+                                    $0.curve.easing,
+                                    for: key.id,
+                                    in: selection.property,
+                                    on: node.id,
+                                )
+                            },
+                        ),
+                        label: \.title,
+                    )
+                }
+
+                Button("Delete Keyframe", systemImage: "trash", role: .destructive) {
+                    shell.removeKeyframe(key.id, from: selection.property, on: node.id)
+                }
+                .font(Theme.Typography.micro)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    /// Position, scale, rotation and opacity — the properties that animate.
+    ///
+    /// Its own group, above the effect's own parameters. Transform is what
+    /// every visual thing has and what people reach for first; mixed in with an
+    /// emitter's twenty-eight parameters it would be lost among them.
+    @ViewBuilder
+    private func transformSection(_ node: EffectNode) -> some View {
+        FieldGroup("Transform") {
+            // What animating this clip costs.
+            //
+            // osu! has no nested sprites, so moving a clip means moving each of
+            // its sprites and baking a rotation into each one's path. On an
+            // emitter with hundreds of particles that is thousands of lines —
+            // worth knowing here, where it can still be turned down, rather
+            // than when the file will not open.
+            transformCost(node)
+            ForEach(TransformProperty.allCases, id: \.self) { property in
+                TransformRow(
+                    property: property,
+                    track: node.transform[property],
+                    current: node.transform.value(
+                        property,
+                        at: playback.currentTime - node.startTime,
+                    ),
+                    // Local to the clip, which is what a keyframe's time means.
+                    localTime: playback.currentTime - node.startTime,
+                    duration: node.duration,
+                    setValue: { value, time in
+                        // The distinction that fixes the bug: with animation
+                        // off this is the property's resting value; with it on,
+                        // it is a keyframe at the playhead. Always keyframing
+                        // meant moving the playhead and typing a number planted
+                        // keys on properties nobody was animating.
+                        if node.transform[property].isEmpty {
+                            shell.setTransformValue(value, for: property, on: node.id)
+                        } else {
+                            shell.setKeyframe(value, for: property, at: time, on: node.id)
+                        }
+                    },
+                    beginAnimating: { time in
+                        shell.beginAnimating(property, on: node.id, at: time)
+                    },
+                    setEnabled: { isEnabled, time in
+                        shell.setAnimationEnabled(
+                            isEnabled, for: property, on: node.id, keeping: time,
+                        )
+                    },
+                    clear: { time in
+                        shell.clearKeyframes(for: property, on: node.id, keeping: time)
+                    },
+                )
+            }
+        }
+    }
+
+    /// A line saying what an animated transform adds, when it adds enough to
+    /// matter.
+    @ViewBuilder
+    private func transformCost(_ node: EffectNode) -> some View {
+        let perSprite = GroupTransform.estimatedCommandsPerSprite(node.transform)
+        let sprites = shell.spriteCount(of: node)
+        let total = perSprite * sprites
+
+        if total > 0 {
+            Text("Adds ~\(total) commands across \(sprites) sprites")
+                .font(Theme.Typography.micro)
+                .foregroundStyle(total >= 3000 ? Theme.Palette.warning : Theme.Palette.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -247,6 +395,129 @@ struct InspectorView: View {
         }
     }
 
+}
+
+// ─── Transform row ───────────────────────────────────────────────────────────
+
+/// One animatable property: its value here and now, and a switch for animating.
+///
+/// The stopwatch is After Effects' idea and it is the right one — a property is
+/// a number until you say otherwise, and saying otherwise is one click. Before
+/// that there are no keys to manage and no row to read.
+private struct TransformRow: View {
+    let property: TransformProperty
+    // Qualified: SwiftUI ships a `KeyframeTrack` of its own for view
+    // animation, and this target imports both.
+    let track: StoryboardCore.KeyframeTrack
+    /// What the property is worth right now — its resting value, or its
+    /// animation sampled at the playhead.
+    let current: Double
+    /// Where the playhead is inside the clip.
+    let localTime: Double
+    let duration: Double
+    let setValue: (Double, Double) -> Void
+    let beginAnimating: (Double) -> Void
+    let setEnabled: (Bool, Double) -> Void
+    let clear: (Double) -> Void
+
+    private var hasKeys: Bool { !track.isEmpty }
+    private var isAnimating: Bool { track.isActive }
+
+    /// Where a new key would land, clamped into the clip.
+    private var keyTime: Double { max(0, min(localTime, duration)) }
+
+    /// Whether there is a key at the playhead right now.
+    private var isOnAKey: Bool {
+        track.keyframes.contains { abs($0.time - keyTime) < 1 }
+    }
+
+    var body: some View {
+        PropertyRow(property.title) {
+            HStack(spacing: Theme.Spacing.tight) {
+                NumberField(
+                    value: Binding(
+                        get: { current },
+                        // Typing while animating sets a key at the playhead —
+                        // the same move as dragging a property in any editor
+                        // with a timeline. Otherwise it sets the value.
+                        set: { setValue($0, keyTime) },
+                    ),
+                    unit: property.unit,
+                    step: property.step,
+                    range: property.range,
+                    format: property.step < 1 ? "%.2f" : "%.0f",
+                )
+
+                // The stopwatch: starts animating, and afterwards switches the
+                // animation on and off *without* discarding it. Deleting a
+                // stopwatch's worth of work on the same click that started it
+                // is a trap, and there is no undo to climb out of it with.
+                IconButton(
+                    systemImage: isAnimating ? "stopwatch.fill" : "stopwatch",
+                    size: Theme.Size.controlTiny,
+                    isActive: isAnimating,
+                    help: stopwatchHelp,
+                ) {
+                    if hasKeys {
+                        setEnabled(!isAnimating, keyTime)
+                    } else {
+                        beginAnimating(keyTime)
+                    }
+                }
+
+                // A key at the playhead, so the timeline is not the only place
+                // one can be added or removed.
+                if isAnimating {
+                    IconButton(
+                        systemImage: isOnAKey ? "diamond.fill" : "diamond",
+                        size: Theme.Size.controlTiny,
+                        isActive: isOnAKey,
+                        help: isOnAKey ? "On a keyframe" : "Add a keyframe here",
+                    ) {
+                        setValue(current, keyTime)
+                    }
+                }
+
+                keyCount
+            }
+        }
+        .contextMenu {
+            if hasKeys {
+                Button(isAnimating ? "Disable Animation" : "Enable Animation") {
+                    setEnabled(!isAnimating, keyTime)
+                }
+                Divider()
+                // Destructive, so it is a deliberate menu item rather than a
+                // side effect of the switch beside the field.
+                Button("Delete All Keyframes", systemImage: "trash", role: .destructive) {
+                    clear(keyTime)
+                }
+            }
+        }
+    }
+
+    /// How many keys the property holds, dimmed when they are switched off.
+    @ViewBuilder
+    private var keyCount: some View {
+        if hasKeys {
+            Text("\(track.keyframes.count)")
+                .font(Theme.Typography.micro)
+                .foregroundStyle(isAnimating ? Theme.Palette.secondary : Theme.Palette.tertiary)
+                .frame(width: Theme.Spacing.compact, alignment: .trailing)
+                .help(isAnimating
+                    ? "\(track.keyframes.count) keyframes"
+                    : "\(track.keyframes.count) keyframes, switched off")
+        } else {
+            Color.clear.frame(width: Theme.Spacing.compact)
+        }
+    }
+
+    private var stopwatchHelp: String {
+        if !hasKeys { return "Animate \(property.title)" }
+        return isAnimating
+            ? "Switch off \(property.title) animation (keys are kept)"
+            : "Switch \(property.title) animation back on"
+    }
 }
 
 // ─── Filter card ─────────────────────────────────────────────────────────────
@@ -513,6 +784,18 @@ private extension EffectColor {
             b: Double(components.blueComponent) * 255,
         )
     }
+}
+
+/// Wraps a curve so it can drive an identifiable menu.
+private struct EasingOption: Hashable, Identifiable {
+    let curve: KeyframeEasing
+
+    init(_ curve: KeyframeEasing) {
+        self.curve = curve
+    }
+
+    var id: String { curve.rawValue }
+    var title: String { curve.title }
 }
 
 /// Wraps a layer so it can drive an identifiable menu.

@@ -254,6 +254,13 @@ public struct EffectDocument: Sendable {
             // twice.
             seed: UInt64(nodes.count &+ 1) &* 0x9E37_79B9,
             values: descriptor.defaultValues,
+            // Whatever the effect wants animated when it is first placed.
+            //
+            // Applied here rather than by whoever calls this, so every route in
+            // gets it: an image placed from the library used to arrive with an
+            // empty transform, no fade, and therefore a single zero-length
+            // command — a sprite whose whole life lasted an instant.
+            transform: descriptor.initialTransform(duration),
         )
         tracks[index].nodes.append(node)
         return node
@@ -275,6 +282,122 @@ public struct EffectDocument: Sendable {
     public mutating func setValue(_ value: EffectValue, for parameterID: String, on nodeID: EffectNode.ID) {
         guard let location = locate(nodeID) else { return }
         tracks[location.track].nodes[location.node].values[parameterID] = value
+    }
+
+    // ─── Keyframes ───────────────────────────────────────────────────────────
+
+    /// Sets a keyframe on one property of one effect.
+    ///
+    /// - Parameter time: local to the clip, so moving the clip moves its
+    ///   animation with it.
+    public mutating func setKeyframe(
+        _ value: Double,
+        for property: TransformProperty,
+        at time: Double,
+        easing: Easing = .linear,
+        on nodeID: EffectNode.ID,
+    ) {
+        guard let location = locate(nodeID) else { return }
+        var track = tracks[location.track].nodes[location.node].transform[property]
+        // Adding a key to a switched-off track switches it back on: putting one
+        // down is a request to animate, and leaving it inert would look like
+        // the click did nothing.
+        track.isEnabled = true
+        track.set(value, at: max(0, time), easing: easing)
+        tracks[location.track].nodes[location.node].transform[property] = track
+    }
+
+    /// Sets a property's resting value, without touching its animation.
+    public mutating func setTransformValue(
+        _ value: Double,
+        for property: TransformProperty,
+        on nodeID: EffectNode.ID,
+    ) {
+        guard let location = locate(nodeID) else { return }
+        tracks[location.track].nodes[location.node].transform[value: property] = value
+    }
+
+    public mutating func removeKeyframe(
+        _ keyframeID: Keyframe.ID,
+        from property: TransformProperty,
+        on nodeID: EffectNode.ID,
+    ) {
+        guard let location = locate(nodeID) else { return }
+        var track = tracks[location.track].nodes[location.node].transform[property]
+        track.remove(keyframeID)
+        tracks[location.track].nodes[location.node].transform[property] = track
+    }
+
+    public mutating func moveKeyframe(
+        _ keyframeID: Keyframe.ID,
+        in property: TransformProperty,
+        to time: Double,
+        on nodeID: EffectNode.ID,
+    ) {
+        guard let location = locate(nodeID) else { return }
+        var track = tracks[location.track].nodes[location.node].transform[property]
+        track.move(keyframeID, to: time)
+        tracks[location.track].nodes[location.node].transform[property] = track
+    }
+
+    public mutating func setKeyframeEasing(
+        _ easing: Easing,
+        for keyframeID: Keyframe.ID,
+        in property: TransformProperty,
+        on nodeID: EffectNode.ID,
+    ) {
+        guard let location = locate(nodeID) else { return }
+        var track = tracks[location.track].nodes[location.node].transform[property]
+        track.setEasing(easing, for: keyframeID)
+        tracks[location.track].nodes[location.node].transform[property] = track
+    }
+
+    /// Switches a property's animation on or off, keeping its keys.
+    ///
+    /// The keys survive: one click should not destroy a stopwatch's worth of
+    /// work, least of all the same click that started it.
+    public mutating func setAnimationEnabled(
+        _ isEnabled: Bool,
+        for property: TransformProperty,
+        on nodeID: EffectNode.ID,
+        keeping time: Double = 0,
+    ) {
+        guard let location = locate(nodeID) else { return }
+        var transform = tracks[location.track].nodes[location.node].transform
+
+        // Turning it off leaves the property where the animation had it, so the
+        // sprite does not jump when the switch is flipped.
+        if !isEnabled, transform[property].isActive {
+            transform[value: property] = transform.value(property, at: time)
+        }
+
+        var track = transform[property]
+        track.isEnabled = isEnabled
+        transform[property] = track
+        tracks[location.track].nodes[location.node].transform = transform
+    }
+
+    /// Stops animating a property, keeping what it was worth at `time`.
+    ///
+    /// The value is kept rather than reset: switching animation off is a
+    /// decision about *how* a property behaves, not about what it is, and
+    /// snapping the sprite back to a system default would be a second,
+    /// unasked-for change.
+    public mutating func clearKeyframes(
+        for property: TransformProperty,
+        on nodeID: EffectNode.ID,
+        keeping time: Double = 0,
+    ) {
+        guard let location = locate(nodeID) else { return }
+        let held = tracks[location.track].nodes[location.node].transform.value(property, at: time)
+        tracks[location.track].nodes[location.node].transform[property] = KeyframeTrack()
+        tracks[location.track].nodes[location.node].transform[value: property] = held
+    }
+
+    /// Replaces a node's whole transform, for placing something preconfigured.
+    public mutating func setTransform(_ transform: Transform, on nodeID: EffectNode.ID) {
+        guard let location = locate(nodeID) else { return }
+        tracks[location.track].nodes[location.node].transform = transform
     }
 
     /// Moves an effect along its track without changing how long it runs.
@@ -304,6 +427,12 @@ public struct EffectDocument: Sendable {
     }
 
     /// Resizes an effect from one edge, keeping the other where it is.
+    /// Resizes an effect from one edge, keeping the other where it is.
+    ///
+    /// The animation stretches with the clip. Left where they were, the keys
+    /// would describe a moment that is now a fraction of the way in — stretch a
+    /// four-second clip to twenty-six and its fade-out lands at second four,
+    /// leaving twenty-two seconds of an invisible sprite.
     public mutating func resize(
         _ nodeID: EffectNode.ID,
         startTime: Double,
@@ -311,8 +440,12 @@ public struct EffectDocument: Sendable {
         minimumDuration: Double = 100,
     ) {
         guard let location = locate(nodeID) else { return }
+        let old = tracks[location.track].nodes[location.node].duration
+        let new = max(minimumDuration, duration)
+
         tracks[location.track].nodes[location.node].startTime = max(0, startTime)
-        tracks[location.track].nodes[location.node].duration = max(minimumDuration, duration)
+        tracks[location.track].nodes[location.node].duration = new
+        tracks[location.track].nodes[location.node].transform.rescale(from: old, to: new)
     }
 
     public mutating func remove(_ nodeID: EffectNode.ID) {

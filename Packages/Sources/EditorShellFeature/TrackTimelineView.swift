@@ -11,6 +11,9 @@ import SwiftUI
 struct TrackTimelineView: View {
     let shell: EditorShellModel
     let currentTime: Double
+    /// Whether the clock is running: a keyframe cannot be placed against a
+    /// moving playhead.
+    let isPlaying: Bool
     /// The span the timeline covers.
     ///
     /// Not just the track's length: a storyboard can open before the first note
@@ -36,6 +39,13 @@ struct TrackTimelineView: View {
     /// computed against a stale span puts the ruler and the clips on different
     /// timelines.
     @State private var zoomState = TimelineZoom.State()
+    /// The zoom to return to when the keyframe editor closes.
+    ///
+    /// Zoom is a magnification and an offset, both meaningless against a
+    /// different span: carried from a three-minute song into a twenty-second
+    /// clip they put the visible window somewhere the clip is not, and every
+    /// key drawn against it lands far from the playhead it was placed at.
+    @State private var zoomBeforeKeyframes: TimelineZoom.State?
     /// How far the current pan drag had travelled at the last event.
     @State private var lastPanTranslation: CGFloat = 0
 
@@ -48,6 +58,15 @@ struct TrackTimelineView: View {
     /// it. With no project open at all the range is `0...1`, so the first
     /// effect placed would never be visible.
     private var fullRange: ClosedRange<Double> {
+        // Editing one clip's keys, the timeline *is* that clip. Its keyframes
+        // are placed against its own length, so a ruler spanning the whole song
+        // leaves them crushed into a few pixels — and lets the playhead wander
+        // somewhere the clip does not exist, where every value reads as the one
+        // its last key left behind.
+        if let node = shell.keyframeNode {
+            return node.startTime...max(node.startTime + 1, node.endTime)
+        }
+
         guard let effects = shell.effects.timeRange else { return timelineRange }
         let lower = min(timelineRange.lowerBound, effects.lowerBound)
         let upper = max(timelineRange.upperBound, effects.upperBound)
@@ -97,14 +116,20 @@ struct TrackTimelineView: View {
 
     /// Total height for `trackCount` rows, so the shell can size the workspace
     /// around a timeline that grows with its content.
-    static func height(trackCount: Int) -> CGFloat {
-        let rows = (trackHeight + Theme.Spacing.tight) * CGFloat(max(trackCount, 1))
+    /// - Parameter isEditingKeyframes: the keyframe editor replaces the lanes
+    ///   rather than sitting under them, so it has a height of its own.
+    static func height(trackCount: Int, isEditingKeyframes: Bool = false) -> CGFloat {
+        let rows = isEditingKeyframes
+            ? KeyframeRows.height
+            : (trackHeight + Theme.Spacing.tight) * CGFloat(max(trackCount, 1))
 
         return rulerHeight
             // The gap the stack puts between the ruler and the first row.
             + Theme.Spacing.snug
-            // The audio row, which is always there once a track is loaded.
-            + audioTrackHeight + Theme.Spacing.tight
+            // The audio row, which is there once a track is loaded — but not
+            // while editing keyframes, so the strip does not reserve a band of
+            // nothing.
+            + (isEditingKeyframes ? 0 : audioTrackHeight + Theme.Spacing.tight)
             + min(rows, maximumRowsHeight)
             + Theme.Spacing.compact * 2
     }
@@ -156,7 +181,22 @@ struct TrackTimelineView: View {
             }
         }
         .padding(Theme.Spacing.compact)
-        .frame(height: Self.height(trackCount: shell.effects.tracks.count))
+        .frame(height: Self.height(
+            trackCount: shell.effects.tracks.count,
+            isEditingKeyframes: shell.keyframeNode != nil,
+        ))
+        .onChange(of: shell.keyframeNodeID) { _, newValue in
+            if newValue != nil {
+                // Entering: the clip fills the view, which is the whole point
+                // of the mode.
+                zoomBeforeKeyframes = zoomState
+                zoomState = TimelineZoom.State()
+            } else if let restored = zoomBeforeKeyframes {
+                // Leaving: back to wherever the timeline was.
+                zoomState = restored
+                zoomBeforeKeyframes = nil
+            }
+        }
         .surface(.panel)
         .onChange(of: shell.effects.tracks.count) { _, _ in
             // A new storyboard is a new span, so the view starts whole again
@@ -184,11 +224,35 @@ struct TrackTimelineView: View {
     /// making one has to be reachable without placing an effect first.
     private var tools: some View {
         HStack(spacing: Theme.Spacing.tight) {
+            if let node = shell.keyframeNode {
+                // A way back, and a name: a mode with no visible exit is a mode
+                // people get stuck in.
+                //
+                // The same `IconButton` the rest of the strip uses, so it sits
+                // on the row's centre line — a plain `Button` takes its own
+                // height from its label and lands a few points off, which in a
+                // row of identical controls is the one thing the eye catches.
+                IconButton(
+                    systemImage: "chevron.left",
+                    size: Theme.Size.controlTiny,
+                    help: "Back to tracks",
+                ) { shell.keyframeNodeID = nil }
+
+                Text(node.name)
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.secondary)
+                    .lineLimit(1)
+
+                BarDivider()
+            }
+
             IconButton(
                 systemImage: "plus",
                 size: Theme.Size.controlTiny,
-                help: "New track",
-            ) { shell.addTrack() }
+                help: shell.keyframeNode == nil ? "New track" : "Add keyframe at playhead",
+            ) {
+                if shell.keyframeNode == nil { shell.addTrack() }
+            }
 
             IconButton(
                 systemImage: "scissors",
@@ -444,6 +508,62 @@ struct TrackTimelineView: View {
 
     // ─── Tracks ──────────────────────────────────────────────────────────────
 
+    /// One clip's keyframes, across the whole width.
+    ///
+    /// Built here rather than inline: assembled in place, the closure list grows
+    /// past what the type-checker will infer in reasonable time.
+    private func keyframeEditor(_ node: EffectNode, contentWidth: CGFloat) -> some View {
+        KeyframeRows(
+            node: node,
+            scale: TimelineScale(range: visibleRange, width: contentWidth),
+            headerWidth: Self.headerWidth,
+            // Clamped into the clip.
+            //
+            // The playhead is brought inside when the mode opens, but that runs
+            // after the first render — and on that frame the rows were handed a
+            // negative local time, which drew every key against a moment the
+            // clip does not contain. Clamped at the source, no frame can see
+            // one.
+            localTime: min(max(0, currentTime - node.startTime), node.duration),
+            isPlaying: isPlaying,
+            addKeyframe: { property, time in
+                shell.beginAnimating(property, on: node.id, at: time)
+            },
+            moveKeyframe: { property, id, time in
+                shell.moveKeyframe(id, in: property, to: time, on: node.id)
+            },
+            removeKeyframe: { property, id in
+                shell.removeKeyframe(id, from: property, on: node.id)
+            },
+            setEasing: { property, id, easing in
+                shell.setKeyframeEasing(easing, for: id, in: property, on: node.id)
+            },
+            setEnabled: { property, isEnabled in
+                shell.setAnimationEnabled(
+                    isEnabled,
+                    for: property,
+                    on: node.id,
+                    keeping: currentTime - node.startTime,
+                )
+            },
+            clear: { property in
+                shell.clearKeyframes(
+                    for: property,
+                    on: node.id,
+                    keeping: currentTime - node.startTime,
+                )
+            },
+            selectedKey: shell.selectedKeyframe.map { ($0.property, $0.keyframeID) },
+            selectKey: { property, id in
+                shell.selectedKeyframe = EditorShellModel.KeyframeSelection(
+                    nodeID: node.id,
+                    property: property,
+                    keyframeID: id,
+                )
+            },
+        )
+    }
+
     /// One lane, with everything it is allowed to change.
     ///
     /// Built here rather than inline in the loop: assembled in place, the
@@ -464,6 +584,10 @@ struct TrackTimelineView: View {
                 shell.addFilter(descriptor, to: track.id)
             },
             filterIcon: { shell.filters.descriptor(for: $0)?.systemImage ?? "wand.and.stars" },
+            addImage: { path, time in
+                shell.addImage(at: path, time: max(0, time), on: track.id)
+            },
+            openKeyframes: { shell.keyframeNodeID = $0 },
             raise: { shell.raiseTrack(track.id) },
             lower: { shell.lowerTrack(track.id) },
             canRaise: shell.effects.canRaiseTrack(track.id),
@@ -518,8 +642,21 @@ struct TrackTimelineView: View {
                 // thing the editor exists for — off the window.
                 ScrollView(.vertical) {
                     VStack(spacing: Theme.Spacing.tight) {
-                        ForEach(shell.effects.tracks) { track in
-                            row(track, contentWidth: contentWidth)
+                        if let node = shell.keyframeNode {
+                            keyframeEditor(node, contentWidth: contentWidth)
+                        } else {
+                            // Keyed on the revision as well as the id.
+                            //
+                            // `EffectTrack` is a value, and the row holds a
+                            // copy of it. Identified by id alone, SwiftUI reuses
+                            // the view when a clip's duration changes — the id
+                            // is the same — and the row goes on drawing the
+                            // span it was built with. The clip in the timeline
+                            // then disagrees with the inspector beside it.
+                            ForEach(shell.effects.tracks) { track in
+                                row(track, contentWidth: contentWidth)
+                                    .id("\(track.id)-\(shell.effectsRevision)")
+                            }
                         }
                     }
                 }
@@ -527,8 +664,11 @@ struct TrackTimelineView: View {
                 .frame(maxHeight: Self.maximumRowsHeight)
 
                 // The soundtrack sits under the layers it is written against,
-                // the way a video editor puts audio beneath its video tracks.
-                if !waveformPeaks.isEmpty {
+                // the way a video editor puts audio beneath its video tracks —
+                // but not while editing one clip's keyframes, where the lanes
+                // it belongs under are not on screen and it is a strip of
+                // nothing to act on.
+                if !waveformPeaks.isEmpty, shell.keyframeNode == nil {
                     AudioTrackRow(
                         peaks: waveformPeaks,
                         scale: TimelineScale(range: visibleRange, width: contentWidth),
@@ -682,6 +822,8 @@ struct TrackRowView: View {
     @State private var hoveredNodeID: EffectNode.ID?
     /// The clip a filter from the library is hovering over.
     @State private var targetedNodeID: EffectNode.ID?
+    /// Whether an asset is hovering over this lane.
+    @State private var isAssetTargeted = false
     /// The lane a drag has crossed into, applied when it ends.
     @State private var pendingTrackID: EffectTrack.ID?
     /// The name as it is being typed, committed on return or on leaving.
@@ -723,9 +865,29 @@ struct TrackRowView: View {
         .contentShape(.rect)
         .onTapGesture(perform: select)
         .onHover { isHovered = $0 }
+        // Assets land on the lane rather than on a clip: dropping one *makes* a
+        // clip, so there is nothing to aim at yet. Where it lands in time comes
+        // from where it was let go.
+        .dropDestination(for: String.self) { items, location in
+            guard let asset = items.compactMap(AssetTransfer.parse).first else { return false }
+            let x = location.x - headerWidth - Theme.Spacing.snug
+            actions.addImage(asset.path, scale.time(atX: x))
+            return true
+        } isTargeted: { isAssetTargeted = $0 }
+        .overlay {
+            if isAssetTargeted {
+                RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                    .strokeBorder(track.layer.tint, style: StrokeStyle(
+                        lineWidth: Theme.Size.ring,
+                        dash: [5, 3],
+                    ))
+                    .allowsHitTesting(false)
+            }
+        }
         .contextMenu { rowMenu }
         .animation(Theme.Motion.quick, value: isSelected)
         .animation(Theme.Motion.quick, value: isHovered)
+        .animation(Theme.Motion.quick, value: isAssetTargeted)
     }
 
     /// Fainter than the shared row fills on purpose: a track row is several
@@ -927,6 +1089,7 @@ struct TrackRowView: View {
             // Clicking a clip selects it, so the inspector follows what was
             // pointed at. Without this, only dragging selected — and on a lane
             // with several clips there was no way to pick one to edit.
+            .onTapGesture(count: 2) { actions.openKeyframes(node.id) }
             .onTapGesture { selectNode(node.id) }
             .gesture(moveGesture(node))
             .contextMenu { clipMenu(node) }
@@ -1237,6 +1400,10 @@ struct TrackActions {
     let applyFilter: (String) -> Void
     /// The glyph for a filter of this type.
     let filterIcon: (String) -> String
+    /// Places an image dropped from the assets panel, at a time on this lane.
+    let addImage: (String, Double) -> Void
+    /// Opens the timeline on one clip's keyframes.
+    let openKeyframes: (EffectNode.ID) -> Void
     let raise: () -> Void
     let lower: () -> Void
     let canRaise: Bool

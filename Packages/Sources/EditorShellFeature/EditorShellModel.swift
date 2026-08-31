@@ -91,6 +91,49 @@ public final class EditorShellModel {
     /// The effect being edited.
     public var selectedNodeID: EffectNode.ID?
 
+    /// The keyframe being edited, if any.
+    ///
+    /// Selected rather than only draggable: a key's easing and its exact time
+    /// are worth editing in a field, and a field needs to know which key it is
+    /// talking about.
+    public struct KeyframeSelection: Equatable, Sendable {
+        public let nodeID: EffectNode.ID
+        public let property: TransformProperty
+        public let keyframeID: Keyframe.ID
+    }
+
+    public var selectedKeyframe: KeyframeSelection?
+
+    /// The selected key itself, when there is one.
+    public var selectedKeyframeValue: Keyframe? {
+        guard let selection = selectedKeyframe,
+              let node = effects[selection.nodeID]
+        else { return nil }
+        return node.transform[selection.property].keyframes
+            .first { $0.id == selection.keyframeID }
+    }
+
+    /// The clip whose keyframes the timeline is showing, if any.
+    ///
+    /// A mode rather than rows stacked under every lane: five properties per
+    /// clip is unreadable by the second clip, and the keys are worth the whole
+    /// timeline's width when you are actually working on them. Double-clicking
+    /// a clip is how a video editor opens something for detailed work.
+    public var keyframeNodeID: EffectNode.ID? {
+        didSet {
+            // A selection belongs to the clip being edited: leaving that clip
+            // would otherwise leave the inspector showing a key from a row that
+            // is no longer on screen.
+            if keyframeNodeID != oldValue { selectedKeyframe = nil }
+        }
+    }
+
+    /// The clip the keyframe editor is open on.
+    public var keyframeNode: EffectNode? {
+        guard let keyframeNodeID else { return nil }
+        return effects[keyframeNodeID]
+    }
+
     /// The last evaluation, kept so the sprites are produced once per change
     /// rather than once per reader.
     private var evaluated: [StoryboardSprite] = []
@@ -215,6 +258,48 @@ public final class EditorShellModel {
         )
         node.name = preset.name
         node.values = preset.values
+
+        // A preset's position moves onto the transform, which is where position
+        // lives now. Left in `values` it would be read by nothing and the
+        // emitter would sit at the canvas centre whatever the preset said.
+        if case let .number(x) = preset.values[EmitterEffect.Param.x] {
+            node.transform[value: .x] = x
+        }
+        if case let .number(y) = preset.values[EmitterEffect.Param.y] {
+            node.transform[value: .y] = y
+        }
+
+        effects[node.id] = node
+
+        selectedNodeID = node.id
+        effectsChanged()
+        return node
+    }
+
+    /// Places an image on the timeline.
+    ///
+    /// Its own method rather than a preset because the path is the point: an
+    /// image effect with no file draws nothing, so the one thing it must be
+    /// given is the thing an asset row already knows.
+    @discardableResult
+    public func addImage(
+        at path: String,
+        time: Double,
+        duration: Double = 4000,
+        on trackID: EffectTrack.ID? = nil,
+    ) -> EffectNode? {
+        guard let descriptor = library.descriptor(for: ImageEffect.descriptor.type) else {
+            return nil
+        }
+
+        var node = effects.add(
+            descriptor,
+            at: time,
+            duration: duration,
+            on: trackID ?? destinationTrackID,
+        )
+        node.name = (path as NSString).lastPathComponent
+        node.values[ImageEffect.Param.sprite] = .text(path)
         effects[node.id] = node
 
         selectedNodeID = node.id
@@ -247,6 +332,116 @@ public final class EditorShellModel {
 
     public func resizeEffect(_ nodeID: EffectNode.ID, startTime: Double, duration: Double) {
         effects.resize(nodeID, startTime: startTime, duration: duration)
+        effectsChanged()
+    }
+
+    // ─── Keyframes ───────────────────────────────────────────────────────────
+
+    public func setKeyframe(
+        _ value: Double,
+        for property: TransformProperty,
+        at time: Double,
+        easing: Easing = .linear,
+        on nodeID: EffectNode.ID,
+    ) {
+        effects.setKeyframe(value, for: property, at: time, easing: easing, on: nodeID)
+        effectsChanged()
+    }
+
+    public func removeKeyframe(
+        _ keyframeID: Keyframe.ID,
+        from property: TransformProperty,
+        on nodeID: EffectNode.ID,
+    ) {
+        effects.removeKeyframe(keyframeID, from: property, on: nodeID)
+        if selectedKeyframe?.keyframeID == keyframeID { selectedKeyframe = nil }
+        effectsChanged()
+    }
+
+    /// Changes a selected key's value, keeping it where it is in time.
+    public func setKeyframeValue(
+        _ value: Double,
+        for keyframeID: Keyframe.ID,
+        in property: TransformProperty,
+        on nodeID: EffectNode.ID,
+    ) {
+        guard let node = effects[nodeID],
+              let key = node.transform[property].keyframes.first(where: { $0.id == keyframeID })
+        else { return }
+        effects.setKeyframe(value, for: property, at: key.time, easing: key.easing, on: nodeID)
+        effectsChanged()
+    }
+
+    public func moveKeyframe(
+        _ keyframeID: Keyframe.ID,
+        in property: TransformProperty,
+        to time: Double,
+        on nodeID: EffectNode.ID,
+    ) {
+        effects.moveKeyframe(keyframeID, in: property, to: time, on: nodeID)
+        effectsChanged()
+    }
+
+    public func setKeyframeEasing(
+        _ easing: Easing,
+        for keyframeID: Keyframe.ID,
+        in property: TransformProperty,
+        on nodeID: EffectNode.ID,
+    ) {
+        effects.setKeyframeEasing(easing, for: keyframeID, in: property, on: nodeID)
+        effectsChanged()
+    }
+
+    /// Sets a property's resting value.
+    ///
+    /// What editing a field does when the property is *not* animated. With
+    /// animation on, the field lays a keyframe instead — which is the whole
+    /// distinction, and collapsing the two planted keys nobody asked for every
+    /// time the playhead moved.
+    public func setTransformValue(
+        _ value: Double,
+        for property: TransformProperty,
+        on nodeID: EffectNode.ID,
+    ) {
+        effects.setTransformValue(value, for: property, on: nodeID)
+        effectsChanged()
+    }
+
+    /// Switches a property's animation on or off, keeping its keys.
+    public func setAnimationEnabled(
+        _ isEnabled: Bool,
+        for property: TransformProperty,
+        on nodeID: EffectNode.ID,
+        keeping time: Double = 0,
+    ) {
+        effects.setAnimationEnabled(isEnabled, for: property, on: nodeID, keeping: time)
+        effectsChanged()
+    }
+
+    public func clearKeyframes(
+        for property: TransformProperty,
+        on nodeID: EffectNode.ID,
+        keeping time: Double = 0,
+    ) {
+        effects.clearKeyframes(for: property, on: nodeID, keeping: time)
+        effectsChanged()
+    }
+
+    /// Starts animating a property, planting a key at the playhead.
+    ///
+    /// The first click on a stopwatch has to leave something behind, or nothing
+    /// appears to have happened. The key holds the value the property already
+    /// had, so switching animation on changes nothing on screen.
+    public func beginAnimating(
+        _ property: TransformProperty,
+        on nodeID: EffectNode.ID,
+        at localTime: Double,
+    ) {
+        guard let node = effects[nodeID] else { return }
+        // The key holds the resting value, so switching animation on changes
+        // nothing on screen — it only changes what editing the field will do.
+        let current = node.transform.value(property, at: localTime)
+        effects.setKeyframe(current, for: property, at: localTime, on: nodeID)
         effectsChanged()
     }
 
@@ -306,6 +501,14 @@ public final class EditorShellModel {
     ) {
         effects.setFilterValue(value, for: parameterID, on: filterID, in: trackID)
         effectsChanged()
+    }
+
+    /// How many sprites one effect produces.
+    ///
+    /// Evaluated rather than guessed: an emitter's count is a parameter, but a
+    /// preset can cap it and a hidden node produces none.
+    public func spriteCount(of node: EffectNode) -> Int {
+        evaluator.evaluate(node).count
     }
 
     /// How much a track's filters multiply its sprite count.

@@ -28,6 +28,8 @@ public struct EmitterEffect: Effect {
         public static let burstCount = "burstCount"
         public static let sprite = "sprite"
 
+        /// Kept so presets written against them still place an emitter: the
+        /// values are moved onto the transform when one is applied.
         public static let x = "x"
         public static let y = "y"
         public static let width = "width"
@@ -136,24 +138,10 @@ public struct EmitterEffect: Effect {
             ),
 
             // ── Position ────────────────────────────────────────────────────
-            EffectParameter(
-                id: Param.x,
-                name: "X",
-                group: "Position",
-                defaultValue: .number(320),
-                range: -107...747,
-                step: 1,
-                unit: "px",
-            ),
-            EffectParameter(
-                id: Param.y,
-                name: "Y",
-                group: "Position",
-                defaultValue: .number(240),
-                range: 0...480,
-                step: 1,
-                unit: "px",
-            ),
+            //
+            // X and Y are not declared here: position lives on the node's
+            // transform, where it can be keyframed. Declaring them in both
+            // places would give one property two homes and let them disagree.
             // Named for what they are — the area particles are born across —
             // rather than "Width" and "Height", which sit next to a "Sprite"
             // parameter and read as the size of that image. Zero emits every
@@ -425,8 +413,11 @@ public struct EmitterEffect: Effect {
         let filePath = context.text(Param.sprite)
         guard !filePath.isEmpty else { return [] }
 
-        let originX = context.number(Param.x)
-        let originY = context.number(Param.y)
+        // Particles are emitted around the canvas centre; the clip's transform
+        // carries the whole field from there. Reading it here as well would
+        // apply the same movement twice.
+        let originX = TransformProperty.x.defaultValue
+        let originY = TransformProperty.y.defaultValue
         let halfWidth = context.number(Param.width) / 2
         let halfHeight = context.number(Param.height) / 2
 
@@ -495,6 +486,8 @@ public struct EmitterEffect: Effect {
             let startX = originX + particle.symmetric(halfWidth)
             let startY = originY + particle.symmetric(halfHeight)
 
+            // Multiplied rather than replaced: the emitter's scale is a
+            // property of the emitter, and each particle keeps its own life.
             let scaleJitter = 1 + particle.symmetric(scaleRandom)
             let startScale = scaleStart * scaleJitter
             let endScale = scaleEnd * scaleJitter

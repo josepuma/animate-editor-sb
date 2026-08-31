@@ -25,6 +25,9 @@ public struct EditorShellView<Canvas: View>: View {
     private let sprites: [PreparedSprite]
     private let missingImagePaths: Set<String>
     private let currentTime: Double
+    /// Whether the clock is running: a keyframe cannot be placed against a
+    /// moving playhead.
+    private let isPlaying: Bool
     private let duration: Double
     private let timelineRange: ClosedRange<Double>
     private let drawnCount: Int
@@ -47,6 +50,7 @@ public struct EditorShellView<Canvas: View>: View {
         sprites: [PreparedSprite],
         missingImagePaths: Set<String>,
         currentTime: Double,
+        isPlaying: Bool = false,
         duration: Double,
         /// The span the timeline covers, which can start before the track and
         /// end after it. Defaults to the track's own length.
@@ -65,6 +69,7 @@ public struct EditorShellView<Canvas: View>: View {
         self.sprites = sprites
         self.missingImagePaths = missingImagePaths
         self.currentTime = currentTime
+        self.isPlaying = isPlaying
         self.duration = duration
         self.timelineRange = timelineRange ?? 0...max(duration, 1)
         self.drawnCount = drawnCount
@@ -95,6 +100,7 @@ public struct EditorShellView<Canvas: View>: View {
                 TrackTimelineView(
                     shell: shell,
                     currentTime: currentTime,
+                    isPlaying: isPlaying,
                     timelineRange: timelineRange,
                     audioDuration: duration,
                     breaks: breaks,

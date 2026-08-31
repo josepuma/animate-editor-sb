@@ -205,6 +205,73 @@ struct EffectTrackTests {
         #expect(shell.spriteMultiplier(for: trackID) == 1)
     }
 
+    // ─── Keyframe selection ──────────────────────────────────────────────────
+
+    @Test("a selected keyframe can be read back")
+    func selectionReadsBack() {
+        let shell = model()
+        let node = shell.addEffect(descriptor, at: 0, duration: 4000)
+        shell.setKeyframe(0.5, for: .scale, at: 1000, on: node.id)
+
+        let key = shell.effects[node.id]!.transform[.scale].keyframes[0]
+        shell.selectedKeyframe = EditorShellModel.KeyframeSelection(
+            nodeID: node.id, property: .scale, keyframeID: key.id,
+        )
+
+        #expect(shell.selectedKeyframeValue?.time == 1000)
+        #expect(shell.selectedKeyframeValue?.value == 0.5)
+    }
+
+    /// A selection belongs to the clip being edited; leaving it would otherwise
+    /// leave the inspector showing a key from a row no longer on screen.
+    @Test("leaving a clip clears the keyframe selection")
+    func leavingClearsSelection() {
+        let shell = model()
+        let node = shell.addEffect(descriptor, at: 0, duration: 4000)
+        shell.setKeyframe(1, for: .scale, at: 500, on: node.id)
+        let key = shell.effects[node.id]!.transform[.scale].keyframes[0]
+
+        shell.keyframeNodeID = node.id
+        shell.selectedKeyframe = EditorShellModel.KeyframeSelection(
+            nodeID: node.id, property: .scale, keyframeID: key.id,
+        )
+
+        shell.keyframeNodeID = nil
+        #expect(shell.selectedKeyframe == nil)
+    }
+
+    @Test("deleting the selected keyframe clears the selection")
+    func deletingClearsSelection() {
+        let shell = model()
+        let node = shell.addEffect(descriptor, at: 0, duration: 4000)
+        shell.setKeyframe(1, for: .scale, at: 500, on: node.id)
+        let key = shell.effects[node.id]!.transform[.scale].keyframes[0]
+        shell.selectedKeyframe = EditorShellModel.KeyframeSelection(
+            nodeID: node.id, property: .scale, keyframeID: key.id,
+        )
+
+        shell.removeKeyframe(key.id, from: .scale, on: node.id)
+
+        #expect(shell.selectedKeyframe == nil)
+        #expect(shell.selectedKeyframeValue == nil)
+    }
+
+    /// Editing a key's value must not move it in time.
+    @Test("changing a keyframe's value keeps its time")
+    func valueEditKeepsTime() {
+        let shell = model()
+        let node = shell.addEffect(descriptor, at: 0, duration: 4000)
+        shell.setKeyframe(0.5, for: .scale, at: 1200, on: node.id)
+        let key = shell.effects[node.id]!.transform[.scale].keyframes[0]
+
+        shell.setKeyframeValue(3, for: key.id, in: .scale, on: node.id)
+
+        let updated = shell.effects[node.id]!.transform[.scale].keyframes
+        #expect(updated.count == 1)
+        #expect(updated[0].time == 1200)
+        #expect(updated[0].value == 3)
+    }
+
     // ─── Editing ─────────────────────────────────────────────────────────────
 
     @Test("changing a parameter re-evaluates the output")

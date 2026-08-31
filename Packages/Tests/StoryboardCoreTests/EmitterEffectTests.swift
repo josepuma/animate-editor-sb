@@ -517,3 +517,211 @@ struct EmitterEffectTests {
         return endY
     }
 }
+
+/// A clip's transform moves everything it produced as one object.
+///
+/// The sprites keep their arrangement, the way a group does in any editor —
+/// which is what a transform means to someone looking at a clip: not "where the
+/// emitter is", but "where this thing is".
+///
+/// osu! has no nested sprites, so there is no group to move: every sprite is
+/// moved individually and a rotation is baked into each one's path. That is
+/// what it costs, and the editor says so before a file is written.
+@Suite("Group transform")
+struct GroupTransformTests {
+    private let evaluator = EffectEvaluator()
+
+    private func emitter(duration: Double = 4000, _ build: (inout EffectNode) -> Void) -> EffectNode {
+        var document = EffectDocument()
+        var node = document.add(EmitterEffect.descriptor, at: 0, duration: duration)
+        node.values[EmitterEffect.Param.count] = .integer(6)
+        node.values[EmitterEffect.Param.emission] = .choice("Burst")
+        node.values[EmitterEffect.Param.width] = .number(100)
+        node.values[EmitterEffect.Param.velocity] = .number(0)
+        node.values[EmitterEffect.Param.gravity] = .number(0)
+        // Alive for the whole clip: a transform is about where sprites are, and
+        // a burst that has already died has no position to check.
+        node.values[EmitterEffect.Param.life] = .number(duration)
+        node.values[EmitterEffect.Param.lifeRandom] = .number(0)
+        node.values[EmitterEffect.Param.fadeOut] = .number(0.05)
+        build(&node)
+        return node
+    }
+
+    private func positions(of node: EffectNode, at time: Double) -> [(x: Double, y: Double)] {
+        let prepared = StoryboardResolver.prepare(evaluator.evaluate(node))
+        var states: [SpriteRenderState] = []
+        StoryboardResolver.resolve(prepared, at: time, into: &states)
+        return states.map { ($0.x, $0.y) }
+    }
+
+    /// The whole clip travels, and its sprites travel with it.
+    @Test("a moving clip carries its sprites")
+    func clipCarriesItsSprites() {
+        let travelling = emitter { node in
+            node.transform[.x] = KeyframeTrack([
+                Keyframe(time: 0, value: 320),
+                Keyframe(time: 4000, value: 620),
+            ])
+        }
+
+        let start = positions(of: travelling, at: 100).map(\.x)
+        let end = positions(of: travelling, at: 3900).map(\.x)
+
+        #expect(!start.isEmpty)
+        #expect(end.min()! > start.max()!)
+    }
+
+    /// Their arrangement survives the trip: this is a group moving, not sprites
+    /// converging on a point.
+    @Test("sprites keep their spacing while the clip moves")
+    func spacingIsPreserved() {
+        let travelling = emitter { node in
+            node.transform[.x] = KeyframeTrack([
+                Keyframe(time: 0, value: 320),
+                Keyframe(time: 4000, value: 620),
+            ])
+        }
+
+        let start = positions(of: travelling, at: 100).map(\.x).sorted()
+        let end = positions(of: travelling, at: 3900).map(\.x).sorted()
+
+        let startSpread = start.last! - start.first!
+        let endSpread = end.last! - end.first!
+        #expect(abs(startSpread - endSpread) < 1)
+    }
+
+    /// A rotation turns the clip about its own centre, not the canvas — a clip
+    /// placed off to one side would otherwise swing across the whole screen.
+    @Test("a rotating clip turns about its own centre")
+    func rotatesAboutItsCentre() {
+        let turning = emitter { node in
+            node.transform[.rotation] = KeyframeTrack([
+                Keyframe(time: 0, value: 0),
+                Keyframe(time: 4000, value: 180),
+            ])
+        }
+
+        let before = positions(of: turning, at: 100)
+        let after = positions(of: turning, at: 3900)
+
+        // The centre stays put; the sprites around it have swapped sides.
+        let centreBefore = before.reduce(0.0) { $0 + $1.x } / Double(before.count)
+        let centreAfter = after.reduce(0.0) { $0 + $1.x } / Double(after.count)
+        #expect(abs(centreBefore - centreAfter) < 5)
+        #expect(before.map(\.x).max()! != after.map(\.x).max()!)
+    }
+
+    @Test("a scaled clip scales its sprites")
+    func scaleReachesSprites() {
+        let plain = emitter { $0.transform[value: .scale] = 1 }
+        let doubled = emitter { $0.transform[value: .scale] = 2 }
+
+        let prepared = StoryboardResolver.prepare(evaluator.evaluate(doubled))
+        var states: [SpriteRenderState] = []
+        StoryboardResolver.resolve(prepared, at: 1000, into: &states)
+
+        let plainPrepared = StoryboardResolver.prepare(evaluator.evaluate(plain))
+        var plainStates: [SpriteRenderState] = []
+        StoryboardResolver.resolve(plainPrepared, at: 1000, into: &plainStates)
+
+        #expect(!states.isEmpty)
+        #expect(abs(states[0].scaleX - plainStates[0].scaleX * 2) < 1e-9)
+    }
+
+    /// The bug this pins: motion was rebuilt by sampling the path and writing
+    /// every piece as linear. With one segment — a plain move, no rotation to
+    /// bend it — the sampling *was* the whole span, and an ease out came
+    /// through as a straight line.
+    @Test("a keyframe's easing reaches its command")
+    func easingSurvives() {
+        var document = EffectDocument()
+        var node = document.add(ImageEffect.descriptor, at: 0, duration: 2000)
+        node.values[ImageEffect.Param.sprite] = .text("a.png")
+        node.transform[.x] = KeyframeTrack([
+            Keyframe(time: 0, value: 0, easing: .out),
+            Keyframe(time: 2000, value: 400),
+        ])
+        document[node.id] = node
+
+        let moves = evaluator.evaluate(document)[0].commands
+            .filter { $0.kind == .move || $0.kind == .moveX }
+
+        #expect(!moves.isEmpty)
+        #expect(moves.allSatisfy { $0.easing == .out })
+    }
+
+    @Test("an eased move is ahead of a linear one at its midpoint")
+    func easingChangesTheMotion() {
+        func midpoint(_ easing: Easing) -> Double {
+            var document = EffectDocument()
+            var node = document.add(ImageEffect.descriptor, at: 0, duration: 2000)
+            node.values[ImageEffect.Param.sprite] = .text("a.png")
+            node.transform[.x] = KeyframeTrack([
+                Keyframe(time: 0, value: 0, easing: easing),
+                Keyframe(time: 2000, value: 400),
+            ])
+            document[node.id] = node
+
+            let prepared = StoryboardResolver.prepare(evaluator.evaluate(document))
+            var states: [SpriteRenderState] = []
+            StoryboardResolver.resolve(prepared, at: 1000, into: &states)
+            return states.first?.x ?? 0
+        }
+
+        #expect(abs(midpoint(.linear) - 200) < 1e-9)
+        #expect(midpoint(.out) > 250)
+        #expect(midpoint(.in) < 150)
+    }
+
+    /// Each span carries its own curve, so a key partway through changes only
+    /// what follows it.
+    @Test("each keyframe span carries its own easing")
+    func perSpanEasing() {
+        var document = EffectDocument()
+        var node = document.add(ImageEffect.descriptor, at: 0, duration: 3000)
+        node.values[ImageEffect.Param.sprite] = .text("a.png")
+        node.transform[.x] = KeyframeTrack([
+            Keyframe(time: 0, value: 0, easing: .out),
+            Keyframe(time: 1500, value: 200, easing: .in),
+            Keyframe(time: 3000, value: 400),
+        ])
+        document[node.id] = node
+
+        let moves = evaluator.evaluate(document)[0].commands
+            .filter { $0.kind == .move || $0.kind == .moveX }
+            .sorted { $0.startTime < $1.startTime }
+
+        #expect(moves.count == 2)
+        #expect(moves[0].easing == .out)
+        #expect(moves[1].easing == .in)
+    }
+
+    /// A clip that sits still should cost exactly what it did before transforms
+    /// existed.
+    @Test("an untouched transform adds no commands")
+    func untouchedIsFree() {
+        let still = emitter { _ in }
+        let commands = evaluator.evaluate(still).reduce(0) { $0 + $1.commands.count }
+
+        var bare = still
+        bare.transform = Transform()
+        let bareCommands = evaluator.evaluate(bare).reduce(0) { $0 + $1.commands.count }
+
+        #expect(commands == bareCommands)
+    }
+
+    /// A rotation curves every path, and a curve costs several commands where
+    /// the line cost one. Worth knowing before a file is written.
+    @Test("a rotation costs commands, and the estimate says so")
+    func rotationCosts() {
+        var rotating = Transform()
+        rotating[.rotation] = KeyframeTrack([
+            Keyframe(time: 0, value: 0),
+            Keyframe(time: 1000, value: 90),
+        ])
+
+        #expect(GroupTransform.estimatedCommandsPerSprite(rotating) >= 8)
+        #expect(GroupTransform.estimatedCommandsPerSprite(Transform()) == 0)
+    }
+}

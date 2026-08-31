@@ -103,6 +103,11 @@ let package = Package(
             dependencies: ["DesignSystem"],
         ),
 
+        .testTarget(
+            name: "PlaybackFeatureTests",
+            dependencies: ["PlaybackFeature", "StoryboardCore"],
+        ),
+
         .target(
             name: "ProjectBrowserFeature",
             dependencies: ["StoryboardPersistence", "DesignSystem"],

@@ -55,7 +55,9 @@ struct SidePanelView: View {
                 ScrollView {
                     LazyVStack(spacing: Theme.Spacing.tight) {
                         ForEach(shell.visibleAssets) { asset in
-                            AssetRow(asset: asset)
+                            AssetRow(asset: asset) {
+                                shell.addImage(at: asset.path, time: playheadTime)
+                            }
                         }
                     }
                 }
@@ -252,11 +254,14 @@ private struct EffectGroup: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
+            // An effect with no presets is a single row that places it. The
+            // chevron and the count are there to manage a list; with nothing to
+            // list they are a control that does nothing and a "0" beside it.
             EffectHeaderRow(
                 descriptor: descriptor,
-                presetCount: presets.count,
+                presetCount: presets.isEmpty ? nil : presets.count,
                 isExpanded: isExpanded,
-                toggleExpanded: toggleExpanded,
+                toggleExpanded: presets.isEmpty ? addBlank : toggleExpanded,
                 add: addBlank,
             )
 
@@ -278,7 +283,9 @@ private struct EffectGroup: View {
 /// The effect itself: expands its presets, or places a blank one.
 private struct EffectHeaderRow: View {
     let descriptor: EffectDescriptor
-    let presetCount: Int
+    /// `nil` when the effect has no presets, which is what turns the row from a
+    /// disclosure into a plain "add this".
+    let presetCount: Int?
     let isExpanded: Bool
     let toggleExpanded: () -> Void
     let add: () -> Void
@@ -287,10 +294,13 @@ private struct EffectHeaderRow: View {
 
     var body: some View {
         HStack(spacing: Theme.Spacing.snug) {
+            // The space is kept either way, so the icons of every row line up
+            // whether or not it discloses anything.
             Image(systemName: "chevron.right")
                 .font(Theme.Typography.micro)
                 .foregroundStyle(Theme.Palette.tertiary)
                 .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                .opacity(presetCount == nil ? 0 : 1)
                 .frame(width: Theme.Size.ring * 3)
 
             Image(systemName: descriptor.systemImage)
@@ -303,17 +313,21 @@ private struct EffectHeaderRow: View {
 
             Spacer(minLength: Theme.Spacing.tight)
 
-            Text("\(presetCount)")
-                .font(Theme.Typography.micro)
-                .foregroundStyle(Theme.Palette.tertiary)
-                .help("\(presetCount) presets")
+            if let presetCount {
+                Text("\(presetCount)")
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.tertiary)
+                    .help("\(presetCount) presets")
+            }
 
             // Placing a blank effect stays available beside the presets: it is
             // the one anybody building something of their own reaches for.
             IconButton(
                 systemImage: "plus",
                 size: Theme.Size.controlTiny,
-                help: "Add a blank \(descriptor.name)",
+                help: presetCount == nil
+                    ? "Add \(descriptor.name)"
+                    : "Add a blank \(descriptor.name)",
                 action: add,
             )
         }
@@ -484,6 +498,9 @@ private struct PlacedEffectRow: View {
 
 private struct AssetRow: View {
     let asset: AssetItem
+    /// Places the asset on the timeline at the playhead.
+    let place: () -> Void
+
     @State private var isHovered = false
 
     var body: some View {
@@ -525,6 +542,16 @@ private struct AssetRow: View {
         .contentShape(.rect)
         .onHover { isHovered = $0 }
         .help(asset.path)
+        // Dragged onto a track, or double-clicked to drop at the playhead —
+        // the two ways an asset gets into a timeline in any editor.
+        .draggable(AssetTransfer(path: asset.path).payload) {
+            Label(asset.name, systemImage: "photo")
+                .font(Theme.Typography.label)
+                .padding(Theme.Spacing.snug)
+                .background(.thinMaterial, in: Capsule())
+        }
+        .onTapGesture(count: 2, perform: place)
+        .help("Drag onto a track, or double-click to add at the playhead")
     }
 }
 

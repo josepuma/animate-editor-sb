@@ -82,7 +82,7 @@ public enum DerivedTextures {
     /// Building a `CIContext` compiles shaders and allocates GPU resources —
     /// several hundred milliseconds. Made per call, a slider drag would spend
     /// all of its time here.
-    nonisolated(unsafe) private static let ciContext = CIContext(options: [
+    private static let ciContext = CIContext(options: [
         .useSoftwareRenderer: false,
     ])
 

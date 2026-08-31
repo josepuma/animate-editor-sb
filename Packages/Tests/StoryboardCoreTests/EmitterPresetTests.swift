@@ -32,9 +32,11 @@ struct EmitterPresetTests {
         #expect(preset.duration >= 100)
 
         // Every declared parameter carries a value, so nothing falls back
-        // silently.
+        // silently. Position is not among them — it lives on the transform, so
+        // it can be keyframed — but presets still carry x and y, which the
+        // editor moves onto the transform when one is placed.
         let declared = Set(EmitterEffect.descriptor.parameters.map(\.id))
-        #expect(Set(preset.values.keys) == declared)
+        #expect(declared.isSubset(of: Set(preset.values.keys)))
     }
 
     @Test("every preset produces sprites", arguments: EmitterEffect.presets)

@@ -23,6 +23,14 @@ struct EditorWindow: View {
 
     var body: some View {
         let view = PlaybackView(model: playback, timeline: timeline, source: source)
+        // Read here, in the body itself.
+        //
+        // `@Observable` re-evaluates a view when it *reads* a property while
+        // rendering; an `onChange` alone is not a read, so this view was never
+        // re-evaluated and the change it watches for never fired. Effects edited
+        // after the first push never reached the canvas — the same trap that
+        // caught `updateNSView` earlier.
+        let revision = shell.effectsRevision
 
         EditorShellView(
             shell: shell,
@@ -30,6 +38,7 @@ struct EditorWindow: View {
             sprites: playback.sprites,
             missingImagePaths: playback.missingImagePaths,
             currentTime: playback.currentTime,
+            isPlaying: playback.isPlaying,
             duration: playback.duration,
             timelineRange: playback.timelineRange,
             drawnCount: playback.drawnCount,
@@ -47,8 +56,29 @@ struct EditorWindow: View {
         // One integer rather than the document itself: an effect's parameters
         // change on every frame of a drag, and diffing thousands of evaluated
         // sprites to notice would cost more than the evaluation.
-        .onChange(of: shell.effectsRevision, initial: true) { _, _ in
+        .onChange(of: revision, initial: true) { _, _ in
             playback.effectsChanged(to: shell.evaluateEffects())
+        }
+        // Editing one clip's keyframes, playback belongs to that clip: past its
+        // end the ruler no longer reaches, and every property reads as whatever
+        // its last key left behind.
+        // Bounding playback and moving the playhead are one step, in this
+        // order.
+        //
+        // Split across two observers they raced: the seek clamps against
+        // whatever bound is set at that instant, so a playhead sent to the
+        // clip's start could be pulled somewhere else by a range that had not
+        // caught up — and every keyframe then landed at the wrong local time,
+        // since local time is measured from the playhead.
+        //
+        // Keyed on the revision too, since the clip can be moved or resized
+        // while the mode is open and a stale bound would loop over the span it
+        // used to have.
+        .onChange(of: shell.keyframeNodeID, initial: true) { _, _ in
+            enterKeyframeMode(seekingIntoClip: true)
+        }
+        .onChange(of: revision) { _, _ in
+            enterKeyframeMode(seekingIntoClip: false)
         }
         // A beatmap arriving replaces the beatmap half of the sprite list, so
         // the effects are handed over again. Keyed on the status rather than on
@@ -62,5 +92,22 @@ struct EditorWindow: View {
         // outlive this view otherwise, so the track keeps playing behind the
         // browser and the next beatmap loads on top of the last one.
         .onDisappear { playback.unload() }
+    }
+
+    /// Points playback at the clip being edited, or back at the whole timeline.
+    private func enterKeyframeMode(seekingIntoClip: Bool) {
+        guard let node = shell.keyframeNode else {
+            playback.loopRange = nil
+            return
+        }
+
+        let range = node.startTime...max(node.startTime + 1, node.endTime)
+        playback.loopRange = range
+
+        // Only when the playhead is outside: opening the mode should not move
+        // it away from a moment someone was already looking at.
+        if seekingIntoClip, !range.contains(playback.currentTime) {
+            playback.seek(to: range.lowerBound)
+        }
     }
 }
