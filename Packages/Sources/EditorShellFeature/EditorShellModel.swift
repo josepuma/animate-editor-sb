@@ -309,6 +309,129 @@ public final class EditorShellModel {
 
     // ─── Editing effects ─────────────────────────────────────────────────────
 
+    // ─── Clipboard ───────────────────────────────────────────────────────────
+
+    // ─── Saving ──────────────────────────────────────────────────────────────
+
+    /// Where this project is saved, once it has a home.
+    public var projectFolder: URL?
+
+    /// Set when a project exists on disk but could not be read.
+    ///
+    /// Saving is refused while this is true. A file that failed to open is
+    /// still someone's work, and writing an empty document over it turns a bug
+    /// that could be fixed into a project that is gone.
+    public private(set) var loadFailed = false
+
+    /// Whether anything has changed since the last save.
+    public private(set) var hasUnsavedChanges = false
+
+    /// The last save's outcome, for the UI to show.
+    public private(set) var saveError: String?
+
+    /// Loads a project from a beatmap folder, if it has one.
+    ///
+    /// Silent when there is none: most folders have never been opened here, and
+    /// that is the ordinary case rather than a failure.
+    public func loadProject(fromFolder folder: URL) {
+        projectFolder = folder
+        loadFailed = false
+        do {
+            guard let project = try ProjectFile.read(fromFolder: folder) else { return }
+            effects = project.document
+            selectedNodeID = nil
+            selectedTrackID = effects.tracks.last?.id
+            effectsChanged()
+            // Loading is not a change: a project opened and closed untouched
+            // should not claim to need saving.
+            hasUnsavedChanges = false
+            saveError = nil
+        } catch {
+            loadFailed = true
+            saveError = "Could not open the project in this folder: \(error)"
+        }
+    }
+
+    @discardableResult
+    public func saveProject() -> Bool {
+        guard let projectFolder, !loadFailed else { return false }
+        do {
+            try ProjectFile.write(Project(document: effects), toFolder: projectFolder)
+            hasUnsavedChanges = false
+            saveError = nil
+            return true
+        } catch {
+            saveError = String(describing: error)
+            return false
+        }
+    }
+
+    /// The clip that was copied, if any.
+    ///
+    /// Kept in the model rather than the system pasteboard: a clip is a value
+    /// only this app understands, and putting it on the system board would put
+    /// it in front of every other app for no one's benefit.
+    public private(set) var copiedNode: EffectNode?
+
+    public func copySelectedEffect() {
+        guard let node = selectedEffect else { return }
+        copiedNode = node
+    }
+
+    /// Pastes the copied clip onto a track, at a time.
+    ///
+    /// Onto the selected lane at the playhead by default, which is where a
+    /// paste goes in any editor: where you are looking.
+    @discardableResult
+    public func pasteEffect(
+        at time: Double,
+        on trackID: EffectTrack.ID? = nil,
+    ) -> EffectNode? {
+        guard let source = copiedNode,
+              let descriptor = library.descriptor(for: source.type)
+        else { return nil }
+
+        var node = effects.add(
+            descriptor,
+            at: max(0, time),
+            duration: source.duration,
+            on: trackID ?? destinationTrackID,
+        )
+        node.name = source.name
+        node.values = source.values
+        node.transform = source.transform
+        // A fresh seed, for the same reason a duplicate gets one: the same
+        // field drawn twice is not a second effect.
+        node.seed = source.seed &+ 0x9E37_79B9
+        effects[node.id] = node
+
+        selectedNodeID = node.id
+        effectsChanged()
+        return node
+    }
+
+    /// Deletes whatever is selected — a clip if one is, otherwise its lane.
+    public func deleteSelection() {
+        if let nodeID = selectedNodeID {
+            removeEffect(nodeID)
+        } else if let trackID = selectedTrackID {
+            removeTrack(trackID)
+        }
+    }
+
+    /// Copies an effect, selecting the copy.
+    ///
+    /// Selecting it is the point: a duplicate is made to be changed, and having
+    /// to hunt for which of two identical clips is the new one is friction in
+    /// the way of that.
+    @discardableResult
+    public func duplicateEffect(_ nodeID: EffectNode.ID) -> EffectNode? {
+        let copy = effects.duplicate(nodeID)
+        if let copy { selectedNodeID = copy.id }
+        effectsChanged()
+        return copy
+    }
+
     public func removeEffect(_ nodeID: EffectNode.ID) {
         effects.remove(nodeID)
         if selectedNodeID == nodeID { selectedNodeID = nil }
@@ -477,19 +600,25 @@ public final class EditorShellModel {
     }
 
     @discardableResult
-    public func addFilter(_ descriptor: FilterDescriptor, to trackID: EffectTrack.ID) -> FilterNode? {
-        let node = effects.addFilter(descriptor, to: trackID)
+    public func addFilter(_ descriptor: FilterDescriptor, to nodeID: EffectNode.ID) -> FilterNode? {
+        let filter = effects.addFilter(descriptor, to: nodeID)
+
+        // Applying a filter selects the clip it landed on, so its settings are
+        // in front of whoever just dropped it.
+        selectedNodeID = nodeID
+        if let trackID = effects.trackID(of: nodeID) { selectedTrackID = trackID }
+
         effectsChanged()
-        return node
+        return filter
     }
 
-    public func removeFilter(_ filterID: FilterNode.ID, from trackID: EffectTrack.ID) {
-        effects.removeFilter(filterID, from: trackID)
+    public func removeFilter(_ filterID: FilterNode.ID, from nodeID: EffectNode.ID) {
+        effects.removeFilter(filterID, from: nodeID)
         effectsChanged()
     }
 
-    public func toggleFilter(_ filterID: FilterNode.ID, in trackID: EffectTrack.ID) {
-        effects.toggleFilter(filterID, in: trackID)
+    public func toggleFilter(_ filterID: FilterNode.ID, in nodeID: EffectNode.ID) {
+        effects.toggleFilter(filterID, in: nodeID)
         effectsChanged()
     }
 
@@ -497,9 +626,9 @@ public final class EditorShellModel {
         _ value: EffectValue,
         for parameterID: String,
         on filterID: FilterNode.ID,
-        in trackID: EffectTrack.ID,
+        in nodeID: EffectNode.ID,
     ) {
-        effects.setFilterValue(value, for: parameterID, on: filterID, in: trackID)
+        effects.setFilterValue(value, for: parameterID, on: filterID, in: nodeID)
         effectsChanged()
     }
 
@@ -511,13 +640,37 @@ public final class EditorShellModel {
         evaluator.evaluate(node).count
     }
 
+    /// How badly a looped track thins at its seams, from 0 to 1.
+    ///
+    /// A loop's pass starts from an empty screen, so whatever was still alive
+    /// at the end of the previous one is gone. Reported so a fire that flickers
+    /// every few seconds has an explanation attached to it.
+    public func loopSeamSeverity(for nodeID: EffectNode.ID) -> Double {
+        guard let node = effects[nodeID],
+              node.filters.contains(where: { $0.isEnabled && $0.type == LoopFilter.descriptor.type })
+        else { return 0 }
+
+        // Measured before the loop wraps them: afterwards the commands live in
+        // a loop body and every sprite looks like it runs the whole span.
+        var bare = node
+        bare.filters = []
+        return LoopFilter.seamSeverity(of: evaluator.evaluate(bare))
+    }
+
+    /// How long a clip on this track actually runs, once its filters are
+    /// applied.
+    public func duration(of clipDuration: Double, on nodeID: EffectNode.ID) -> Double {
+        guard let node = effects[nodeID] else { return clipDuration }
+        return evaluator.duration(of: clipDuration, on: node)
+    }
+
     /// How much a track's filters multiply its sprite count.
     ///
     /// Surfaced so a glow over a large emitter can be seen for what it is —
     /// a file osu! will not open — while it can still be turned down.
-    public func spriteMultiplier(for trackID: EffectTrack.ID) -> Double {
-        guard let track = effects.track(id: trackID) else { return 1 }
-        return evaluator.spriteMultiplier(for: track)
+    public func spriteMultiplier(for nodeID: EffectNode.ID) -> Double {
+        guard let node = effects[nodeID] else { return 1 }
+        return evaluator.spriteMultiplier(for: node)
     }
 
     public func setLayer(_ layer: Layer, on trackID: EffectTrack.ID) {
@@ -548,6 +701,7 @@ public final class EditorShellModel {
     /// Signals that something about the effects changed and re-evaluates.
     private func effectsChanged() {
         effectsRevision &+= 1
+        hasUnsavedChanges = true
         // One pass over the document: the sprites feed the canvas, and the
         // counts the UI shows come from the same evaluation. Counting
         // separately ran every emitter a second time for a number the first

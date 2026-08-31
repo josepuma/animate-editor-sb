@@ -11,11 +11,17 @@ struct FilterTests {
     private let evaluator = EffectEvaluator()
 
     /// One emitter on one track, with `count` particles.
+    /// One emitter on one track, with `count` particles.
     private func document(count: Int = 10) -> EffectDocument {
         var document = EffectDocument()
         let node = document.add(EmitterEffect.descriptor, at: 0, duration: 2000)
         document.setValue(.integer(count), for: EmitterEffect.Param.count, on: node.id)
         return document
+    }
+
+    /// The clip filters are applied to.
+    private func clip(in document: EffectDocument) -> EffectNode.ID {
+        document.nodes[0].id
     }
 
     // ─── Glow ────────────────────────────────────────────────────────────────
@@ -27,7 +33,7 @@ struct FilterTests {
     @Test("a glow adds exactly one halo per sprite")
     func glowAddsOneHalo() {
         var document = document(count: 10)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         _ = document.addFilter(GlowFilter.descriptor, to: trackID)
 
         #expect(evaluator.evaluate(document).count == 20)
@@ -37,7 +43,7 @@ struct FilterTests {
     @Test("softness costs no extra sprites")
     func softnessIsFree() {
         var document = document(count: 10)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         let filter = document.addFilter(GlowFilter.descriptor, to: trackID)!
 
         for radius in [0.0, 8.0, 40.0] {
@@ -51,7 +57,7 @@ struct FilterTests {
     @Test("the halo draws a blurred copy of its sprite")
     func haloUsesADerivedSprite() {
         var document = document(count: 3)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         let filter = document.addFilter(GlowFilter.descriptor, to: trackID)!
         document.setFilterValue(.number(16), for: GlowFilter.Param.radius, on: filter.id, in: trackID)
 
@@ -72,7 +78,7 @@ struct FilterTests {
     @Test("no softness leaves the path alone")
     func zeroRadiusKeepsThePath() {
         var document = document(count: 2)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         let filter = document.addFilter(GlowFilter.descriptor, to: trackID)!
         document.setFilterValue(.number(0), for: GlowFilter.Param.radius, on: filter.id, in: trackID)
 
@@ -85,7 +91,7 @@ struct FilterTests {
     @Test("halo copies are additive")
     func haloIsAdditive() {
         var document = document(count: 4)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         _ = document.addFilter(GlowFilter.descriptor, to: trackID)
 
         let sprites = evaluator.evaluate(document)
@@ -103,7 +109,7 @@ struct FilterTests {
     @Test("the halo is larger than its sprite")
     func haloIsLargerAndFainter() {
         var document = document(count: 1)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         _ = document.addFilter(GlowFilter.descriptor, to: trackID)
 
         let sprites = evaluator.evaluate(document)
@@ -126,7 +132,7 @@ struct FilterTests {
     @Test("halos are drawn behind their sprites")
     func halosComeFirst() {
         var document = document(count: 3)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         _ = document.addFilter(GlowFilter.descriptor, to: trackID)
 
         let sprites = evaluator.evaluate(document)
@@ -139,7 +145,7 @@ struct FilterTests {
     @Test("a disabled filter changes nothing")
     func disabledFilterIsSkipped() {
         var document = document(count: 5)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         let plain = evaluator.evaluate(document).count
 
         let filter = document.addFilter(GlowFilter.descriptor, to: trackID)!
@@ -152,7 +158,7 @@ struct FilterTests {
     @Test("a glow with no intensity leaves the sprites alone")
     func zeroIntensityIsANoOp() {
         var document = document(count: 5)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         let filter = document.addFilter(GlowFilter.descriptor, to: trackID)!
         document.setFilterValue(.number(0), for: GlowFilter.Param.intensity, on: filter.id, in: trackID)
 
@@ -164,7 +170,7 @@ struct FilterTests {
     @Test("an echo adds a copy per repeat, offset backwards in time")
     func echoTrails() {
         var document = document(count: 4)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         let filter = document.addFilter(EchoFilter.descriptor, to: trackID)!
         document.setFilterValue(.integer(3), for: EchoFilter.Param.count, on: filter.id, in: trackID)
         document.setFilterValue(.number(100), for: EchoFilter.Param.delay, on: filter.id, in: trackID)
@@ -188,7 +194,7 @@ struct FilterTests {
     @Test("filters apply in the order they were added")
     func filtersCompose() {
         var document = document(count: 2)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
 
         _ = document.addFilter(GlowFilter.descriptor, to: trackID)
         let echo = document.addFilter(EchoFilter.descriptor, to: trackID)!
@@ -196,7 +202,7 @@ struct FilterTests {
 
         // 2 sprites → glow ×2 → 4 → echo ×2 → 8.
         #expect(evaluator.evaluate(document).count == 8)
-        #expect(evaluator.spriteMultiplier(for: document.tracks[0]) == 4)
+        #expect(evaluator.spriteMultiplier(for: document.nodes[0]) == 4)
     }
 
     /// The number that matters before an export: a glow over a large emitter is
@@ -204,22 +210,22 @@ struct FilterTests {
     @Test("the multiplier counts only enabled filters")
     func multiplierRespectsEnabling() {
         var document = document(count: 1)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         let filter = document.addFilter(GlowFilter.descriptor, to: trackID)!
 
-        #expect(evaluator.spriteMultiplier(for: document.tracks[0]) == 2)
+        #expect(evaluator.spriteMultiplier(for: document.nodes[0]) == 2)
 
         document.toggleFilter(filter.id, in: trackID)
-        #expect(evaluator.spriteMultiplier(for: document.tracks[0]) == 1)
+        #expect(evaluator.spriteMultiplier(for: document.nodes[0]) == 1)
     }
 
     @Test("a hidden track runs no filters")
     func hiddenTrackSkipsFilters() {
         var document = document(count: 5)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         _ = document.addFilter(GlowFilter.descriptor, to: trackID)
 
-        document.toggleVisibility(of: trackID)
+        document.toggleVisibility(of: document.tracks[0].id)
         #expect(evaluator.evaluate(document).isEmpty)
     }
 
@@ -229,7 +235,7 @@ struct FilterTests {
         let track = document.addTrack(named: "Behind", layer: .background)
         let node = document.add(EmitterEffect.descriptor, at: 0, duration: 1000, on: track.id)
         document.setValue(.integer(3), for: EmitterEffect.Param.count, on: node.id)
-        _ = document.addFilter(GlowFilter.descriptor, to: track.id)
+        _ = document.addFilter(GlowFilter.descriptor, to: node.id)
 
         #expect(evaluator.evaluate(document).allSatisfy { $0.layer == .background })
     }
@@ -238,7 +244,7 @@ struct FilterTests {
     @Test("filter output ids are unique")
     func idsDoNotCollide() {
         var document = document(count: 6)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         _ = document.addFilter(GlowFilter.descriptor, to: trackID)
         _ = document.addFilter(EchoFilter.descriptor, to: trackID)
 
@@ -281,24 +287,32 @@ struct BlurFilterTests {
         return document
     }
 
+    private func clip(in document: EffectDocument) -> EffectNode.ID {
+        document.nodes[0].id
+    }
+
     @Test("a blur adds no sprites at all")
     func blurIsFree() {
         var document = document(count: 8)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         _ = document.addFilter(BlurFilter.descriptor, to: trackID)
 
         #expect(evaluator.evaluate(document).count == 8)
-        #expect(evaluator.spriteMultiplier(for: document.tracks[0]) == 1)
+        #expect(evaluator.spriteMultiplier(for: document.nodes[0]) == 1)
     }
 
     @Test("every sprite draws a softened copy of its own image")
     func spritesAreDerived() {
         var document = document(count: 4)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         let filter = document.addFilter(BlurFilter.descriptor, to: trackID)!
         document.setFilterValue(.number(10), for: BlurFilter.Param.radius, on: filter.id, in: trackID)
 
-        let plainPaths = Set(EffectEvaluator().evaluate(document.tracks[0].nodes).map(\.filePath))
+        // A copy with no filters: `evaluate` applies a clip's own filters now,
+        // so the unfiltered document is the only honest baseline.
+        var bareNodes = document.nodes
+        for index in bareNodes.indices { bareNodes[index].filters = [] }
+        let plainPaths = Set(EffectEvaluator().evaluate(bareNodes).map(\.filePath))
         let sprites = evaluator.evaluate(document)
 
         #expect(sprites.allSatisfy { DerivedSprite.isDerived($0.filePath) })
@@ -311,7 +325,7 @@ struct BlurFilterTests {
     @Test("a radius of zero leaves the sprites untouched")
     func zeroRadiusIsANoOp() {
         var document = document(count: 4)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         let filter = document.addFilter(BlurFilter.descriptor, to: trackID)!
         document.setFilterValue(.number(0), for: BlurFilter.Param.radius, on: filter.id, in: trackID)
 
@@ -323,11 +337,13 @@ struct BlurFilterTests {
     @Test("opacity scales the sprites' own fades")
     func opacityScalesFades() {
         var document = document(count: 2)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         let filter = document.addFilter(BlurFilter.descriptor, to: trackID)!
         document.setFilterValue(.number(0.5), for: BlurFilter.Param.opacity, on: filter.id, in: trackID)
 
-        let plain = EffectEvaluator().evaluate(document.tracks[0].nodes)
+        var bareNodes = document.nodes
+        for index in bareNodes.indices { bareNodes[index].filters = [] }
+        let plain = EffectEvaluator().evaluate(bareNodes)
         let blurred = evaluator.evaluate(document)
 
         for (before, after) in zip(plain, blurred) {
@@ -345,12 +361,190 @@ struct BlurFilterTests {
     @Test("blur and glow compose")
     func composesWithGlow() {
         var document = document(count: 3)
-        let trackID = document.tracks[0].id
+        let trackID = clip(in: document)
         _ = document.addFilter(BlurFilter.descriptor, to: trackID)
         _ = document.addFilter(GlowFilter.descriptor, to: trackID)
 
         // Blur adds nothing, glow doubles.
         #expect(evaluator.evaluate(document).count == 6)
-        #expect(evaluator.spriteMultiplier(for: document.tracks[0]) == 2)
+        #expect(evaluator.spriteMultiplier(for: document.nodes[0]) == 2)
+    }
+}
+
+/// The one filter that makes a storyboard *smaller*.
+///
+/// osu! has a real loop construct — a body written once and an iteration count
+/// — so a two-second effect repeated ten times is one copy of the commands and
+/// a number, not ten copies.
+@Suite("Loop filter")
+struct LoopFilterTests {
+    private let evaluator = EffectEvaluator()
+
+    private func document(count: Int = 6) -> (EffectDocument, EffectNode.ID) {
+        var document = EffectDocument()
+        let node = document.add(EmitterEffect.descriptor, at: 0, duration: 2000)
+        document.setValue(.integer(count), for: EmitterEffect.Param.count, on: node.id)
+        return (document, node.id)
+    }
+
+    /// The whole point: repeating costs a number, not copies.
+    @Test("looping adds no sprites")
+    func loopingIsCheap() {
+        var (document, trackID) = document(count: 6)
+        let plain = evaluator.evaluate(document).count
+
+        let filter = document.addFilter(LoopFilter.descriptor, to: trackID)!
+        document.setFilterValue(.integer(10), for: LoopFilter.Param.count, on: filter.id, in: trackID)
+
+        #expect(evaluator.evaluate(document).count == plain)
+        #expect(evaluator.spriteMultiplier(for: document.nodes[0]) == 1)
+    }
+
+    @Test("commands move into a loop body")
+    func commandsBecomeALoopBody() {
+        var (document, trackID) = document(count: 3)
+        let before = evaluator.evaluate(document)
+        _ = document.addFilter(LoopFilter.descriptor, to: trackID)
+        let after = evaluator.evaluate(document)
+
+        #expect(before.allSatisfy { $0.loops.isEmpty })
+        #expect(after.allSatisfy { $0.loops.count == 1 })
+        // Nothing is left outside the loop: a command there would play once
+        // while its own sprite repeated around it.
+        #expect(after.allSatisfy { $0.commands.isEmpty })
+    }
+
+    @Test("the clip repeats for as long as its count says")
+    func repeatsForTheWholeSpan() {
+        var (document, trackID) = document(count: 4)
+        let filter = document.addFilter(LoopFilter.descriptor, to: trackID)!
+        document.setFilterValue(.integer(5), for: LoopFilter.Param.count, on: filter.id, in: trackID)
+
+        let prepared = StoryboardResolver.prepare(evaluator.evaluate(document))
+
+        // Five passes over a two-second clip reach past eight seconds.
+        #expect(prepared.first.map { $0.activeEnd > 8000 } == true)
+    }
+
+    /// A loop's period comes from the longest command in its own body, so left
+    /// alone each sprite would repeat on its own schedule — a field of
+    /// particles drifting apart into noise after the first pass.
+    @Test("every sprite repeats on the same period")
+    func iterationsShareAPeriod() {
+        var (document, trackID) = document(count: 8)
+        _ = document.addFilter(LoopFilter.descriptor, to: trackID)
+
+        let periods = evaluator.evaluate(document).compactMap { sprite in
+            sprite.loops.first?.commands.map(\.endTime).max()
+        }
+
+        #expect(periods.count == 8)
+        #expect(Set(periods.map { ($0 * 100).rounded() }).count == 1)
+    }
+
+    /// A gap makes it a beat that repeats rather than a stream that never
+    /// stops.
+    @Test("a gap lengthens the period")
+    func gapExtendsThePeriod() {
+        func period(gap: Double) -> Double {
+            var (document, trackID) = document(count: 2)
+            let filter = document.addFilter(LoopFilter.descriptor, to: trackID)!
+            document.setFilterValue(.number(gap), for: LoopFilter.Param.gap, on: filter.id, in: trackID)
+            return evaluator.evaluate(document)
+                .first?.loops.first?.commands.map(\.endTime).max() ?? 0
+        }
+
+        #expect(period(gap: 1000) > period(gap: 0) + 900)
+    }
+
+    /// One repeat is not a loop, and the parameter says so: its range starts at
+    /// two, so a value of one is clamped before it ever reaches the filter.
+    @Test("a single repeat cannot be asked for")
+    func singleRepeatIsClamped() {
+        let parameter = LoopFilter.descriptor.parameter(LoopFilter.Param.count)
+
+        #expect(parameter?.range?.lowerBound == 2)
+        #expect(parameter?.coerce(.integer(1)) == .integer(2))
+    }
+
+    /// The bug this pins: reported as a multiple, the ghost drawn on the
+    /// timeline stayed the same length whatever the gap — a factor cannot say
+    /// "this many passes *plus* a fixed silence".
+    @Test("a gap lengthens how long the clip runs")
+    func gapExtendsTheDuration() {
+        func played(gap: Double) -> Double {
+            var (document, trackID) = document(count: 2)
+            let filter = document.addFilter(LoopFilter.descriptor, to: trackID)!
+            document.setFilterValue(.integer(4), for: LoopFilter.Param.count, on: filter.id, in: trackID)
+            document.setFilterValue(.number(gap), for: LoopFilter.Param.gap, on: filter.id, in: trackID)
+            return evaluator.duration(of: 2000, on: document.nodes[0])
+        }
+
+        // Four passes of two seconds is eight; a second of silence each makes
+        // it twelve.
+        #expect(played(gap: 0) == 8000)
+        #expect(played(gap: 1000) == 12_000)
+    }
+
+    @Test("a filter that changes nothing leaves the duration alone")
+    func otherFiltersDoNotStretch() {
+        var (document, trackID) = document(count: 2)
+        _ = document.addFilter(GlowFilter.descriptor, to: trackID)
+
+        #expect(evaluator.duration(of: 2000, on: document.nodes[0]) == 2000)
+    }
+
+    /// The bug this pins: filters ran *before* the clip's transform, so a loop
+    /// packed the commands into a loop body and the transform then wrote its
+    /// movement outside that body. The animation played once and the sprite sat
+    /// frozen at its last value for every remaining pass — which is exactly
+    /// what it looked like.
+    @Test("a looped clip repeats its animation, not just its first pass")
+    func loopRepeatsTheAnimation() {
+        var document = EffectDocument()
+        var node = document.add(ImageEffect.descriptor, at: 0, duration: 1000)
+        node.values[ImageEffect.Param.sprite] = .text("a.png")
+        node.transform[.x] = KeyframeTrack([
+            Keyframe(time: 0, value: 100),
+            Keyframe(time: 1000, value: 500),
+        ])
+        document[node.id] = node
+
+        let filter = document.addFilter(LoopFilter.descriptor, to: node.id)!
+        document.setFilterValue(.integer(3), for: LoopFilter.Param.count, on: filter.id, in: node.id)
+
+        let sprite = evaluator.evaluate(document)[0]
+
+        // Everything is inside the loop: a command left outside plays once
+        // while its own sprite repeats around it.
+        #expect(sprite.commands.isEmpty)
+        #expect(sprite.loops.first?.commands.contains { $0.kind == .move } == true)
+
+        // And the movement actually replays.
+        let prepared = StoryboardResolver.prepare([sprite])
+        func x(at time: Double) -> Double {
+            var states: [SpriteRenderState] = []
+            StoryboardResolver.resolve(prepared, at: time, into: &states)
+            return states.first?.x ?? -1
+        }
+
+        #expect(x(at: 0) == x(at: 1000))
+        #expect(x(at: 500) == x(at: 1500))
+        #expect(x(at: 500) != x(at: 1000))
+    }
+
+    /// Composed after a glow, the halo loops with what it surrounds.
+    @Test("looping composes with other filters")
+    func composesWithGlow() {
+        var (document, trackID) = document(count: 3)
+        _ = document.addFilter(GlowFilter.descriptor, to: trackID)
+        _ = document.addFilter(LoopFilter.descriptor, to: trackID)
+
+        let sprites = evaluator.evaluate(document)
+
+        // Glow doubled the sprites; the loop left the count alone and put
+        // every one of them into a loop body.
+        #expect(sprites.count == 6)
+        #expect(sprites.allSatisfy { $0.loops.count == 1 })
     }
 }

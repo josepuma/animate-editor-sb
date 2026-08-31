@@ -67,7 +67,13 @@ struct TrackTimelineView: View {
             return node.startTime...max(node.startTime + 1, node.endTime)
         }
 
-        guard let effects = shell.effects.timeRange else { return timelineRange }
+        // Measured with the repeats included, so a looped clip's ghost has room
+        // on the ruler rather than running off the end of it.
+        guard let effects = shell.effects.timeRange(
+            playedDuration: { trackID, duration in
+                shell.duration(of: duration, on: trackID)
+            },
+        ) else { return timelineRange }
         let lower = min(timelineRange.lowerBound, effects.lowerBound)
         let upper = max(timelineRange.upperBound, effects.upperBound)
         return lower...upper
@@ -576,14 +582,20 @@ struct TrackTimelineView: View {
             moveNode: { shell.moveEffect($0, to: $1) },
             resizeNode: { shell.resizeEffect($0, startTime: $1, duration: $2) },
             removeNode: { shell.removeEffect($0) },
+            duplicateNode: { shell.duplicateEffect($0) },
+            copyNode: { id in
+                shell.selectedNodeID = id
+                shell.copySelectedEffect()
+            },
+            paste: { shell.pasteEffect(at: currentTime, on: track.id) },
+            canPaste: shell.copiedNode != nil,
             moveNodeToTrack: { shell.moveEffect($0, toTrack: $1) },
             removeTrack: { shell.removeTrack(track.id) },
             rename: { shell.renameTrack(track.id, to: $0) },
-            applyFilter: { type in
+            applyFilter: { nodeID, type in
                 guard let descriptor = shell.filters.descriptor(for: type) else { return }
-                shell.addFilter(descriptor, to: track.id)
+                shell.addFilter(descriptor, to: nodeID)
             },
-            filterIcon: { shell.filters.descriptor(for: $0)?.systemImage ?? "wand.and.stars" },
             addImage: { path, time in
                 shell.addImage(at: path, time: max(0, time), on: track.id)
             },
@@ -606,7 +618,9 @@ struct TrackTimelineView: View {
             },
             trackID: { rows in
                 guard rows != 0 else { return nil }
-                let target = index + rows
+                // Subtracted, not added: the list is drawn front to back, so a
+                // row further down the screen is *earlier* in the document.
+                let target = index - rows
                 guard shell.effects.tracks.indices.contains(target) else { return nil }
                 return shell.effects.tracks[target].id
             },
@@ -627,6 +641,12 @@ struct TrackTimelineView: View {
             toggleVisibility: { shell.toggleVisibility(of: track.id) },
             toggleLock: { shell.toggleLock(of: track.id) },
             actions: actions,
+            playedDuration: { shell.duration(of: $0.duration, on: $0.id) },
+            filterIcons: { node in
+                node.filters.map {
+                    shell.filters.descriptor(for: $0.type)?.systemImage ?? "wand.and.stars"
+                }
+            },
             dropPreview: shell.dropPreview?.trackID == track.id ? shell.dropPreview : nil,
         )
     }
@@ -653,7 +673,12 @@ struct TrackTimelineView: View {
                             // is the same — and the row goes on drawing the
                             // span it was built with. The clip in the timeline
                             // then disagrees with the inspector beside it.
-                            ForEach(shell.effects.tracks) { track in
+                            // Front to back, the way a layer list reads
+                            // everywhere — and the way the layers panel already
+                            // showed them. Drawing document order here put the
+                            // same track at the top of one list and the bottom
+                            // of the other.
+                            ForEach(shell.effects.tracks.reversed()) { track in
                                 row(track, contentWidth: contentWidth)
                                     .id("\(track.id)-\(shell.effectsRevision)")
                             }
@@ -813,6 +838,10 @@ struct TrackRowView: View {
     let toggleVisibility: () -> Void
     let toggleLock: () -> Void
     let actions: TrackActions
+    /// How long a clip actually runs, once its own filters are applied.
+    let playedDuration: (EffectNode) -> Double
+    /// The glyphs for a clip's filters, for the badges on it.
+    let filterIcons: (EffectNode) -> [String]
     /// Where a clip dragged from elsewhere would land, when this lane is the
     /// destination.
     let dropPreview: EditorShellModel.DropPreview?
@@ -824,6 +853,8 @@ struct TrackRowView: View {
     @State private var targetedNodeID: EffectNode.ID?
     /// Whether an asset is hovering over this lane.
     @State private var isAssetTargeted = false
+    /// How many rows this lane has already been moved during a reorder drag.
+    @State private var reorderedRows = 0
     /// The lane a drag has crossed into, applied when it ends.
     @State private var pendingTrackID: EffectTrack.ID?
     /// The name as it is being typed, committed on return or on leaving.
@@ -868,6 +899,8 @@ struct TrackRowView: View {
         // Assets land on the lane rather than on a clip: dropping one *makes* a
         // clip, so there is nothing to aim at yet. Where it lands in time comes
         // from where it was let go.
+        // Assets only. Filters land on clips — they belong to a clip now, so
+        // a lane has nothing to do with one.
         .dropDestination(for: String.self) { items, location in
             guard let asset = items.compactMap(AssetTransfer.parse).first else { return false }
             let x = location.x - headerWidth - Theme.Spacing.snug
@@ -931,23 +964,22 @@ struct TrackRowView: View {
                         .fill(track.layer.tint)
                         .frame(width: Theme.Size.controlTiny, height: Theme.Size.ring)
 
-                    // A badge per filter, so what a lane looks like is legible
-                    // from the timeline. Kept out of the inspector alone: a
-                    // look applied to a lane and visible only after selecting
-                    // it is a look people forget they applied.
-                    ForEach(track.filters) { filter in
-                        Image(systemName: filterIcon(filter.type))
-                            .font(.system(size: 7))
-                            .foregroundStyle(
-                                filter.isEnabled
-                                    ? Theme.Palette.secondary
-                                    : Theme.Palette.tertiary.opacity(0.5),
-                            )
-                    }
                 }
             }
 
             Spacer(minLength: 0)
+
+            // A grip for reordering the lane itself, dragged the way its clips
+            // are. The menu still has Bring Forward and Send Backward: a drag
+            // is faster across several rows, a menu is exact for one step.
+            Image(systemName: "line.3.horizontal")
+                .font(Theme.Typography.micro)
+                .foregroundStyle(isHovered ? Theme.Palette.secondary : Theme.Palette.tertiary)
+                .contentShape(.rect)
+                .gesture(reorderGesture)
+                .onHover { hovering in
+                    if hovering { NSCursor.openHand.push() } else { NSCursor.pop() }
+                }
 
             IconButton(
                 systemImage: track.isVisible ? "eye" : "eye.slash",
@@ -1064,6 +1096,14 @@ struct TrackRowView: View {
         if let span = span(of: node) {
             let width = span.width
 
+            // What the repeats add, drawn behind the clip.
+            //
+            // A loop leaves the block where it was while the effect plays for
+            // several times as long — and a clip that says twenty-five seconds
+            // and runs for two minutes is one nobody can arrange the rest of
+            // the timeline against.
+            repeatGhost(node, span: span)
+
             TrackBlock(
                 tint: track.layer.tint,
                 // A narrow pill has no room for text, and a truncated label
@@ -1076,8 +1116,19 @@ struct TrackRowView: View {
                     SpanThumbnail(tint: track.layer.tint, height: height - 16)
                 }
             } badge: {
+                // A badge per filter, so a clip's look is legible from the
+                // timeline. Without them a filter applied is only visible after
+                // selecting the clip — and one you cannot see is one you forget
+                // you applied.
                 if width > 140 {
-                    BlockBadge(systemImage: "sparkles")
+                    HStack(spacing: Theme.Spacing.hair) {
+                        ForEach(Array(filterIcons(node).enumerated()), id: \.offset) { _, icon in
+                            BlockBadge(systemImage: icon)
+                        }
+                        if filterIcons(node).isEmpty {
+                            BlockBadge(systemImage: "sparkles")
+                        }
+                    }
                 }
             }
             .frame(width: width)
@@ -1135,7 +1186,7 @@ struct TrackRowView: View {
                 guard let filter = items.compactMap(FilterTransfer.parse).first else {
                     return false
                 }
-                actions.applyFilter(filter.type)
+                actions.applyFilter(node.id, filter.type)
                 return true
             } isTargeted: { targetedNodeID = $0 ? node.id : nil }
             .overlay {
@@ -1154,6 +1205,31 @@ struct TrackRowView: View {
                         .allowsHitTesting(false)
                 }
             }
+    }
+
+    /// The stretch a looped clip covers beyond its own block.
+    @ViewBuilder
+    private func repeatGhost(_ node: EffectNode, span: VisibleSpan) -> some View {
+        // Measured as a real duration, not a multiple: a loop with a gap
+        // between passes runs for its repeats *plus* that silence, and a factor
+        // cannot say that — the ghost stayed the same length whatever the gap.
+        let played = playedDuration(node)
+        if played > node.duration {
+            let repeated = scale.width(of: played - node.duration)
+
+            RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
+                .fill(track.layer.tint.opacity(0.12))
+                .overlay {
+                    RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
+                        .strokeBorder(track.layer.tint.opacity(0.4), style: StrokeStyle(
+                            lineWidth: Theme.Size.hairline,
+                            dash: [3, 3],
+                        ))
+                }
+                .frame(width: max(0, repeated))
+                .offset(x: span.start + span.width)
+                .allowsHitTesting(false)
+        }
     }
 
     // ─── Resizing ────────────────────────────────────────────────────────────
@@ -1237,13 +1313,28 @@ struct TrackRowView: View {
             .onEnded { _ in commit(.move) }
     }
 
-    /// The glyph for a filter badge.
+    /// Dragging the grip moves the lane through the draw order.
     ///
-    /// Read from the actions rather than looked up in a library the row does
-    /// not have: a timeline row knows what it was told, not where filters come
-    /// from.
-    private func filterIcon(_ type: String) -> String {
-        actions.filterIcon(type)
+    /// Committed as it crosses each row rather than on release: a lane moving
+    /// under the pointer is the feedback, and a list that only rearranges when
+    /// the mouse comes up leaves the drag saying nothing.
+    private var reorderGesture: some Gesture {
+        DragGesture(minimumDistance: 4)
+            .onChanged { value in
+                let rows = rowsCrossed(value.translation.height)
+                guard rows != reorderedRows else { return }
+
+                // Only the step just taken, since earlier ones are already
+                // applied — the translation is measured from where the drag
+                // began, not from the last event.
+                let step = rows - reorderedRows
+                for _ in 0..<abs(step) {
+                    // Down the screen is earlier in the document.
+                    if step > 0 { actions.lower() } else { actions.raise() }
+                }
+                reorderedRows = rows
+            }
+            .onEnded { _ in reorderedRows = 0 }
     }
 
     /// Whether this clip is being dragged onto a different lane.
@@ -1358,6 +1449,13 @@ struct TrackRowView: View {
 
         Divider()
 
+        if actions.canPaste {
+            Button("Paste", systemImage: "doc.on.clipboard", action: actions.paste)
+                .keyboardShortcut("v", modifiers: .command)
+
+            Divider()
+        }
+
         Button("Delete Track", systemImage: "trash", role: .destructive, action: actions.removeTrack)
     }
 
@@ -1376,9 +1474,22 @@ struct TrackRowView: View {
             Divider()
         }
 
+        // The shortcuts are also on the menu: one nobody knows about does not
+        // exist, and a menu is where people look for the key.
+        Button("Copy", systemImage: "doc.on.doc") { actions.copyNode(node.id) }
+            .keyboardShortcut("c", modifiers: .command)
+
+        Button("Duplicate", systemImage: "plus.square.on.square") {
+            actions.duplicateNode(node.id)
+        }
+        .keyboardShortcut("d", modifiers: .command)
+
+        Divider()
+
         Button("Delete Effect", systemImage: "trash", role: .destructive) {
             actions.removeNode(node.id)
         }
+        .keyboardShortcut(.delete, modifiers: [])
     }
 }
 
@@ -1393,13 +1504,17 @@ struct TrackActions {
     let moveNode: (EffectNode.ID, Double) -> Void
     let resizeNode: (EffectNode.ID, Double, Double) -> Void
     let removeNode: (EffectNode.ID) -> Void
+    /// Copies a clip, placing the copy right after it.
+    let duplicateNode: (EffectNode.ID) -> Void
+    let copyNode: (EffectNode.ID) -> Void
+    /// Pastes the copied clip onto this lane, at the playhead.
+    let paste: () -> Void
+    let canPaste: Bool
     let moveNodeToTrack: (EffectNode.ID, EffectTrack.ID) -> Void
     let removeTrack: () -> Void
     let rename: (String) -> Void
-    /// Applies a filter dropped from the library.
-    let applyFilter: (String) -> Void
-    /// The glyph for a filter of this type.
-    let filterIcon: (String) -> String
+    /// Applies a filter dropped onto one of this lane's clips.
+    let applyFilter: (EffectNode.ID, String) -> Void
     /// Places an image dropped from the assets panel, at a time on this lane.
     let addImage: (String, Double) -> Void
     /// Opens the timeline on one clip's keyframes.

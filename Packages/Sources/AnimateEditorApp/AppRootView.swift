@@ -16,7 +16,13 @@ struct AppRootView: View {
     var body: some View {
         Group {
             if let source = playbackSource {
-                EditorWindow(source: source, isCanvasFullScreen: $isCanvasFullScreen)
+                EditorWindow(
+                    source: source,
+                    // Where the project is saved: beside the beatmap, so it
+                    // travels with it.
+                    folder: openFolder,
+                    isCanvasFullScreen: $isCanvasFullScreen,
+                )
                     .toolbar { closeButton }
                     // The bar goes in full screen too: the picture is the whole
                     // point, and a strip of chrome above it is the one thing

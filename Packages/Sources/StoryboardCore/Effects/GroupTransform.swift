@@ -213,16 +213,28 @@ public enum GroupTransform {
 
         var commands = sprite.commands.filter { $0.kind != .move && $0.kind != .moveX && $0.kind != .moveY }
 
-        // Scale and fade fold into what the sprite already carries, so they
-        // cost nothing extra.
-        let groupScale = transform.value(.scale, at: birth)
-        if groupScale != 1 {
-            commands = commands.map { scaled($0, by: groupScale) }
-            if !sprite.commands.contains(where: { $0.kind == .scale || $0.kind == .vectorScale }) {
-                commands.append(Command(
-                    easing: .linear, startTime: birth, endTime: birth,
-                    payload: .scale(start: groupScale, end: groupScale),
-                ))
+        // An animated scale needs commands of its own.
+        //
+        // Folding it in as a factor takes its value at one instant and holds it
+        // — the sprite came out frozen at whatever the scale happened to be
+        // when it was born, while the inspector showed the value moving. That
+        // is the same mistake the opacity path made.
+        if transform[.scale].isActive {
+            commands.removeAll { $0.kind == .scale || $0.kind == .vectorScale }
+            commands.append(contentsOf: TransformCommands.build(
+                from: Transform(tracks: ["scale": transform[.scale]]),
+                duration: duration,
+            ))
+        } else {
+            let groupScale = transform.value(.scale, at: birth)
+            if groupScale != 1 {
+                commands = commands.map { scaled($0, by: groupScale) }
+                if !sprite.commands.contains(where: { $0.kind == .scale || $0.kind == .vectorScale }) {
+                    commands.append(Command(
+                        easing: .linear, startTime: birth, endTime: birth,
+                        payload: .scale(start: groupScale, end: groupScale),
+                    ))
+                }
             }
         }
 

@@ -370,8 +370,16 @@ public final class PlaybackModel {
             // storyboard that outlasts its track still plays out.
             audio.pause()
             currentTime = duration
+        }
 
-            if currentTime >= playbackRange.upperBound { loopToStart() }
+        // The bound is checked whatever the audio is doing.
+        //
+        // Inside the track the clock follows the audio hardware, and asking
+        // only when the *track* ran out never fires for a range in the middle
+        // of a song: a two-second clip in keyframe mode looped visually while
+        // the music played straight past it.
+        if currentTime >= playbackRange.upperBound {
+            loopToStart()
         }
     }
 

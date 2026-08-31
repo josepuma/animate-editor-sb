@@ -120,6 +120,15 @@ public struct EditorShellView<Canvas: View>: View {
         .background(Theme.Palette.stage)
         .surfaceGroup()
         .toolbar { windowToolbar }
+        // Copy, paste and delete, on the whole editor.
+        //
+        // Zero-size buttons rather than `onKeyPress`: a `keyboardShortcut`
+        // reaches the window's key equivalents, which means it loses to a text
+        // field that has the keyboard — and a Delete pressed while renaming a
+        // track should delete a character, not the track.
+        .background {
+            editingShortcuts
+        }
         .animation(Theme.Motion.standard, value: shell.isSidePanelVisible)
         .animation(Theme.Motion.standard, value: shell.isInspectorVisible)
         .animation(Theme.Motion.deliberate, value: isCanvasFullScreen)
@@ -178,13 +187,60 @@ public struct EditorShellView<Canvas: View>: View {
         .frame(maxHeight: .infinity)
     }
 
+    /// Keyboard equivalents for the editing commands.
+    @ViewBuilder
+    private var editingShortcuts: some View {
+        Group {
+            Button("Save") { shell.saveProject() }
+                .keyboardShortcut("s", modifiers: .command)
+
+            Button("Copy") { shell.copySelectedEffect() }
+                .keyboardShortcut("c", modifiers: .command)
+
+            Button("Paste") { shell.pasteEffect(at: currentTime) }
+                .keyboardShortcut("v", modifiers: .command)
+
+            Button("Duplicate") {
+                guard let nodeID = shell.selectedNodeID else { return }
+                shell.duplicateEffect(nodeID)
+            }
+            .keyboardShortcut("d", modifiers: .command)
+
+            // Both keys: Delete is the one people reach for, and Forward Delete
+            // is the one a full keyboard sends.
+            Button("Delete", action: shell.deleteSelection)
+                .keyboardShortcut(.delete, modifiers: [])
+            Button("Delete Forward", action: shell.deleteSelection)
+                .keyboardShortcut(.deleteForward, modifiers: [])
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
     // ─── Toolbar ─────────────────────────────────────────────────────────────
 
     private var titleLabel: some View {
-        Text(title)
-            .font(Theme.Typography.cardTitle)
-            .foregroundStyle(Theme.Palette.primary)
-            .lineLimit(1)
+        HStack(spacing: Theme.Spacing.tight) {
+            Text(title)
+                .font(Theme.Typography.cardTitle)
+                .foregroundStyle(Theme.Palette.primary)
+                .lineLimit(1)
+
+            // A project that failed to open says so, rather than looking like
+            // an empty one — and saving is refused while it does.
+            if shell.loadFailed {
+                Label("Project could not be opened", systemImage: "exclamationmark.triangle")
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.warning)
+                    .help(shell.saveError ?? "")
+            } else if shell.hasUnsavedChanges {
+                Circle()
+                    .fill(Theme.Palette.tertiary)
+                    .frame(width: Theme.Size.ring * 4, height: Theme.Size.ring * 4)
+                    .help("Unsaved changes — ⌘S to save")
+            }
+        }
     }
 
     /// What the window's own title bar shows for this editor.

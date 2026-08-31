@@ -68,6 +68,22 @@ struct LoopRangeTests {
         #expect(model.currentTime == 5000)
     }
 
+    /// The bug this pins: inside the track the clock follows the audio
+    /// hardware, and the bound was only checked when the *track* ran out —
+    /// which never happens for a range in the middle of a song. A two-second
+    /// clip looped visually while the music played straight past it.
+    @Test("a range in the middle of a song still loops")
+    func midSongRangeLoops() {
+        let model = model()
+        model.loopRange = 30_000...32_000
+        model.seek(to: 31_800)
+        model.startPlayback()
+
+        model.advance(by: 400)
+
+        #expect(model.currentTime == 30_000)
+    }
+
     @Test("clearing the range gives the whole timeline back")
     func clearing() {
         let model = model()

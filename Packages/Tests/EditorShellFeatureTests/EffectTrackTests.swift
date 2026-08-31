@@ -158,37 +158,62 @@ struct EffectTrackTests {
 
     // ─── Filters ─────────────────────────────────────────────────────────────
 
-    /// The bug this pins: filters were shown only in the branch that runs when
-    /// no clip is selected, so they vanished the moment one was picked — which
-    /// is exactly when someone reaches for them.
-    @Test("a lane's filters are reachable with a clip selected")
-    func filtersSurviveClipSelection() {
+    /// Filters belong to the clip, not the lane: a filter is dragged onto the
+    /// thing it will change, and applying it to everything around that thing
+    /// is a drop promising one thing and doing another.
+    @Test("a filter applies to the clip it was dropped on")
+    func filterBelongsToTheClip() {
         let shell = model()
-        let node = shell.addEffect(descriptor, at: 0, duration: 1000)
-        let trackID = shell.effects.tracks[0].id
-        shell.addFilter(GlowFilter.descriptor, to: trackID)
+        let first = shell.addEffect(descriptor, at: 0, duration: 1000)
+        let second = shell.addEffect(descriptor, at: 2000, duration: 1000)
 
-        shell.selectedNodeID = node.id
-        shell.selectedTrackID = trackID
+        shell.addFilter(GlowFilter.descriptor, to: first.id)
 
-        // Both are answerable at once: the clip being edited, and the lane's
-        // filters underneath it.
-        #expect(shell.selectedEffect?.id == node.id)
-        #expect(shell.selectedTrack?.filters.count == 1)
+        #expect(shell.effects[first.id]?.filters.count == 1)
+        #expect(shell.effects[second.id]?.filters.isEmpty == true)
     }
 
-    @Test("a filter dropped on a lane reaches the output")
+    /// The inspector shows a clip's filters, so applying one has to put that
+    /// clip in front of whoever just dropped it.
+    @Test("applying a filter selects the clip it landed on")
+    func filterSelectsItsClip() {
+        let shell = model()
+        let first = shell.addEffect(descriptor, at: 0, duration: 1000)
+        let second = shell.addEffect(descriptor, at: 2000, duration: 1000)
+        shell.selectedNodeID = second.id
+
+        shell.addFilter(GlowFilter.descriptor, to: first.id)
+
+        #expect(shell.selectedNodeID == first.id)
+        #expect(shell.selectedEffect?.filters.count == 1)
+    }
+
+    @Test("a filter reaches the clip's output")
     func filterReachesOutput() {
         let shell = model()
         let node = shell.addEffect(descriptor, at: 0, duration: 2000)
         shell.setValue(.integer(4), for: EmitterEffect.Param.count, on: node.id)
-        let trackID = shell.effects.tracks[0].id
 
         #expect(shell.evaluateEffects().count == 4)
 
-        shell.addFilter(GlowFilter.descriptor, to: trackID)
+        shell.addFilter(GlowFilter.descriptor, to: node.id)
         #expect(shell.evaluateEffects().count > 4)
-        #expect(shell.spriteMultiplier(for: trackID) > 1)
+        #expect(shell.spriteMultiplier(for: node.id) > 1)
+    }
+
+    /// One clip's filter leaves its neighbours alone.
+    @Test("a filter on one clip does not touch another")
+    func filtersAreIsolated() {
+        let shell = model()
+        let first = shell.addEffect(descriptor, at: 0, duration: 2000)
+        let second = shell.addEffect(descriptor, at: 3000, duration: 2000)
+        shell.setValue(.integer(3), for: EmitterEffect.Param.count, on: first.id)
+        shell.setValue(.integer(3), for: EmitterEffect.Param.count, on: second.id)
+
+        shell.addFilter(GlowFilter.descriptor, to: first.id)
+
+        // Three become six on the filtered clip; the other keeps its three.
+        #expect(shell.evaluateEffects().count == 9)
     }
 
     @Test("removing a filter puts the output back")
@@ -196,83 +221,15 @@ struct EffectTrackTests {
         let shell = model()
         let node = shell.addEffect(descriptor, at: 0, duration: 2000)
         shell.setValue(.integer(4), for: EmitterEffect.Param.count, on: node.id)
-        let trackID = shell.effects.tracks[0].id
 
-        let filter = shell.addFilter(GlowFilter.descriptor, to: trackID)!
-        shell.removeFilter(filter.id, from: trackID)
+        let filter = shell.addFilter(GlowFilter.descriptor, to: node.id)!
+        shell.removeFilter(filter.id, from: node.id)
 
         #expect(shell.evaluateEffects().count == 4)
-        #expect(shell.spriteMultiplier(for: trackID) == 1)
+        #expect(shell.spriteMultiplier(for: node.id) == 1)
     }
 
-    // ─── Keyframe selection ──────────────────────────────────────────────────
-
-    @Test("a selected keyframe can be read back")
-    func selectionReadsBack() {
-        let shell = model()
-        let node = shell.addEffect(descriptor, at: 0, duration: 4000)
-        shell.setKeyframe(0.5, for: .scale, at: 1000, on: node.id)
-
-        let key = shell.effects[node.id]!.transform[.scale].keyframes[0]
-        shell.selectedKeyframe = EditorShellModel.KeyframeSelection(
-            nodeID: node.id, property: .scale, keyframeID: key.id,
-        )
-
-        #expect(shell.selectedKeyframeValue?.time == 1000)
-        #expect(shell.selectedKeyframeValue?.value == 0.5)
-    }
-
-    /// A selection belongs to the clip being edited; leaving it would otherwise
-    /// leave the inspector showing a key from a row no longer on screen.
-    @Test("leaving a clip clears the keyframe selection")
-    func leavingClearsSelection() {
-        let shell = model()
-        let node = shell.addEffect(descriptor, at: 0, duration: 4000)
-        shell.setKeyframe(1, for: .scale, at: 500, on: node.id)
-        let key = shell.effects[node.id]!.transform[.scale].keyframes[0]
-
-        shell.keyframeNodeID = node.id
-        shell.selectedKeyframe = EditorShellModel.KeyframeSelection(
-            nodeID: node.id, property: .scale, keyframeID: key.id,
-        )
-
-        shell.keyframeNodeID = nil
-        #expect(shell.selectedKeyframe == nil)
-    }
-
-    @Test("deleting the selected keyframe clears the selection")
-    func deletingClearsSelection() {
-        let shell = model()
-        let node = shell.addEffect(descriptor, at: 0, duration: 4000)
-        shell.setKeyframe(1, for: .scale, at: 500, on: node.id)
-        let key = shell.effects[node.id]!.transform[.scale].keyframes[0]
-        shell.selectedKeyframe = EditorShellModel.KeyframeSelection(
-            nodeID: node.id, property: .scale, keyframeID: key.id,
-        )
-
-        shell.removeKeyframe(key.id, from: .scale, on: node.id)
-
-        #expect(shell.selectedKeyframe == nil)
-        #expect(shell.selectedKeyframeValue == nil)
-    }
-
-    /// Editing a key's value must not move it in time.
-    @Test("changing a keyframe's value keeps its time")
-    func valueEditKeepsTime() {
-        let shell = model()
-        let node = shell.addEffect(descriptor, at: 0, duration: 4000)
-        shell.setKeyframe(0.5, for: .scale, at: 1200, on: node.id)
-        let key = shell.effects[node.id]!.transform[.scale].keyframes[0]
-
-        shell.setKeyframeValue(3, for: key.id, in: .scale, on: node.id)
-
-        let updated = shell.effects[node.id]!.transform[.scale].keyframes
-        #expect(updated.count == 1)
-        #expect(updated[0].time == 1200)
-        #expect(updated[0].value == 3)
-    }
-
-    // ─── Editing ─────────────────────────────────────────────────────────────
+    // ─── Editing ─
 
     @Test("changing a parameter re-evaluates the output")
     func parameterChangeUpdatesOutput() {

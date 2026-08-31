@@ -143,6 +143,63 @@ struct EffectDocumentTests {
         #expect(document[id] == nil)
     }
 
+    // ─── Duplicating ─────────────────────────────────────────────────────────
+
+    @Test("a duplicate carries everything but its identity")
+    func duplicateCarriesSettings() {
+        var document = document(count: 1)
+        let original = document.nodes[0]
+        document.setValue(.integer(42), for: EmitterEffect.Param.count, on: original.id)
+        document.setKeyframe(2, for: .scale, at: 100, on: original.id)
+
+        let copy = document.duplicate(original.id)!
+
+        #expect(copy.id != original.id)
+        #expect(copy.values[EmitterEffect.Param.count] == .integer(42))
+        #expect(copy.transform[.scale].keyframes.count == 1)
+        #expect(copy.duration == original.duration)
+    }
+
+    /// Two clips at the same moment look like one, and the copy would be
+    /// invisible.
+    @Test("a duplicate lands after the original")
+    func duplicateFollowsIt() {
+        var document = document(count: 1)
+        let original = document.nodes[0]
+
+        let copy = document.duplicate(original.id)!
+
+        #expect(copy.startTime == original.endTime)
+        #expect(document.tracks[0].nodes.map(\.id) == [original.id, copy.id])
+    }
+
+    /// A duplicated emitter with the same seed is the same field drawn twice,
+    /// which is not what anyone means by "duplicate".
+    @Test("a duplicate gets its own seed")
+    func duplicateReseeds() {
+        var document = document(count: 1)
+        let original = document.nodes[0]
+
+        let copy = document.duplicate(original.id)!
+
+        #expect(copy.seed != original.seed)
+
+        // Compared by trajectory, not by birthplace: a default emitter has no
+        // size, so every particle starts at the same point whatever the seed —
+        // the difference is in where they go.
+        let evaluator = EffectEvaluator()
+        let a = evaluator.evaluate(original).flatMap { $0.commands.map(\.endTime) }
+        let b = evaluator.evaluate(copy).flatMap { $0.commands.map(\.endTime) }
+        #expect(a != b)
+    }
+
+    @Test("duplicating something that is not there does nothing")
+    func duplicatingNothing() {
+        var document = document(count: 1)
+        #expect(document.duplicate("missing") == nil)
+        #expect(document.nodes.count == 1)
+    }
+
     // ─── Moving between tracks ───────────────────────────────────────────────
 
     @Test("an effect can be moved to another track, keeping its timing")

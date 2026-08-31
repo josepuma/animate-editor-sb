@@ -115,7 +115,7 @@ struct SidePanelView: View {
     /// Sharing a panel implied a filter could be dropped on an empty timeline.
     private var filtersPanel: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
-            Text("Drag onto a track to apply")
+            Text("Drag onto a clip to apply")
                 .font(Theme.Typography.micro)
                 .foregroundStyle(Theme.Palette.tertiary)
 
@@ -124,10 +124,10 @@ struct SidePanelView: View {
                     ForEach(shell.filterDescriptors, id: \.type) { descriptor in
                         FilterLibraryRow(
                             descriptor: descriptor,
-                            canApply: shell.selectedTrack != nil,
+                            canApply: shell.selectedEffect != nil,
                             apply: {
-                                guard let track = shell.selectedTrack else { return }
-                                shell.addFilter(descriptor, to: track.id)
+                                guard let node = shell.selectedEffect else { return }
+                                shell.addFilter(descriptor, to: node.id)
                             },
                         )
                     }
@@ -442,8 +442,8 @@ private struct FilterLibraryRow: View {
                 .background(.thinMaterial, in: Capsule())
         }
         .help(canApply
-            ? "Drag onto a track, or click to apply to the selected one"
-            : "Drag onto a track")
+            ? "Drag onto a clip, or click to apply to the selected one"
+            : "Drag onto a clip")
         .animation(Theme.Motion.quick, value: isHovered)
     }
 }

@@ -6,7 +6,7 @@ import Foundation
 /// survive in `StoryboardCore`, which imports no UI framework — and it is the
 /// same value that ends up in a `_C` command, where the channel range is what
 /// osu! writes. The inspector maps this to `Color` at the edge.
-public struct EffectColor: Sendable, Equatable, Hashable {
+public struct EffectColor: Sendable, Equatable, Hashable, Codable {
     public var r: Double
     public var g: Double
     public var b: Double
@@ -75,7 +75,7 @@ public struct EffectColor: Sendable, Equatable, Hashable {
 ///
 /// The cases mirror the controls the inspector can already draw, so a
 /// descriptor renders without the UI knowing which effect it came from.
-public enum EffectValue: Sendable, Equatable {
+public enum EffectValue: Sendable, Equatable, Codable {
     case number(Double)
     case integer(Int)
     case toggle(Bool)

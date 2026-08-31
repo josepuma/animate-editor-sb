@@ -56,8 +56,10 @@ struct InspectorView: View {
                     // Only when there is something to show: an empty "Filters"
                     // group is a heading and a button standing in for nothing,
                     // and the library tab is where filters are found anyway.
-                    if let track = shell.selectedTrack, !track.filters.isEmpty {
-                        filterSection(track)
+                    // A clip's filters, under whatever it is. They belong to
+                    // the clip now, so they show wherever it does.
+                    if let node = shell.selectedEffect, !node.filters.isEmpty {
+                        filterSection(node)
                     }
                 }
                 .padding(Theme.Spacing.compact)
@@ -74,27 +76,40 @@ struct InspectorView: View {
     /// On the track rather than on each clip: a look belongs to the lane, which
     /// is already the unit of grouping and of draw order.
     @ViewBuilder
-    private func filterSection(_ track: EffectTrack) -> some View {
+    private func filterSection(_ node: EffectNode) -> some View {
         FieldGroup("Filters") {
-            ForEach(track.filters) { filter in
+            ForEach(node.filters) { filter in
                 if let descriptor = shell.filters.descriptor(for: filter.type) {
                     FilterCard(
                         descriptor: descriptor,
                         filter: filter,
-                        toggle: { shell.toggleFilter(filter.id, in: track.id) },
-                        remove: { shell.removeFilter(filter.id, from: track.id) },
+                        toggle: { shell.toggleFilter(filter.id, in: node.id) },
+                        remove: { shell.removeFilter(filter.id, from: node.id) },
                         onChange: { parameter, value in
                             shell.setFilterValue(
-                                value, for: parameter, on: filter.id, in: track.id,
+                                value, for: parameter, on: filter.id, in: node.id,
                             )
                         },
                     )
                 }
             }
 
+            // A loop's pass starts from an empty screen, so a continuous
+            // emitter visibly thins at every seam. Said here rather than left
+            // for someone to wonder why their fire flickers.
+            let seam = shell.loopSeamSeverity(for: node.id)
+            if seam > 0.25 {
+                Text("Most particles are still alive when the loop restarts — "
+                    + "expect a visible break at each repeat. A shorter Life, "
+                    + "or a longer clip, softens it.")
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             // A glow over a large emitter is a file osu! will not open. Said
             // here, where it can still be turned down, rather than at export.
-            let multiplier = shell.spriteMultiplier(for: track.id)
+            let multiplier = shell.spriteMultiplier(for: node.id)
             if multiplier > 1 {
                 Text("Sprites ×\(String(format: "%.0f", multiplier))")
                     .font(Theme.Typography.micro)

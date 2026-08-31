@@ -9,6 +9,8 @@ import SwiftUI
 /// app's job, which is what keeps either one replaceable.
 struct EditorWindow: View {
     let source: any StoryboardSource
+    /// The beatmap folder, where the project is saved.
+    let folder: URL?
     /// Reported outwards so the window's own title bar can hide with the rest
     /// of the chrome; the toolbar belongs to the window, not to either feature.
     @Binding var isCanvasFullScreen: Bool
@@ -31,6 +33,11 @@ struct EditorWindow: View {
         // after the first push never reached the canvas — the same trap that
         // caught `updateNSView` earlier.
         let revision = shell.effectsRevision
+        // Read for the same reason, and it is the third time this trap has been
+        // walked into: without a read, opening the keyframe editor never
+        // re-evaluated this view, so the `onChange` that bounds playback to the
+        // clip never fired and a two-second clip played the whole song.
+        let keyframeNodeID = shell.keyframeNodeID
 
         EditorShellView(
             shell: shell,
@@ -74,7 +81,7 @@ struct EditorWindow: View {
         // Keyed on the revision too, since the clip can be moved or resized
         // while the mode is open and a stale bound would loop over the span it
         // used to have.
-        .onChange(of: shell.keyframeNodeID, initial: true) { _, _ in
+        .onChange(of: keyframeNodeID, initial: true) { _, _ in
             enterKeyframeMode(seekingIntoClip: true)
         }
         .onChange(of: revision) { _, _ in
@@ -91,7 +98,18 @@ struct EditorWindow: View {
         // Leaving has to actually let go: the audio engine and the sprites
         // outlive this view otherwise, so the track keeps playing behind the
         // browser and the next beatmap loads on top of the last one.
-        .onDisappear { playback.unload() }
+        // The project loads with the folder and saves back into it.
+        .onAppear {
+            guard let folder else { return }
+            shell.loadProject(fromFolder: folder)
+        }
+        .onDisappear {
+            // Saved on the way out: a project abandoned by closing the window
+            // is still a project someone spent time on, and there is no undo to
+            // recover it with.
+            if shell.hasUnsavedChanges { shell.saveProject() }
+            playback.unload()
+        }
     }
 
     /// Points playback at the clip being edited, or back at the whole timeline.

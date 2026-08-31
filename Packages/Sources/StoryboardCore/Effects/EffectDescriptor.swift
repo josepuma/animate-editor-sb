@@ -95,7 +95,35 @@ public struct EffectDescriptor: Sendable, Equatable {
 /// the intent means a placed effect stays editable; keeping its output would
 /// leave thousands of loose commands with no way back to the emitter that
 /// wrote them.
-public struct EffectNode: Identifiable, Sendable, Equatable {
+public struct EffectNode: Identifiable, Sendable, Equatable, Codable {
+    // ─── Decoding ────────────────────────────────────────────────────────────
+
+    private enum CodingKeys: String, CodingKey {
+        case id, type, name, layer, startTime, duration, seed, values
+        case transform, filters, isVisible, isLocked
+    }
+
+    /// Written before filters moved onto the clip, a node has none of its own.
+    ///
+    /// Absent keys are read as their empty value rather than as a failure: a
+    /// project saved by an older build is a project someone still has, and a
+    /// decoder that refuses it opens their work as a blank document.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        type = try container.decode(String.self, forKey: .type)
+        name = try container.decode(String.self, forKey: .name)
+        layer = try container.decode(Layer.self, forKey: .layer)
+        startTime = try container.decode(Double.self, forKey: .startTime)
+        duration = try container.decode(Double.self, forKey: .duration)
+        seed = try container.decode(UInt64.self, forKey: .seed)
+        values = try container.decode([String: EffectValue].self, forKey: .values)
+        transform = try container.decodeIfPresent(Transform.self, forKey: .transform) ?? Transform()
+        filters = try container.decodeIfPresent([FilterNode].self, forKey: .filters) ?? []
+        isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
+        isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
+    }
+
     public let id: String
     /// Matches `EffectDescriptor.type`.
     public let type: String
@@ -119,6 +147,14 @@ public struct EffectNode: Identifiable, Sendable, Equatable {
     /// the timeline lays keyframes out, without either pretending to be the
     /// other.
     public var transform: Transform
+    /// Filters applied to this clip's output, in order.
+    ///
+    /// On the clip rather than on its lane. A filter is dragged onto the thing
+    /// it will change, and a drop that lands on a clip while quietly applying
+    /// to everything around it promises one thing and does another. Ordered
+    /// because they compose — a glow after an echo lights the trail, and before
+    /// it the trail carries copies of the glow.
+    public var filters: [FilterNode]
     public var isVisible: Bool
     public var isLocked: Bool
 
@@ -132,6 +168,7 @@ public struct EffectNode: Identifiable, Sendable, Equatable {
         seed: UInt64 = 1,
         values: [String: EffectValue] = [:],
         transform: Transform = Transform(),
+        filters: [FilterNode] = [],
         isVisible: Bool = true,
         isLocked: Bool = false,
     ) {
@@ -144,6 +181,7 @@ public struct EffectNode: Identifiable, Sendable, Equatable {
         self.seed = seed
         self.values = values
         self.transform = transform
+        self.filters = filters
         self.isVisible = isVisible
         self.isLocked = isLocked
     }

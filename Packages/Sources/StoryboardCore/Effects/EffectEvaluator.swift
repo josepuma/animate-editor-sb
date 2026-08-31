@@ -65,15 +65,28 @@ public struct EffectEvaluator: Sendable {
 
         let produced = effect.evaluate(in: context, rng: &rng)
 
-        // The clip's transform moves what it produced as one object — its
-        // sprites keep their arrangement, the way a group does in any editor.
-        // Applied here rather than inside each effect so every one of them gets
-        // it, and none has to think about it.
-        let placed = GroupTransform.apply(
+        // The clip's transform first, then its filters.
+        //
+        // The transform is part of what the clip *is* — where it sits, how it
+        // turns — while a filter reshapes the finished thing. Run the other way
+        // round, a loop packed the clip's commands into a loop body and the
+        // transform then wrote its movement *outside* that body: the motion
+        // played once and the sprite sat frozen at its last value for every
+        // remaining pass.
+        var placed = GroupTransform.apply(
             node.transform,
             to: produced,
             duration: node.duration,
         )
+
+        for filterNode in node.filters where filterNode.isEnabled {
+            guard let filter = filters.filter(for: filterNode.type) else { continue }
+            let descriptor = Swift.type(of: filter).descriptor
+            placed = filter.apply(
+                to: placed,
+                in: FilterContext(descriptor: descriptor, node: filterNode),
+            )
+        }
 
         return placed.map { shift($0, by: node.startTime, layer: node.layer) }
     }
@@ -102,21 +115,29 @@ public struct EffectEvaluator: Sendable {
     public func evaluate(_ track: EffectTrack) -> [StoryboardSprite] {
         guard track.isVisible else { return [] }
 
-        var sprites = evaluate(track.nodes)
-
-        for node in track.filters where node.isEnabled {
-            guard let filter = filters.filter(for: node.type) else { continue }
-            let descriptor = Swift.type(of: filter).descriptor
-            let context = FilterContext(descriptor: descriptor, node: node)
-            sprites = filter.apply(to: sprites, in: context)
-        }
-
-        // The lane owns the layer, so anything a filter added takes it too.
-        return sprites.map { sprite in
+        // The lane owns the layer, so everything on it takes that layer.
+        return evaluate(track.nodes).map { sprite in
             var placed = sprite
             placed.layer = track.layer
             return placed
         }
+    }
+
+    /// How much longer a track's filters make its clips run.
+    ///
+    /// A loop repeats what is on the lane, so the block drawn on the timeline
+    /// is no longer the whole of it.
+    public func duration(of clipDuration: Double, on node: EffectNode) -> Double {
+        node.filters
+            .filter(\.isEnabled)
+            .reduce(clipDuration) { running, filterNode in
+                guard let filter = filters.filter(for: filterNode.type) else { return running }
+                let descriptor = Swift.type(of: filter).descriptor
+                return filter.duration(
+                    of: running,
+                    in: FilterContext(descriptor: descriptor, node: filterNode),
+                )
+            }
     }
 
     /// How many sprites a track's filters would multiply its output by.
@@ -124,14 +145,14 @@ public struct EffectEvaluator: Sendable {
     /// Reported so the editor can warn before a `.osb` is written: a glow over
     /// a large emitter is a file osu! will not open, and that is worth knowing
     /// while it can still be turned down.
-    public func spriteMultiplier(for track: EffectTrack) -> Double {
-        track.filters
+    public func spriteMultiplier(for node: EffectNode) -> Double {
+        node.filters
             .filter(\.isEnabled)
-            .reduce(1.0) { total, node in
-                guard let filter = filters.filter(for: node.type) else { return total }
+            .reduce(1.0) { total, filterNode in
+                guard let filter = filters.filter(for: filterNode.type) else { return total }
                 let descriptor = Swift.type(of: filter).descriptor
                 return total * filter.estimatedMultiplier(
-                    in: FilterContext(descriptor: descriptor, node: node),
+                    in: FilterContext(descriptor: descriptor, node: filterNode),
                 )
             }
     }

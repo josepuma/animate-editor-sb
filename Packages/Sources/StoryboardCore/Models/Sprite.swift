@@ -1,7 +1,7 @@
 /// Storyboard render layers, bottom to top.
 ///
 /// `renderOrder` mirrors `LAYER_RENDER_ORDER` in `app/lib/engine/renderer.ts`.
-public enum Layer: String, Sendable, CaseIterable {
+public enum Layer: String, Sendable, CaseIterable, Codable {
     case background = "Background"
     case fail = "Fail"
     case pass = "Pass"

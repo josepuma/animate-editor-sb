@@ -629,6 +629,54 @@ struct GroupTransformTests {
         #expect(abs(states[0].scaleX - plainStates[0].scaleX * 2) < 1e-9)
     }
 
+    /// Every transform property has to reach the sprites.
+    ///
+    /// The bug this pins: an animated scale was folded in as a *factor* — its
+    /// value read at one instant and held — so the sprite came out frozen at
+    /// whatever the scale happened to be when it was born, while the inspector
+    /// showed the number moving. The same shape of mistake had already been
+    /// made with opacity.
+    @Test(
+        "every animated property changes what is drawn",
+        arguments: TransformProperty.allCases,
+    )
+    func everyPropertyAnimates(property: TransformProperty) {
+        func value(of state: SpriteRenderState) -> Double {
+            switch property {
+            case .x: state.x
+            case .y: state.y
+            case .scale: state.scaleX
+            case .rotation: state.rotation
+            case .opacity: state.opacity
+            }
+        }
+
+        var document = EffectDocument()
+        var node = document.add(ImageEffect.descriptor, at: 0, duration: 3000)
+        node.values[ImageEffect.Param.sprite] = .text("a.png")
+        node.transform[property] = KeyframeTrack([
+            Keyframe(time: 0, value: property == .opacity ? 1 : 100),
+            Keyframe(time: 3000, value: property == .opacity ? 0.1 : 400),
+        ])
+        document[node.id] = node
+
+        let prepared = StoryboardResolver.prepare(evaluator.evaluate(document))
+        var early: [SpriteRenderState] = []
+        var late: [SpriteRenderState] = []
+        StoryboardResolver.resolve(prepared, at: 100, into: &early)
+        StoryboardResolver.resolve(prepared, at: 2900, into: &late)
+
+        guard let first = early.first, let last = late.first else {
+            Issue.record("no sprite to read \(property.rawValue) from")
+            return
+        }
+
+        #expect(
+            abs(value(of: first) - value(of: last)) > 0.05,
+            "\(property.rawValue) is stuck at \(value(of: first))",
+        )
+    }
+
     /// The bug this pins: motion was rebuilt by sampling the path and writing
     /// every piece as linear. With one segment — a plain move, no rotation to
     /// bend it — the sampling *was* the whole span, and an ease out came

@@ -5,7 +5,7 @@ import Foundation
 /// The easing belongs to the keyframe it leaves *from*, which is how After
 /// Effects and every storyboard command work: a `_M` carries its own curve, and
 /// the segment between two keys is one command.
-public struct Keyframe: Sendable, Equatable, Identifiable {
+public struct Keyframe: Sendable, Equatable, Identifiable, Codable {
     public let id: String
     /// Milliseconds from the start of the clip, not from the start of the song.
     ///
@@ -30,7 +30,7 @@ public struct Keyframe: Sendable, Equatable, Identifiable {
 /// otherwise declare. Those pairs are keyframes with the count fixed at two —
 /// they cannot say "here, then there, then back", which is most of what
 /// animating something means.
-public struct KeyframeTrack: Sendable, Equatable {
+public struct KeyframeTrack: Sendable, Equatable, Codable {
     /// Sorted by time. Kept sorted on every edit rather than at read time,
     /// because reading happens once per sprite and editing once per drag.
     public private(set) var keyframes: [Keyframe]
@@ -231,7 +231,7 @@ public enum TransformProperty: String, CaseIterable, Sendable {
 /// Collapsing the two was a real bug: with the displayed value read from the
 /// playhead, moving along the timeline and typing a number planted keys nobody
 /// asked for, on properties nobody was animating.
-public struct Transform: Sendable, Equatable {
+public struct Transform: Sendable, Equatable, Codable {
     private var tracks: [String: KeyframeTrack]
     /// What a property is worth when it is not animated.
     private var values: [String: Double]

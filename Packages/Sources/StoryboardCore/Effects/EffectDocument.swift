@@ -9,19 +9,58 @@ import Foundation
 ///
 /// The layer lives here rather than on each effect: osu!'s layers are about
 /// what draws in front of what, which is the same question a track answers.
-public struct EffectTrack: Identifiable, Sendable, Equatable {
+public struct EffectTrack: Identifiable, Sendable, Equatable, Codable {
+    // ─── Decoding ────────────────────────────────────────────────────────────
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, layer, nodes, isVisible, isLocked
+        /// Filters used to live on the track. They belong to a clip now, but a
+        /// project written before that move still has them here, and a decoder
+        /// that simply failed would open a real project as an empty one.
+        case filters
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        layer = try container.decode(Layer.self, forKey: .layer)
+        isVisible = try container.decode(Bool.self, forKey: .isVisible)
+        isLocked = try container.decode(Bool.self, forKey: .isLocked)
+
+        var decodedNodes = try container.decode([EffectNode].self, forKey: .nodes)
+
+        // A track's filters move onto everything that was on it, which is what
+        // they applied to before: the look is preserved, and the file that
+        // described it opens rather than being refused.
+        if let inherited = try container.decodeIfPresent([FilterNode].self, forKey: .filters),
+           !inherited.isEmpty
+        {
+            for index in decodedNodes.indices {
+                decodedNodes[index].filters = inherited + decodedNodes[index].filters
+            }
+        }
+        nodes = decodedNodes
+    }
+
+    /// Written without `filters`, which no longer belongs to a track.
+    ///
+    /// Spelled out because the custom `CodingKeys` carries a key with no
+    /// property behind it, and Swift will not synthesise an encoder for that.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(layer, forKey: .layer)
+        try container.encode(nodes, forKey: .nodes)
+        try container.encode(isVisible, forKey: .isVisible)
+        try container.encode(isLocked, forKey: .isLocked)
+    }
+
     public let id: String
     public var name: String
     public var layer: Layer
     public var nodes: [EffectNode]
-    /// Filters applied to everything on this lane, in order.
-    ///
-    /// On the track rather than on each effect, which is where After Effects
-    /// puts a layer effect and for the same reason: the lane is already the
-    /// unit of grouping and of draw order, so it is the thing a look belongs
-    /// to. Ordered because they compose — a glow after an echo lights the
-    /// trail, and before it the trail carries copies of the glow.
-    public var filters: [FilterNode]
     public var isVisible: Bool
     public var isLocked: Bool
 
@@ -30,7 +69,6 @@ public struct EffectTrack: Identifiable, Sendable, Equatable {
         name: String,
         layer: Layer = .foreground,
         nodes: [EffectNode] = [],
-        filters: [FilterNode] = [],
         isVisible: Bool = true,
         isLocked: Bool = false,
     ) {
@@ -38,7 +76,6 @@ public struct EffectTrack: Identifiable, Sendable, Equatable {
         self.name = name
         self.layer = layer
         self.nodes = nodes
-        self.filters = filters
         self.isVisible = isVisible
         self.isLocked = isLocked
     }
@@ -57,7 +94,7 @@ public struct EffectTrack: Identifiable, Sendable, Equatable {
 /// This is what a project saves. The sprites are derived from it on every
 /// evaluation and never stored — keeping the output instead would leave
 /// thousands of loose commands with no way back to the emitter that wrote them.
-public struct EffectDocument: Sendable {
+public struct EffectDocument: Sendable, Codable {
     public var tracks: [EffectTrack]
 
     public init(tracks: [EffectTrack] = []) {
@@ -118,6 +155,10 @@ public struct EffectDocument: Sendable {
     // ─── Tracks ──────────────────────────────────────────────────────────────
 
     /// Adds an empty track and returns it.
+    ///
+    /// Placed at the front of the draw order, which is the top of both lists.
+    /// A new lane appearing behind everything else is a lane whose contents are
+    /// hidden the moment anything is put on it.
     @discardableResult
     public mutating func addTrack(named name: String? = nil, layer: Layer = .foreground) -> EffectTrack {
         let track = EffectTrack(
@@ -147,41 +188,43 @@ public struct EffectDocument: Sendable {
     @discardableResult
     public mutating func addFilter(
         _ descriptor: FilterDescriptor,
-        to trackID: EffectTrack.ID,
+        to nodeID: EffectNode.ID,
     ) -> FilterNode? {
-        guard let index = tracks.firstIndex(where: { $0.id == trackID }) else { return nil }
+        guard let location = locate(nodeID) else { return nil }
 
-        let node = FilterNode(
+        let filter = FilterNode(
             id: "\(descriptor.type)-\(UUID().uuidString.prefix(8))",
             type: descriptor.type,
             values: descriptor.defaultValues,
         )
-        tracks[index].filters.append(node)
-        return node
+        tracks[location.track].nodes[location.node].filters.append(filter)
+        return filter
     }
 
-    public mutating func removeFilter(_ filterID: FilterNode.ID, from trackID: EffectTrack.ID) {
-        guard let index = tracks.firstIndex(where: { $0.id == trackID }) else { return }
-        tracks[index].filters.removeAll { $0.id == filterID }
+    public mutating func removeFilter(_ filterID: FilterNode.ID, from nodeID: EffectNode.ID) {
+        guard let location = locate(nodeID) else { return }
+        tracks[location.track].nodes[location.node].filters.removeAll { $0.id == filterID }
     }
 
     public mutating func setFilterValue(
         _ value: EffectValue,
         for parameterID: String,
         on filterID: FilterNode.ID,
-        in trackID: EffectTrack.ID,
+        in nodeID: EffectNode.ID,
     ) {
-        guard let trackIndex = tracks.firstIndex(where: { $0.id == trackID }),
-              let filterIndex = tracks[trackIndex].filters.firstIndex(where: { $0.id == filterID })
+        guard let location = locate(nodeID),
+              let index = tracks[location.track].nodes[location.node].filters
+                  .firstIndex(where: { $0.id == filterID })
         else { return }
-        tracks[trackIndex].filters[filterIndex].values[parameterID] = value
+        tracks[location.track].nodes[location.node].filters[index].values[parameterID] = value
     }
 
-    public mutating func toggleFilter(_ filterID: FilterNode.ID, in trackID: EffectTrack.ID) {
-        guard let trackIndex = tracks.firstIndex(where: { $0.id == trackID }),
-              let filterIndex = tracks[trackIndex].filters.firstIndex(where: { $0.id == filterID })
+    public mutating func toggleFilter(_ filterID: FilterNode.ID, in nodeID: EffectNode.ID) {
+        guard let location = locate(nodeID),
+              let index = tracks[location.track].nodes[location.node].filters
+                  .firstIndex(where: { $0.id == filterID })
         else { return }
-        tracks[trackIndex].filters[filterIndex].isEnabled.toggle()
+        tracks[location.track].nodes[location.node].filters[index].isEnabled.toggle()
     }
 
     public mutating func setLayer(_ layer: Layer, on trackID: EffectTrack.ID) {
@@ -276,6 +319,37 @@ public struct EffectDocument: Sendable {
             addTrack(named: "Effects")
         }
         return tracks.count - 1
+    }
+
+    /// Copies an effect, placing the copy right after the original.
+    ///
+    /// Everything travels: parameters, keyframes, layer. Only the id and the
+    /// seed are new — a duplicated emitter with the same seed would be the same
+    /// field drawn twice, which is not what anyone means by "duplicate".
+    @discardableResult
+    public mutating func duplicate(_ nodeID: EffectNode.ID) -> EffectNode? {
+        guard let location = locate(nodeID) else { return nil }
+        let original = tracks[location.track].nodes[location.node]
+
+        var copy = original
+        copy = EffectNode(
+            id: "\(original.type)-\(UUID().uuidString.prefix(8))",
+            type: original.type,
+            name: original.name,
+            layer: original.layer,
+            // Placed after the original rather than on top of it: two clips at
+            // the same moment look like one, and the copy would be invisible.
+            startTime: original.endTime,
+            duration: original.duration,
+            seed: original.seed &+ 0x9E37_79B9,
+            values: original.values,
+            transform: original.transform,
+            isVisible: original.isVisible,
+            isLocked: original.isLocked,
+        )
+
+        tracks[location.track].nodes.insert(copy, at: location.node + 1)
+        return copy
     }
 
     /// Changes one parameter on one effect.
@@ -453,11 +527,31 @@ public struct EffectDocument: Sendable {
     }
 
     /// The span every placed effect covers, or `nil` when nothing is placed.
-    public var timeRange: ClosedRange<Double>? {
-        let placed = nodes
-        guard let first = placed.first else { return nil }
-        let lower = placed.reduce(first.startTime) { min($0, $1.startTime) }
-        let upper = placed.reduce(first.endTime) { max($0, $1.endTime) }
+    ///
+    /// - Parameter playedDuration: how long a clip of a given length actually
+    ///   runs on a track, once its filters are applied. A looped clip plays
+    ///   past its own block, and a timeline that stopped at the block would cut
+    ///   the repeats off screen.
+    public func timeRange(
+        playedDuration: (EffectTrack.ID, Double) -> Double = { _, duration in duration },
+    ) -> ClosedRange<Double>? {
+        var lower: Double?
+        var upper: Double?
+
+        for track in tracks {
+            for node in track.nodes {
+                lower = min(lower ?? node.startTime, node.startTime)
+                let end = node.startTime + playedDuration(track.id, node.duration)
+                upper = max(upper ?? end, end)
+            }
+        }
+
+        guard let lower, let upper else { return nil }
         return lower...max(lower, upper)
+    }
+
+    /// The span every placed effect covers, ignoring what filters add.
+    public var timeRange: ClosedRange<Double>? {
+        timeRange()
     }
 }

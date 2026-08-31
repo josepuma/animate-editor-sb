@@ -37,6 +37,17 @@ public protocol SpriteFilter: Sendable {
     /// not only decorate.
     func apply(to sprites: [StoryboardSprite], in context: FilterContext) -> [StoryboardSprite]
 
+    /// How long a clip runs once this filter has had it.
+    ///
+    /// A loop repeats its clip, so what the timeline draws is no longer how
+    /// long the effect lasts — and a block that says twenty-five seconds while
+    /// playing for two minutes is a block nobody can arrange against.
+    ///
+    /// A duration rather than a multiplier: a loop with a gap between passes
+    /// runs for its repeats *plus* that silence, and no single factor says
+    /// that.
+    func duration(of clipDuration: Double, in context: FilterContext) -> Double
+
     /// Roughly how many sprites come out for each one that goes in.
     ///
     /// Used to warn before an export rather than to allocate: a storyboard that
@@ -47,6 +58,8 @@ public protocol SpriteFilter: Sendable {
 
 public extension SpriteFilter {
     func estimatedMultiplier(in context: FilterContext) -> Double { 1 }
+    /// Most filters change how a clip looks, not how long it runs.
+    func duration(of clipDuration: Double, in context: FilterContext) -> Double { clipDuration }
 }
 
 /// What a filter is, and what it can be asked for.
@@ -90,7 +103,7 @@ public struct FilterDescriptor: Sendable, Equatable {
 }
 
 /// One filter applied to a track, with its settings.
-public struct FilterNode: Identifiable, Sendable, Equatable {
+public struct FilterNode: Identifiable, Sendable, Equatable, Codable {
     public let id: String
     /// Matches `FilterDescriptor.type`.
     public let type: String
@@ -203,6 +216,6 @@ public struct FilterLibrary: Sendable {
 
     /// The built-in library.
     public static let standard = FilterLibrary(filters: [
-        GlowFilter(), BlurFilter(), EchoFilter(),
+        GlowFilter(), BlurFilter(), EchoFilter(), LoopFilter(),
     ])
 }

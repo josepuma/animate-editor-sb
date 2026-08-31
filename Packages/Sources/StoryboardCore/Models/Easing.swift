@@ -2,7 +2,7 @@
 ///
 /// Raw values match the numeric easing IDs used in `.osb` command lines.
 /// Ported from `app/types/easing.ts`.
-public enum Easing: Int, Sendable, CaseIterable {
+public enum Easing: Int, Sendable, CaseIterable, Codable {
     case linear = 0
     case out = 1
     case `in` = 2
