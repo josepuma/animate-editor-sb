@@ -1241,25 +1241,37 @@ struct TrackRowView: View {
     /// The stretch a looped clip covers beyond its own block.
     @ViewBuilder
     private func repeatGhost(_ node: EffectNode, span: VisibleSpan) -> some View {
-        // Measured as a real duration, not a multiple: a loop with a gap
-        // between passes runs for its repeats *plus* that silence, and a factor
-        // cannot say that — the ghost stayed the same length whatever the gap.
+        // One block per pass, not one long block covering them all.
+        //
+        // A single stretch says how much longer the clip runs and nothing else:
+        // not how many times it repeats, not where each pass begins, and not
+        // that a gap sits between them. Drawn as separate blocks the loop reads
+        // the way it plays — and the gaps are visible as gaps rather than as
+        // part of the clip.
         let played = playedDuration(node)
-        if played > node.duration {
-            let repeated = scale.width(of: played - node.duration)
+        if played > node.duration, node.duration > 0 {
+            // Each pass takes the clip's own length plus whatever silence
+            // follows it, so the stride comes out of the played span rather
+            // than being read from the filter — a clip can carry more than one
+            // filter that lengthens it.
+            let passes = max(1, Int((played / node.duration).rounded(.down)) - 1)
+            let stride = (played - node.duration) / Double(passes)
+            let bodyWidth = scale.width(of: min(node.duration, stride))
 
-            RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
-                .fill(track.layer.tint.opacity(0.12))
-                .overlay {
-                    RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
-                        .strokeBorder(track.layer.tint.opacity(0.4), style: StrokeStyle(
-                            lineWidth: Theme.Size.hairline,
-                            dash: [3, 3],
-                        ))
-                }
-                .frame(width: max(0, repeated))
-                .offset(x: span.start + span.width)
-                .allowsHitTesting(false)
+            ForEach(1...passes, id: \.self) { pass in
+                RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
+                    .fill(track.layer.tint.opacity(0.12))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
+                            .strokeBorder(track.layer.tint.opacity(0.4), style: StrokeStyle(
+                                lineWidth: Theme.Size.hairline,
+                                dash: [3, 3],
+                            ))
+                    }
+                    .frame(width: max(0, bodyWidth))
+                    .offset(x: span.start + scale.width(of: stride * Double(pass)))
+                    .allowsHitTesting(false)
+            }
         }
     }
 
