@@ -30,7 +30,10 @@ struct EditorWindow: View {
             model: playback,
             timeline: timeline,
             source: source,
-            isClipLocked: shell.selectedNodeID.map { shell.isLocked($0) } ?? false,
+            // Read from the model at gesture time rather than here: reading it
+            // in this body rebuilds the whole window on every selection, and
+            // the value is only ever consulted when a drag begins.
+            isClipLocked: false,
             onClipDrag: { drag in
                 shell.applyCanvasDrag(
                     dx: drag.dx, dy: drag.dy,
@@ -56,10 +59,6 @@ struct EditorWindow: View {
         // re-evaluated this view, so the `onChange` that bounds playback to the
         // clip never fired and a two-second clip played the whole song.
         let keyframeNodeID = shell.keyframeNodeID
-        // Read here for the same reason: the canvas frames whatever this says,
-        // and a selection the view never reads is a selection it never notices.
-        let selectedNodeID = shell.selectedNodeID
-
         EditorShellView(
             shell: shell,
             title: playback.status.message,
@@ -125,9 +124,7 @@ struct EditorWindow: View {
         // the frame after that, once the renderer had measured it. Two frames
         // plus two SwiftUI passes is long enough to feel like a delay between
         // clicking a clip and seeing it selected.
-        .task(id: selectedNodeID) {
-            playback.selectedClipID = selectedNodeID
-        }
+
         // The clock reaches the shell through the model, written from playback
         // itself rather than read in this body.
         //
@@ -137,6 +134,11 @@ struct EditorWindow: View {
         .onAppear {
             playback.onTimeChanged = { [weak shell] time in
                 shell?.playheadTime = time
+            }
+            // Straight through, with no scheduling hop: the box is drawn from
+            // the next frame the canvas renders, and that frame is 16ms away.
+            shell.onSelectionChanged = { [weak playback] id in
+                playback?.selectedClipID = id
             }
             guard let folder else { return }
             shell.loadProject(fromFolder: folder)

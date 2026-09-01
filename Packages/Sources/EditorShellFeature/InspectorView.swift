@@ -35,7 +35,17 @@ struct InspectorView: View {
             header
 
             ScrollView {
-                VStack(alignment: .leading, spacing: Theme.Spacing.compact) {
+                // Lazy, so a panel is built as far as it is seen.
+                //
+                // A plain `VStack` builds every row at once, and an emitter has
+                // thirty parameters — several of them `Menu`s and colour wells,
+                // which are AppKit controls underneath. Measured: the body
+                // returned in 2ms and the panel took 83 to 207ms to appear,
+                // which is the cost of instantiating those controls rather than
+                // of deciding what to draw. `LazyVStack` builds the rows that
+                // are on screen and leaves the rest until they scroll into
+                // view.
+                LazyVStack(alignment: .leading, spacing: Theme.Spacing.compact) {
                     trackSummary
 
                     if let node = shell.selectedEffect, let descriptor = shell.selectedDescriptor {

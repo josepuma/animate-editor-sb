@@ -89,7 +89,20 @@ public final class EditorShellModel {
     /// effect is selected.
     public var selectedTrackID: EffectTrack.ID?
     /// The effect being edited.
-    public var selectedNodeID: EffectNode.ID?
+    public var selectedNodeID: EffectNode.ID? {
+        didSet {
+            guard selectedNodeID != oldValue else { return }
+            onSelectionChanged?(selectedNodeID)
+        }
+    }
+
+    /// Told the moment the selection changes.
+    ///
+    /// A callback rather than something the app reads in a `body`: reading it
+    /// there subscribes the window to it, and going through `.task(id:)`
+    /// instead put a scheduling hop between the click and the canvas — the
+    /// frame that draws the selection box could not run until that hop landed.
+    @ObservationIgnored public var onSelectionChanged: ((EffectNode.ID?) -> Void)?
 
     /// The keyframe being edited, if any.
     ///

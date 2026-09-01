@@ -31,7 +31,12 @@ struct SelectionBox: View {
     /// Stage size, so stage units can be converted to points and back.
     let stageSize: (width: Double, height: Double)
     let viewSize: CGSize
-    let isLocked: Bool
+    /// Whether the framed clip refuses edits.
+    ///
+    /// Answered on demand rather than passed in: read as a property it made the
+    /// window rebuild on every selection, and it matters only at the moment a
+    /// gesture would move something.
+    var isLocked: Bool
     let onDrag: (ClipDrag) -> Void
 
     /// Points per stage unit. One number because the stage keeps its aspect.

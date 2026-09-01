@@ -649,7 +649,7 @@ struct TrackTimelineView: View {
         return TrackRowView(
             track: track,
             isSelected: track.id == shell.selectedTrackID,
-            selectedNodeID: shell.selectedNodeID,
+            shell: shell,
             scale: TimelineScale(range: visibleRange, width: contentWidth),
             headerWidth: Self.headerWidth,
             height: Self.trackHeight,
@@ -826,7 +826,13 @@ struct TrackTimelineView: View {
 struct TrackRowView: View {
     let track: EffectTrack
     let isSelected: Bool
-    let selectedNodeID: EffectNode.ID?
+    /// Read from the model rather than received.
+    ///
+    /// Handed down as a property, a click rebuilt the whole timeline — every
+    /// row, block, thumbnail and badge — because the parent read the selection
+    /// to pass it. Read here, only the rows whose own answer changed are
+    /// rebuilt.
+    let shell: EditorShellModel
     /// The span and width the clips are drawn against, measured once by the
     /// timeline.
     ///
@@ -876,6 +882,8 @@ struct TrackRowView: View {
     /// the previous frame's draft applies the whole translation again on each
     /// event, and the clip accelerates off the timeline.
     @State private var dragOrigin: ClosedRange<Double>?
+    /// The last click, for counting doubles without making singles wait.
+    @State private var lastClick: (id: EffectNode.ID, at: Date) = ("", .distantPast)
 
     var body: some View {
         HStack(spacing: Theme.Spacing.snug) {
@@ -1113,7 +1121,7 @@ struct TrackRowView: View {
                 // reads as a rendering fault.
                 label: width > 90 ? node.name : nil,
                 isDimmed: !track.isVisible,
-                isSelected: node.id == selectedNodeID,
+                isSelected: node.id == shell.selectedNodeID,
             ) {
                 if width > 56 {
                     SpanThumbnail(tint: track.layer.tint, height: height - 16)
@@ -1166,7 +1174,14 @@ struct TrackRowView: View {
             // gesture to its 3pt threshold and clips could no longer be dragged
             // along their lane at all. A long press of zero duration reports
             // the same moment without competing for the drag.
-            .onTapGesture(count: 2) { actions.openKeyframes(node.id) }
+            // Double click counted inside the move gesture, not beside it.
+            //
+            // A `count: 2` tap alongside another gesture holds the event while
+            // it waits for a second click — so the selection was registered at
+            // once and the view settled only when that wait timed out. Measured
+            // in pairs: 1ms then 269ms, 1ms then 247ms, over and over. The
+            // second number is the double-click interval, and it is what the
+            // delay felt like.
             .gesture(moveGesture(node))
             .contextMenu { clipMenu(node) }
 
@@ -1374,6 +1389,20 @@ struct TrackRowView: View {
                    abs(value.translation.height) < Self.clickSlop
                 {
                     selectNode(node.id)
+
+                    // A second click on the same clip, soon enough after the
+                    // first, opens its keyframes. Counted here rather than left
+                    // to a `count: 2` tap, which would make every single click
+                    // wait to find out whether it was one.
+                    let now = Date()
+                    if lastClick.id == node.id,
+                       now.timeIntervalSince(lastClick.at) < Self.doubleClickInterval
+                    {
+                        actions.openKeyframes(node.id)
+                        lastClick = (node.id, .distantPast)
+                    } else {
+                        lastClick = (node.id, now)
+                    }
                 }
                 commit(.move)
             }
@@ -1384,6 +1413,12 @@ struct TrackRowView: View {
     /// Matched to the move gesture's own threshold: below it nothing has moved
     /// yet, so releasing there was never a drag.
     private static let clickSlop: CGFloat = 3
+
+    /// How long a second click still counts as a double.
+    ///
+    /// The system's own interval, so a double click here means what it means
+    /// everywhere else on the machine.
+    private static var doubleClickInterval: TimeInterval { NSEvent.doubleClickInterval }
 
     /// Dragging the grip moves the lane through the draw order.
     ///
@@ -1459,7 +1494,7 @@ struct TrackRowView: View {
     private func beginDrag(_ node: EffectNode) -> ClosedRange<Double> {
         if let dragOrigin { return dragOrigin }
         dragOrigin = node.timeRange
-        if node.id != selectedNodeID { selectNode(node.id) }
+        if node.id != shell.selectedNodeID { selectNode(node.id) }
         return node.timeRange
     }
 
