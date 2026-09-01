@@ -295,4 +295,215 @@ struct NewFilterTests {
         #expect(plain.count == wound.count)
         #expect(zip(plain, wound).contains { abs($0 - $1) > 5 }, "twist moved nothing")
     }
+
+    // ─── Mirror ──────────────────────────────────────────────────────────────
+
+    @Test("mirror doubles the sprites")
+    func mirrorDoubles() {
+        var document = makeDocument()
+        let plain = evaluator.evaluate(document).count
+        _ = document.addFilter(MirrorFilter.descriptor, to: clip(in: document))
+
+        #expect(evaluator.evaluate(document).count == plain * 2)
+    }
+
+    /// A reflection lands on the far side of the axis, not on top of its
+    /// subject: a mirror that copies in place is two sprites for one silhouette.
+    @Test("the reflection lands across the axis")
+    func mirrorReflects() {
+        var document = makeDocument(count: 4)
+        _ = document.addFilter(MirrorFilter.descriptor, to: clip(in: document))
+
+        // Measured where the particles *travel*, not where they are born: an
+        // emitter starts them all at its own centre, so the birth point is the
+        // one place a reflection cannot show.
+        let centre = TransformProperty.x.defaultValue
+        var xs: [Double] = []
+        for sprite in evaluator.evaluate(document) {
+            for command in sprite.commands {
+                if case let .move(_, _, ex, _) = command.payload { xs.append(ex - centre) }
+            }
+        }
+
+        #expect(xs.contains { $0 > 1 })
+        #expect(xs.contains { $0 < -1 })
+    }
+
+    /// The image turns over as well as the position.
+    ///
+    /// Without the flip a reflected arrow still points the same way: the
+    /// arrangement would be mirrored while every sprite inside it was not,
+    /// which is the difference between a reflection and a copy moved sideways.
+    @Test("the reflected sprites are flipped")
+    func mirrorFlipsTheImage() {
+        var document = makeDocument()
+        _ = document.addFilter(MirrorFilter.descriptor, to: clip(in: document))
+
+        let flipped = evaluator.evaluate(document).filter { sprite in
+            sprite.commands.contains { command in
+                if case .parameter(.flipHorizontal) = command.payload { return true }
+                return false
+            }
+        }
+
+        #expect(!flipped.isEmpty, "no copy was flipped")
+    }
+
+    /// Both axes gives three reflections, not two — the diagonal one closes the
+    /// figure. Left out it is an L rather than a square.
+    @Test("both axes make four in total")
+    func mirrorBothAxes() {
+        var document = makeDocument()
+        let trackID = clip(in: document)
+        let plain = evaluator.evaluate(document).count
+
+        let filter = document.addFilter(MirrorFilter.descriptor, to: trackID)!
+        document.setFilterValue(
+            .choice(MirrorFilter.Axis.both.rawValue),
+            for: MirrorFilter.Param.axis, on: filter.id, in: trackID,
+        )
+
+        #expect(evaluator.evaluate(document).count == plain * 4)
+    }
+
+    // ─── Chromatic ───────────────────────────────────────────────────────────
+
+    @Test("chromatic makes three channels")
+    func chromaticSplits() {
+        var document = makeDocument()
+        let plain = evaluator.evaluate(document).count
+        _ = document.addFilter(ChromaticFilter.descriptor, to: clip(in: document))
+
+        #expect(evaluator.evaluate(document).count == plain * 3)
+    }
+
+    /// Each copy carries one channel, and they have to be *different* channels:
+    /// three red copies are three times the file for a red blur.
+    @Test("the channels are red, green and blue")
+    func chromaticColoursDiffer() {
+        var document = makeDocument(count: 1)
+        _ = document.addFilter(ChromaticFilter.descriptor, to: clip(in: document))
+
+        var colours: Set<String> = []
+        for sprite in evaluator.evaluate(document) {
+            for command in sprite.commands {
+                if case let .color(r, g, b, _, _, _) = command.payload {
+                    colours.insert("\(Int(r)),\(Int(g)),\(Int(b))")
+                }
+            }
+        }
+
+        #expect(colours.count == 3, "the channels came out as \(colours)")
+    }
+
+    /// They have to be additive, or the three sit on top of each other as
+    /// coloured blocks instead of summing back to white in the middle.
+    @Test("the channels blend additively")
+    func chromaticIsAdditive() {
+        var document = makeDocument()
+        _ = document.addFilter(ChromaticFilter.descriptor, to: clip(in: document))
+
+        let sprites = evaluator.evaluate(document)
+        #expect(sprites.allSatisfy { sprite in
+            sprite.commands.contains { command in
+                if case .parameter(.additive) = command.payload { return true }
+                return false
+            }
+        })
+    }
+
+    /// A split of zero is someone turning the filter off with its own slider,
+    /// and it should cost nothing rather than tripling the file for no visible
+    /// change.
+    @Test("no split means no copies")
+    func chromaticZeroIsInert() {
+        var document = makeDocument()
+        let trackID = clip(in: document)
+        let plain = evaluator.evaluate(document).count
+
+        let filter = document.addFilter(ChromaticFilter.descriptor, to: trackID)!
+        document.setFilterValue(.number(0), for: ChromaticFilter.Param.offset, on: filter.id, in: trackID)
+
+        #expect(evaluator.evaluate(document).count == plain)
+    }
+
+    /// Off by default, and off has to mean unchanged: the parameter landed on
+    /// a filter that is already in use.
+    @Test("no jitter leaves the split steady")
+    func jitterDefaultsInert() {
+        var document = makeDocument()
+        let trackID = clip(in: document)
+        let filter = document.addFilter(ChromaticFilter.descriptor, to: trackID)!
+
+        let before = evaluator.evaluate(document)
+        document.setFilterValue(.number(0), for: ChromaticFilter.Param.jitter, on: filter.id, in: trackID)
+        let after = evaluator.evaluate(document)
+
+        #expect(before.count == after.count)
+        for (a, b) in zip(before, after) {
+            #expect(a.commands.count == b.commands.count)
+        }
+    }
+
+    /// Turned up, the split moves during the clip rather than holding one
+    /// offset — which is the difference between a lens out of focus and a
+    /// signal breaking up.
+    @Test("jitter makes the split jump")
+    func jitterJumps() {
+        var document = makeDocument(count: 2)
+        let trackID = clip(in: document)
+        let filter = document.addFilter(ChromaticFilter.descriptor, to: trackID)!
+
+        let steady = evaluator.evaluate(document).flatMap(\.commands).count
+        document.setFilterValue(.number(0.8), for: ChromaticFilter.Param.jitter, on: filter.id, in: trackID)
+        let jumpy = evaluator.evaluate(document).flatMap(\.commands).count
+
+        #expect(jumpy > steady, "jitter wrote no movement")
+    }
+
+    /// Each channel jumps on its own. Leaping together they would slide as a
+    /// block, which reads as a shake rather than as a picture coming apart.
+    @Test("the channels jump independently")
+    func jitterIsPerChannel() {
+        var document = makeDocument(count: 1)
+        let trackID = clip(in: document)
+        let filter = document.addFilter(ChromaticFilter.descriptor, to: trackID)!
+        document.setFilterValue(.number(0.9), for: ChromaticFilter.Param.jitter, on: filter.id, in: trackID)
+
+        // Where each channel is at the same moment.
+        var byChannel: [String: [Double]] = [:]
+        for sprite in evaluator.evaluate(document) {
+            let channel = String(sprite.id.suffix(4))
+            for command in sprite.commands {
+                if case let .move(sx, _, _, _) = command.payload {
+                    byChannel[channel, default: []].append(sx)
+                }
+            }
+        }
+
+        #expect(byChannel.count >= 2)
+        // Two channels tracing the same path would be one shake in three
+        // colours.
+        let paths = Set(byChannel.values.map { $0.map { Int($0) }.description })
+        #expect(paths.count == byChannel.count, "two channels jumped identically")
+    }
+
+    /// Every step is a command in the file, so a long clip at a high rate has
+    /// to stop somewhere — past the cap the flicker is faster than anyone sees.
+    @Test("the jumps are capped")
+    func jitterIsCapped() {
+        var document = EffectDocument()
+        let node = document.add(EmitterEffect.descriptor, at: 0, duration: 60_000)
+        document.setValue(.integer(1), for: EmitterEffect.Param.count, on: node.id)
+        let filter = document.addFilter(ChromaticFilter.descriptor, to: node.id)!
+        document.setFilterValue(.number(1), for: ChromaticFilter.Param.jitter, on: filter.id, in: node.id)
+        document.setFilterValue(.number(30), for: ChromaticFilter.Param.rate, on: filter.id, in: node.id)
+
+        let moves = evaluator.evaluate(document)
+            .flatMap(\.commands)
+            .count { $0.kind == .move }
+
+        // Three channels, capped at 120 apiece, plus the emitter's own.
+        #expect(moves < 500, "\(moves) move commands from one particle")
+    }
 }

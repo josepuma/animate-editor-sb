@@ -234,5 +234,6 @@ public struct FilterLibrary: Sendable {
         GlowFilter(), ShadowFilter(), BlurFilter(), TintFilter(),
         EchoFilter(), WiggleFilter(), LoopFilter(),
         TimeFilter(), EaseFilter(), RadialFilter(),
+        MirrorFilter(), ChromaticFilter(),
     ])
 }
