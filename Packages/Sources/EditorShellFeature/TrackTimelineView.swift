@@ -756,6 +756,9 @@ struct TrackTimelineView: View {
             toggleLock: { shell.toggleLock(of: track.id) },
             actions: actions,
             playedDuration: { shell.duration(of: $0.duration, on: $0.id) },
+            tailDuration: { shell.tail(of: $0.id) },
+            passDuration: { shell.passDuration(of: $0.id) },
+            passCount: { shell.passCount(of: $0.id) },
             filterIcons: { node in
                 node.filters.map {
                     shell.filters.descriptor(for: $0.type)?.systemImage ?? "wand.and.stars"
@@ -944,6 +947,12 @@ struct TrackRowView: View {
     let actions: TrackActions
     /// How long a clip actually runs, once its own filters are applied.
     let playedDuration: (EffectNode) -> Double
+    /// How far the same pass keeps drawing past its block.
+    let tailDuration: (EffectNode) -> Double
+    /// One pass, tail included — the period a loop repeats on.
+    let passDuration: (EffectNode) -> Double
+    /// How many passes play in total.
+    let passCount: (EffectNode) -> Int
     /// The glyphs for a clip's filters, for the badges on it.
     let filterIcons: (EffectNode) -> [String]
     /// Where a clip dragged from elsewhere would land, when this lane is the
@@ -1208,6 +1217,7 @@ struct TrackRowView: View {
             // several times as long — and a clip that says twenty-five seconds
             // and runs for two minutes is one nobody can arrange the rest of
             // the timeline against.
+            tailGhost(node, span: span)
             repeatGhost(node, span: span)
 
             TrackBlock(
@@ -1342,6 +1352,91 @@ struct TrackRowView: View {
             }
     }
 
+    /// The stretch the clip is still drawing after its block ends.
+    ///
+    /// A particle lives its whole life from wherever it was born, so an emitter
+    /// releasing up to the last instant is on screen for seconds afterwards —
+    /// measured, about three on every compound preset. Without this the block
+    /// finishes while the effect plays on, and the one thing a timeline exists
+    /// to show is wrong.
+    ///
+    /// Drawn as a **continuation**, flush against the block, rather than as a
+    /// separate box: it is the same pass still finishing, not another one
+    /// starting. Repeats get the detached boxes, and telling the two apart at a
+    /// glance is the point.
+    ///
+    /// Not part of the block itself, though — the block is what a drag resizes
+    /// and what keyframes are measured against, so growing it would make
+    /// dragging move something other than what is shown.
+    @ViewBuilder
+    private func tailGhost(_ node: EffectNode, span: VisibleSpan) -> some View {
+        // Worked out before the builder, not inside it: a `@ViewBuilder` body
+        // is not ordinary statement scope, and bindings declared in a branch
+        // there leave the compiler reporting a type failure on whatever comes
+        // next — six rounds chasing an error in the `ForEach` that was never
+        // there.
+        let spans = tailSpans(node)
+
+        ForEach(spans) { ghost in
+            // Square where it meets the clip, rounded where it ends, and
+            // fading out along the way.
+            //
+            // Four rounded corners made it read as a second block, which is
+            // exactly what a repeat looks like — and the whole reason the
+            // two are drawn differently is that they mean different things.
+            // A flush edge says "this is still the same clip"; the fade says
+            // "and it is dying out".
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: Theme.Radius.bar,
+                topTrailingRadius: Theme.Radius.bar,
+                style: .continuous,
+            )
+            .fill(
+                LinearGradient(
+                    colors: [track.tint.opacity(0.3), track.tint.opacity(0.04)],
+                    startPoint: .leading,
+                    endPoint: .trailing,
+                ),
+            )
+            // Slid back under the clip's rounded end, so the two meet with no
+            // seam.
+            //
+            // A gap is exactly what says "separate thing" — which is what a
+            // repeat is, and a tail is not. The overlap is in points because
+            // the corner radius is: expressed in milliseconds it would be a
+            // different size at every zoom level.
+            .frame(width: ghost.width + Theme.Radius.bar)
+            .offset(x: ghost.start - Theme.Radius.bar)
+            .allowsHitTesting(false)
+        }
+    }
+
+    /// Where the tail sits on screen, if there is one.
+    private func tailSpans(_ node: EffectNode) -> [VisibleSpan] {
+        let tail = tailDuration(node)
+        guard tail > 1 else { return [] }
+
+        // One per pass, not one at the end.
+        //
+        // A loop waits for a pass to finish dying before starting the next, so
+        // every iteration has a tail — and left undrawn those became plain gaps
+        // between the repeat ghosts, which says "nothing here" where the answer
+        // is "still finishing". Drawing each one makes a looped clip read the
+        // way it plays: block, fade, block, fade.
+        //
+        // Placed from the pass length rather than from the played total, which
+        // already counts the final tail: measuring from there put it a whole
+        // tail beyond where it belongs.
+        let pass = passDuration(node)
+        let ranges = (0 ..< passCount(node)).map { index -> ClosedRange<Double> in
+            let from = node.startTime + pass * Double(index) + node.duration
+            return from ... (from + tail)
+        }
+        return VisibleSpan.spans(of: ranges, scale: scale)
+    }
+
     /// The stretch a looped clip covers beyond its own block.
     @ViewBuilder
     private func repeatGhost(_ node: EffectNode, span: VisibleSpan) -> some View {
@@ -1352,15 +1447,17 @@ struct TrackRowView: View {
         // that a gap sits between them. Drawn as separate blocks the loop reads
         // the way it plays — and the gaps are visible as gaps rather than as
         // part of the clip.
-        let played = playedDuration(node)
-        if played > node.duration, node.duration > 0 {
-            // Each pass takes the clip's own length plus whatever silence
-            // follows it, so the stride comes out of the played span rather
-            // than being read from the filter — a clip can carry more than one
-            // filter that lengthens it.
-            let passes = max(1, Int((played / node.duration).rounded(.down)) - 1)
-            let stride = (played - node.duration) / Double(passes)
+        // The pass length and the count come from the model, not from
+        // dividing the total by the clip.
+        //
+        // That division only held while a pass *was* the clip. Once the
+        // particle tail joined the loop's period it started reporting one
+        // pass too many, at a stride short of the real one — measured on a
+        // Portal ×3, three ghosts where there are two, each 1667ms adrift.
+        let stride = passDuration(node)
+        let passes = passCount(node) - 1
 
+        if passes >= 1, stride > 0 {
             // Clipped to the window, like the clip itself.
             //
             // Drawn from raw times, a pass was placed and sized in the
@@ -1372,7 +1469,7 @@ struct TrackRowView: View {
             // keeps a zoomed-in timeline drawable.
             let ranges = (1...passes).map { pass -> ClosedRange<Double> in
                 let from = node.startTime + stride * Double(pass)
-                return from...(from + min(node.duration, stride))
+                return from...(from + node.duration)
             }
 
             ForEach(VisibleSpan.spans(of: ranges, scale: scale), id: \.index) { ghost in

@@ -233,8 +233,25 @@ public final class EditorShellModel {
         // Every effect's presets, filtered to what the library can actually
         // run. The panel groups them by `effectType`, so a new effect's presets
         // appear under it without any UI work.
-        (TextEffect.presets + EmitterEffect.presets)
+        (TextEffect.presets + EmitterEffect.presets + EmitterEffect.compoundPresets)
             .filter { library.descriptor(for: $0.effectType) != nil }
+    }
+
+    /// Presets grouped into the packs they belong to, in a stable order.
+    public var packs: [(name: String, presets: [EffectPreset])] {
+        let packed = presets.compactMap { preset -> (String, EffectPreset)? in
+            guard let pack = preset.pack else { return nil }
+            return (pack, preset)
+        }
+
+        var order: [String] = []
+        var byPack: [String: [EffectPreset]] = [:]
+        for (name, preset) in packed {
+            if byPack[name] == nil { order.append(name) }
+            byPack[name, default: []].append(preset)
+        }
+
+        return order.map { ($0, byPack[$0] ?? []) }
     }
 
     // ─── Placing ─────────────────────────────────────────────────────────────
@@ -292,6 +309,36 @@ public final class EditorShellModel {
         }
         if case let .number(y) = preset.values[EmitterEffect.Param.y] {
             node.transform[value: .y] = y
+        }
+
+        // The preset's own layers, each a node in its own right.
+        //
+        // Built here rather than described in the preset because only this
+        // knows how to make an id and a seed — and a seed that repeated across
+        // layers would give two of them the same particle field.
+        node.layers = preset.layers.enumerated().compactMap { index, layer in
+            guard let layerDescriptor = library.descriptor(for: layer.effectType) else {
+                return nil
+            }
+            var child = EffectNode(
+                id: "\(node.id)/L\(index)",
+                type: layer.effectType,
+                name: layer.name,
+                layer: node.layer,
+                startTime: 0,
+                duration: preset.duration,
+                seed: EffectNode.layerSeed(from: node.seed, index: index),
+                values: layerDescriptor.defaultValues.merging(layer.values) { _, new in new },
+            )
+            // A layer's position is a transform too, for the same reason the
+            // parent's is.
+            if case let .number(x) = layer.values[EmitterEffect.Param.x] {
+                child.transform[value: .x] = x
+            }
+            if case let .number(y) = layer.values[EmitterEffect.Param.y] {
+                child.transform[value: .y] = y
+            }
+            return child
         }
 
         effects[node.id] = node
@@ -566,6 +613,9 @@ public final class EditorShellModel {
         // A fresh seed, for the same reason a duplicate gets one: the same
         // field drawn twice is not a second effect.
         node.seed = source.seed &+ 0x9E37_79B9
+        // And its layers, re-homed under the new id for the same reason the
+        // filters were reidentified.
+        node.layers = source.layersRehomed(under: node.id, seed: node.seed)
         effects[node.id] = node
 
         selectedNodeID = node.id
@@ -624,6 +674,22 @@ public final class EditorShellModel {
 
     public func setValue(_ value: EffectValue, for parameterID: String, on nodeID: EffectNode.ID) {
         effects.setValue(value, for: parameterID, on: nodeID)
+        effectsChanged()
+    }
+
+    /// Sets a parameter on one layer of a compound effect.
+    public func setLayerValue(
+        _ value: EffectValue,
+        for parameterID: String,
+        onLayer layerID: EffectNode.ID,
+        in nodeID: EffectNode.ID,
+    ) {
+        effects.setValue(value, for: parameterID, onLayer: layerID, in: nodeID)
+        effectsChanged()
+    }
+
+    public func toggleLayerVisibility(_ layerID: EffectNode.ID, in nodeID: EffectNode.ID) {
+        effects.toggleLayerVisibility(layerID, in: nodeID)
         effectsChanged()
     }
 
@@ -993,6 +1059,94 @@ public final class EditorShellModel {
         return cached(node.id, in: &spriteCounts) { evaluator.evaluate(node).count }
     }
 
+    /// When a clip actually stops playing, tail and loops included.
+    ///
+    /// Not `node.endTime`, which is where the *clip* ends — the thing a drag
+    /// resizes and keyframes are measured against. A particle lives its whole
+    /// life from wherever it was born, so an emitter releasing right up to the
+    /// last instant has its final ones on screen seconds later; a looped clip
+    /// runs several times over. Measured, a five-second Portal under a ×4 loop
+    /// plays for thirty.
+    ///
+    /// The timeline draws this one. Reporting the clip's own end has the block
+    /// finish while the effect is still going, which makes the one thing a
+    /// timeline exists to show a lie — and it is what someone reads to decide
+    /// where the next effect goes.
+    ///
+    /// Read from the sprites rather than worked out from the parameters: life,
+    /// life randomness, emission mode and every filter all move it, and a
+    /// second formula tracking all of them would drift from the first.
+    public func playbackEnd(of node: EffectNode) -> Double {
+        playbackEnd(of: node, key: node.id)
+    }
+
+    /// - Parameter key: distinct from the node's id where the caller asks about
+    ///   a **modified** copy — `rawTail` strips the loop off before measuring,
+    ///   and cached under the plain id that answer would be handed back for the
+    ///   looped node too. Same id, different question.
+    private func playbackEnd(of node: EffectNode, key: String) -> Double {
+        invalidateCachesIfNeeded()
+        return cached(key, in: &playbackEnds) {
+            let sprites = evaluator.evaluate(node)
+
+            var last = node.endTime
+            for sprite in sprites {
+                for command in sprite.commands {
+                    last = max(last, command.endTime)
+                }
+                // A loop keeps its commands in the body, so the group's own
+                // span is what plays — the commands inside say nothing about
+                // how many times round it goes.
+                for loop in sprite.loops {
+                    let body = loop.commands.map(\.endTime).max() ?? 0
+                    last = max(last, loop.startTime + body * Double(loop.loopCount))
+                }
+            }
+            return last
+        }
+    }
+
+    /// How far past its own block a clip is still drawing, in milliseconds.
+    ///
+    /// Separate from `duration(of:on:)`, which reports repeats: a tail is the
+    /// **same** pass still finishing, a repeat is another one starting. Drawn
+    /// as one number, a clip whose particles outlive it grew a ghost for a
+    /// repetition that never happens.
+    /// How long one pass of a clip lasts, tail included.
+    ///
+    /// Handed to the timeline rather than left for it to divide out: the repeat
+    /// ghosts used to infer the pass length from the total, which only works
+    /// while a pass is exactly the clip. Once the tail joined the period that
+    /// division started reporting a pass too many, at the wrong stride.
+    public func passDuration(of nodeID: EffectNode.ID) -> Double {
+        guard let node = effects[nodeID] else { return 0 }
+        return node.duration + rawTail(of: node)
+    }
+
+    /// How many times a clip plays: once, plus whatever a loop adds.
+    public func passCount(of nodeID: EffectNode.ID) -> Int {
+        guard let node = effects[nodeID] else { return 1 }
+        return node.loopRepeats
+    }
+
+    public func tail(of nodeID: EffectNode.ID) -> Double {
+        guard let node = effects[nodeID] else { return 0 }
+        return rawTail(of: node)
+    }
+
+    /// How far one pass runs past the clip's own length.
+    ///
+    /// Measured on a single pass, before any loop multiplies it: a repeat
+    /// restarts the whole thing, tail and all, so the overhang is a property of
+    /// the pass rather than of the sequence.
+    private func rawTail(of node: EffectNode) -> Double {
+        var unlooped = node
+        unlooped.filters = node.filters.filter { $0.type != "loop" }
+
+        let played = playbackEnd(of: unlooped, key: node.id + "#unlooped") - node.startTime
+        return max(0, played - unlooped.duration)
+    }
+
     /// Answers the inspector asks every time it draws, kept until the effects
     /// change.
     ///
@@ -1009,6 +1163,7 @@ public final class EditorShellModel {
     /// says when the answers changed.
     @ObservationIgnored private var spriteCounts: [EffectNode.ID: Int] = [:]
     @ObservationIgnored private var seamSeverities: [EffectNode.ID: Double] = [:]
+    @ObservationIgnored private var playbackEnds: [EffectNode.ID: Double] = [:]
     @ObservationIgnored private var cacheRevision = -1
 
     /// Drops both caches when the effects have moved on.
@@ -1021,6 +1176,7 @@ public final class EditorShellModel {
         cacheRevision = effectsRevision
         spriteCounts.removeAll(keepingCapacity: true)
         seamSeverities.removeAll(keepingCapacity: true)
+        playbackEnds.removeAll(keepingCapacity: true)
     }
 
     private func cached<Value>(
@@ -1058,7 +1214,20 @@ public final class EditorShellModel {
     /// applied.
     public func duration(of clipDuration: Double, on nodeID: EffectNode.ID) -> Double {
         guard let node = effects[nodeID] else { return clipDuration }
-        return evaluator.duration(of: clipDuration, on: node)
+
+        // The tail first, then the filters.
+        //
+        // A loop's period is the longest command in its body — the clip **and
+        // its tail** — so the next pass only starts once the previous one has
+        // finished dying out. Multiplying the bare clip length instead reported
+        // the repeats closer together than they actually play, which is what
+        // put the ghosts out of step with the sound.
+        //
+        // Order matters: the tail belongs to one pass, so it goes in before the
+        // count multiplies it. `tail(of:)` unwinds the same arithmetic to find
+        // the overhang of the last pass, which is the only one that shows.
+        let onePass = clipDuration + rawTail(of: node)
+        return evaluator.duration(of: onePass, on: node)
     }
 
     /// How much a track's filters multiply its sprite count.

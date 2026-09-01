@@ -89,7 +89,9 @@ struct SidePanelView: View {
                 ForEach(shell.library.descriptors, id: \.type) { descriptor in
                     EffectGroup(
                         descriptor: descriptor,
-                        presets: shell.presets.filter { $0.effectType == descriptor.type },
+                        presets: shell.presets.filter {
+                            $0.effectType == descriptor.type && $0.pack == nil
+                        },
                         isExpanded: expandedEffect == descriptor.type,
                         toggleExpanded: {
                             expandedEffect = expandedEffect == descriptor.type
@@ -99,6 +101,25 @@ struct SidePanelView: View {
                         // Placed where the playhead is, the way a video editor
                         // drops a clip at the cursor.
                         addBlank: { shell.addEffect(descriptor, at: playheadTime) },
+                        addPreset: { shell.addPreset($0, at: playheadTime) },
+                    )
+                }
+
+                // Packs, after the effects that build them.
+                //
+                // Their own rows rather than presets filed under "Emitter":
+                // a compound is several emitters wearing one name, so listing
+                // it beside fifteen single-emitter presets buries the ones
+                // worth reaching for and implies they are variations on the
+                // row above.
+                ForEach(shell.packs, id: \.name) { pack in
+                    PackGroup(
+                        name: pack.name,
+                        presets: pack.presets,
+                        isExpanded: expandedEffect == pack.name,
+                        toggleExpanded: {
+                            expandedEffect = expandedEffect == pack.name ? nil : pack.name
+                        },
                         addPreset: { shell.addPreset($0, at: playheadTime) },
                     )
                 }
@@ -273,6 +294,73 @@ private struct EffectGroup: View {
                 }
                 // Indented so the presets read as belonging to the effect above
                 // rather than as siblings of it.
+                .padding(.leading, Theme.Spacing.compact)
+            }
+        }
+        .animation(Theme.Motion.quick, value: isExpanded)
+    }
+}
+
+/// A pack of built effects, as one collapsible row.
+///
+/// Shaped like `EffectGroup` on purpose: a pack is browsed the same way an
+/// effect's presets are, and giving it its own visual language would make two
+/// things that behave alike look unrelated.
+private struct PackGroup: View {
+    let name: String
+    let presets: [EffectPreset]
+    let isExpanded: Bool
+    let toggleExpanded: () -> Void
+    let addPreset: (EffectPreset) -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
+            Button(action: toggleExpanded) {
+                HStack(spacing: Theme.Spacing.snug) {
+                    Image(systemName: "chevron.right")
+                        .font(Theme.Typography.micro)
+                        .foregroundStyle(Theme.Palette.tertiary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+
+                    Image(systemName: "shippingbox")
+                        .font(Theme.Typography.label)
+                        .foregroundStyle(Theme.Palette.secondary)
+                        .frame(width: Theme.Size.ring * 2)
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(name)
+                            .font(Theme.Typography.label)
+                            .foregroundStyle(Theme.Palette.primary)
+                        Text("Pack")
+                            .font(Theme.Typography.micro)
+                            .foregroundStyle(Theme.Palette.tertiary)
+                    }
+
+                    Spacer(minLength: 0)
+
+                    Text("\(presets.count)")
+                        .font(Theme.Typography.micro)
+                        .foregroundStyle(Theme.Palette.tertiary)
+                }
+                .padding(.horizontal, Theme.Spacing.compact)
+                .frame(height: Theme.Size.control)
+                .background {
+                    RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                        .fill(isHovered ? Theme.Fill.rowHover : .clear)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .onHover { isHovered = $0 }
+
+            if isExpanded {
+                VStack(spacing: Theme.Spacing.hair) {
+                    ForEach(presets) { preset in
+                        PresetRow(preset: preset) { addPreset(preset) }
+                    }
+                }
                 .padding(.leading, Theme.Spacing.compact)
             }
         }

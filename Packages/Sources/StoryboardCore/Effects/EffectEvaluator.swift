@@ -63,7 +63,22 @@ public struct EffectEvaluator: Sendable {
         let context = EffectContext(descriptor: descriptor, node: node)
         var rng = EffectRandom(seed: node.seed)
 
-        let produced = effect.evaluate(in: context, rng: &rng)
+        var produced = effect.evaluate(in: context, rng: &rng)
+
+        // Layers, drawn as part of this effect.
+        //
+        // Evaluated whole — each carries its own parameters, transform and
+        // filters, so a layer is worked out exactly as a clip is — and appended
+        // in order, which is the order they draw in. The parent's transform
+        // below then carries the lot as one, which is what makes a compound
+        // effect move as a single thing.
+        for layer in node.layers where layer.isVisible {
+            var nested = layer
+            // Timed against the parent, not the project: a layer sits inside
+            // its clip, and the clip's own offset is applied once at the end.
+            nested.startTime = 0
+            produced += evaluate(nested)
+        }
 
         // The clip's transform first, then its filters.
         //

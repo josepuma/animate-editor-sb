@@ -34,6 +34,11 @@ public struct EmitterEffect: Effect {
         public static let y = "y"
         public static let width = "width"
         public static let height = "height"
+        public static let shape = "shape"
+        public static let radial = "radial"
+        public static let swirl = "swirl"
+        public static let tilt = "tilt"
+        public static let bands = "bands"
 
         public static let direction = "direction"
         public static let spread = "spread"
@@ -78,6 +83,232 @@ public struct EmitterEffect: Effect {
         case bursts = "Repeating Bursts"
     }
 
+    /// Where inside the emitter a particle is born.
+    ///
+    /// Without this an emitter is always a rectangle, so a circle can only be
+    /// faked — and a preset that promises a ring and emits a bar is a preset
+    /// whose name lies. Width and height stay the extents in every case, so
+    /// the same two numbers describe all four.
+    public enum Shape: String, CaseIterable {
+        /// Anywhere inside the box.
+        case rectangle = "Rectangle"
+        /// Anywhere inside the ellipse it contains.
+        ///
+        /// Sampled by area, not by picking a radius uniformly: a uniform radius
+        /// crowds the centre, because the outer rings hold more space than the
+        /// inner ones and get the same share of particles.
+        case ellipse = "Ellipse"
+        /// On the ellipse's edge — the ring.
+        case ring = "Ring"
+        /// A single point, whatever the extents say.
+        ///
+        /// Not the same as width and height at zero: it stays a point while
+        /// those numbers are kept, so switching back restores the field that
+        /// was already tuned.
+        case point = "Point"
+        /// Bands of a sphere: rings stacked by latitude.
+        ///
+        /// A sphere drawn as particles is a cloud; a sphere drawn as *rings* is
+        /// a solid, because the bands are what the eye traces to read a surface
+        /// curving away. Each band is narrower and leans harder the closer it
+        /// sits to a pole, which is one circle seen at every angle at once.
+        case sphere = "Sphere"
+    }
+
+    /// Where one particle is born, relative to the emitter's centre.
+    static func spawnOffset(
+        shape: Shape,
+        halfWidth: Double,
+        halfHeight: Double,
+        bands: Int = 1,
+        tilt: Double = 0,
+        rng: inout EffectRandom,
+    ) -> (x: Double, y: Double, phase: Double, tilt: Double) {
+        switch shape {
+        case .point:
+            (0, 0, 0, tilt)
+
+        case .rectangle:
+            (rng.symmetric(halfWidth), rng.symmetric(halfHeight), 0, tilt)
+
+        case .ring:
+            {
+                let angle = rng.between(0, 2 * .pi)
+                return (cos(angle) * halfWidth, sin(angle) * halfHeight, angle, tilt)
+            }()
+
+        case .sphere:
+            {
+                // Which band, and how far up the sphere it sits. Latitude runs
+                // −1 at the south pole to +1 at the north; the bands land at
+                // the midpoints so none of them collapses onto a pole, where a
+                // ring has no radius left to draw.
+                let count = max(1, bands)
+                let index = rng.integer(in: 0 ... (count - 1))
+                let latitude = count == 1
+                    ? 0
+                    : (Double(index) + 0.5) / Double(count) * 2 - 1
+
+                // The band's own circle: a slice through a sphere is a circle
+                // whose radius follows the cosine of its latitude, which is
+                // what makes the bands crowd towards the poles.
+                let ringRadius = (1 - latitude * latitude).squareRoot()
+                let angle = rng.between(0, 2 * .pi)
+
+                // How far the sphere itself is turned: at 0 the bands are
+                // seen edge-on and read as straight lines, and it is the lean
+                // that opens them into the ellipses that describe a surface.
+                // Bands near a pole are already almost face-on and open
+                // furthest, which is what makes the top and bottom of a
+                // wireframe globe read as circles.
+                //
+                // Floored, because a sphere with no lean is a stack of
+                // horizontal lines — technically what zero degrees means, and
+                // never what someone reaching for a sphere wants. A ring keeps
+                // its honest flat reading; a sphere is a solid by definition.
+                let openness = max(0.45, sin(min(tilt, 89) * .pi / 180))
+                let bandOpening = openness * (0.35 + 0.65 * abs(latitude))
+
+                return (
+                    cos(angle) * halfWidth * ringRadius,
+                    // The band's own height on the sphere, plus how far its
+                    // ellipse reaches above and below that line.
+                    //
+                    // Height comes from latitude alone: a sphere is as tall as
+                    // it is wide however it is turned, and squashing it by the
+                    // lean — the right move for a single ring — collapses it
+                    // into the disc it is meant not to be.
+                    // Normalised against how far the whole set actually
+                    // reaches, not against one band's worst case: a band's
+                    // ellipse extends past its own latitude, so left unpaid it
+                    // stretches the poles into an egg — and paid for band by
+                    // band it squashes every other one flat.
+                    (latitude + sin(angle) * ringRadius * bandOpening)
+                        / Self.sphereReach(bands: count, opening: openness)
+                        * halfHeight,
+                    angle,
+                    // Flat-on where the band opens widest, edge-on where it
+                    // closes to a line.
+                    min(89, 90 - bandOpening * 90)
+                )
+            }()
+
+        case .ellipse:
+            {
+                let angle = rng.between(0, 2 * .pi)
+                // The square root is what keeps the middle from clogging: area
+                // grows with the square of the radius, so a uniform radius
+                // gives the crowded centre and the roomy rim the same count.
+                let radius = sqrt(rng.unit())
+                return (
+                    cos(angle) * radius * halfWidth,
+                    sin(angle) * radius * halfHeight,
+                    angle,
+                    tilt,
+                )
+            }()
+        }
+    }
+
+    /// How a ring tilted away from the viewer changes one particle.
+    ///
+    /// osu! has no 3D, but a ring seen at an angle is not just a squashed
+    /// ellipse — that is the shape a *flat* ring would make. What sells the
+    /// tilt is that each particle is affected differently by where it sits on
+    /// the circle, and all three of these are readings of the same rotation:
+    ///
+    /// | | At the sides | At the top and bottom |
+    /// |---|---|---|
+    /// | Facing | Edge-on: narrow and tall | Flat-on: wide and short |
+    /// | Distance | Level with the viewer | Far at the top, near at the bottom |
+    ///
+    /// Handing all three to `_V`, scale and opacity is 2D standing in for
+    /// depth, and it costs nothing extra: the commands were being written
+    /// anyway.
+    ///
+    /// - Parameters:
+    ///   - phase: where on the circle the particle sits, in radians, measured
+    ///     from the right and turning down the screen.
+    ///   - tilt: how far the ring leans away, in degrees. 0 faces the viewer.
+    static func perspective(phase: Double, tilt: Double) -> (
+        stretch: Double, scale: Double, brightness: Double
+    ) {
+        guard tilt > 0 else { return (1, 1, 1) }
+
+        let lean = cos(min(tilt, 89) * .pi / 180)
+
+        // How much of the particle's own facing is turned away. At the sides
+        // of the ring it is edge-on to the tilt and keeps its height; across
+        // the top and bottom it lies flat and loses it.
+        let facing = abs(sin(phase))
+        let stretch = 1 - (1 - lean) * facing
+
+        // Depth: −1 at the back of the ring, +1 at the front.
+        //
+        // The back is the *top* of the screen, because y grows downward here —
+        // getting that sign wrong makes the far half the larger and brighter
+        // one, which reads as a bowl rather than as a ring leaning away.
+        let depth = sin(phase)
+        let scale = 1 + depth * 0.28 * (1 - lean)
+        let brightness = 1 + depth * 0.35 * (1 - lean)
+
+        return (stretch, scale, brightness)
+    }
+
+    /// How far above the equator a sphere's bands actually reach, as a
+    /// fraction of its radius.
+    ///
+    /// The outermost band sits high *and* opens upward, so the two add. Solved
+    /// over the bands rather than assumed, because which one reaches furthest
+    /// depends on how many there are: with few bands the top one sits well
+    /// short of the pole and its opening still clears everything below.
+    static func sphereReach(bands: Int, opening rawOpening: Double) -> Double {
+        let opening = max(0.45, rawOpening)
+        let count = max(1, bands)
+        var reach = 1.0
+
+        for index in 0 ..< count {
+            let latitude = count == 1
+                ? 0
+                : (Double(index) + 0.5) / Double(count) * 2 - 1
+            let ringRadius = (1 - latitude * latitude).squareRoot()
+            let bandOpening = opening * (0.35 + 0.65 * abs(latitude))
+            reach = max(reach, abs(latitude) + ringRadius * bandOpening)
+        }
+
+        return reach
+    }
+
+    /// Which way is "away from the centre", in degrees, for a particle at
+    /// `offset`.
+    ///
+    /// Not the angle of the point itself: on a stretched ellipse the outward
+    /// normal and the line back to the centre are different directions, and
+    /// using the latter makes a flattened ring spray sideways along its own
+    /// edge instead of away from it. The normal of `(x/a)² + (y/b)² = 1` is
+    /// `(x/a², y/b²)`, which is what this is.
+    static func outwardAngle(
+        _ offset: (x: Double, y: Double, phase: Double, tilt: Double),
+        halfWidth: Double,
+        halfHeight: Double,
+    ) -> Double {
+        let nx = halfWidth > 0 ? offset.x / (halfWidth * halfWidth) : offset.x
+        let ny = halfHeight > 0 ? offset.y / (halfHeight * halfHeight) : offset.y
+
+        // A particle exactly at the centre has no outward direction, so it gets
+        // one at random rather than all of them piling onto the same axis.
+        guard nx != 0 || ny != 0 else { return 0 }
+
+        // Quarter turn back, because Direction is not the mathematical angle.
+        //
+        // `Direction: 270` means *up* in this emitter, where `cos`/`sin` would
+        // call up −90. The two conventions are a quarter turn apart, and adding
+        // a raw `atan2` to a Direction crossed them: a "radial" ring threw its
+        // particles **along** the rim while the parameter said outward. Every
+        // preset using Radial was ninety degrees out.
+        return atan2(ny, nx) * 180 / .pi + 90
+    }
+
     /// Ceiling on the particle count.
     ///
     /// Not a performance guess: the renderer holds 60fps at a little over two
@@ -119,6 +350,62 @@ public struct EmitterEffect: Effect {
             // point is that a beatmap's own image can be typed in, and a choice
             // parameter can only hold what it declares. The inspector offers
             // the shapes alongside the field.
+            EffectParameter(
+                id: Param.shape,
+                name: "Shape",
+                group: "Emission",
+                defaultValue: .choice(Shape.rectangle.rawValue),
+                options: Shape.allCases.map(\.rawValue),
+            ),
+            // Turns "outward" into "around".
+            //
+            // The tangent to a circle is its normal turned a quarter turn, so
+            // this is that quarter turn made adjustable: 0 goes straight out,
+            // 90 runs along the rim, and everything between is a spiral. A ring
+            // of particles cannot rotate as an object — each one is born where
+            // it is born — so travelling *along* the rim is the only way energy
+            // circles a ring in this format.
+            EffectParameter(
+                id: Param.swirl,
+                name: "Swirl",
+                group: "Emission",
+                defaultValue: .number(0),
+                range: -90...90,
+                step: 1,
+                unit: "°",
+                presentation: .slider,
+            ),
+            // Zero by default: a flat ring is the honest reading of the
+            // extents, and perspective is something asked for.
+            EffectParameter(
+                id: Param.tilt,
+                name: "Tilt",
+                group: "Emission",
+                defaultValue: .number(0),
+                range: 0...85,
+                step: 1,
+                unit: "°",
+            ),
+            // Only read by the sphere: everything else has one band by
+            // definition. Kept low — each band is a line the eye follows, and
+            // past a dozen they stop reading as separate.
+            EffectParameter(
+                id: Param.bands,
+                name: "Bands",
+                group: "Emission",
+                defaultValue: .integer(7),
+                range: 1...16,
+                step: 1,
+            ),
+            // Off by default, because it only means anything once the shape is
+            // round: on a rectangle "outward" has no centre to point away from
+            // that Direction does not already say better.
+            EffectParameter(
+                id: Param.radial,
+                name: "Radial",
+                group: "Emission",
+                defaultValue: .toggle(false),
+            ),
             EffectParameter(
                 id: Param.burstCount,
                 name: "Bursts",
@@ -420,6 +707,22 @@ public struct EmitterEffect: Effect {
         let originY = TransformProperty.y.defaultValue
         let halfWidth = context.number(Param.width) / 2
         let halfHeight = context.number(Param.height) / 2
+        let shape = Shape(rawValue: context.choice(Param.shape)) ?? .rectangle
+        let radial = context.toggle(Param.radial)
+        let swirl = context.number(Param.swirl)
+        let tilt = context.number(Param.tilt)
+        let bands = context.integer(Param.bands)
+
+        // A ring that leans away is shorter on screen, by the cosine of the
+        // lean. Turning the particles without shortening the circle they sit on
+        // is half a perspective: the pieces face away while the outline stays
+        // as round as it was, which reads as a bug rather than as depth.
+        //
+        // A sphere works out its own vertical placement band by band, so the
+        // emitter-wide squash would count the same lean twice.
+        let leanHeight = shape == .sphere
+            ? halfHeight
+            : halfHeight * cos(min(tilt, 89) * .pi / 180)
 
         let direction = context.number(Param.direction)
         let spread = context.number(Param.spread)
@@ -431,6 +734,7 @@ public struct EmitterEffect: Effect {
 
         let life = context.number(Param.life)
         let lifeRandom = context.number(Param.lifeRandom)
+
         let scaleStart = context.number(Param.scaleStart)
         let scaleEnd = context.number(Param.scaleEnd)
         let scaleRandom = context.number(Param.scaleRandom)
@@ -477,18 +781,44 @@ public struct EmitterEffect: Effect {
             let particleLife = max(1, life * (1 + particle.symmetric(lifeRandom)))
             let death = birth + particleLife
 
-            let angle = (direction + particle.symmetric(spread)) * .pi / 180
+            // Position first, because a radial emitter takes its direction
+            // from where the particle landed.
+            let offset = Self.spawnOffset(
+                shape: shape,
+                halfWidth: halfWidth,
+                halfHeight: leanHeight,
+                bands: bands,
+                tilt: tilt,
+                rng: &particle,
+            )
+            let startX = originX + offset.x
+            let startY = originY + offset.y
+
+            // 2D standing in for depth: how this particle is turned, how far
+            // away it is, and how brightly that reads.
+            let view = Self.perspective(phase: offset.phase, tilt: offset.tilt)
+
+            // Outward from the emitter's centre, with Direction becoming a
+            // rotation of that fan rather than the fan itself — so a ring can
+            // still be tilted, and Spread still opens it.
+            let baseDegrees: Double = if radial {
+                // Swirl rides on the outward angle, because the tangent is
+                // defined against it: without a centre to be "out" from, there
+                // is nothing to turn a quarter of the way from either.
+                Self.outwardAngle(offset, halfWidth: halfWidth, halfHeight: leanHeight)
+                    + direction + swirl
+            } else {
+                direction
+            }
+            let angle = (baseDegrees + particle.symmetric(spread)) * .pi / 180
             let speed = velocity * (1 + particle.symmetric(velocityRandom))
             // Velocity is authored per second; every time here is milliseconds.
             let vx = cos(angle) * speed / 1000
             let vy = sin(angle) * speed / 1000
 
-            let startX = originX + particle.symmetric(halfWidth)
-            let startY = originY + particle.symmetric(halfHeight)
-
             // Multiplied rather than replaced: the emitter's scale is a
             // property of the emitter, and each particle keeps its own life.
-            let scaleJitter = 1 + particle.symmetric(scaleRandom)
+            let scaleJitter = (1 + particle.symmetric(scaleRandom)) * view.scale
             let startScale = scaleStart * scaleJitter
             let endScale = scaleEnd * scaleJitter
 
@@ -538,12 +868,17 @@ public struct EmitterEffect: Effect {
             let fadeInEnd = birth + particleLife * min(fadeIn, 1)
             let fadeOutStart = death - particleLife * min(fadeOut, 1)
 
+            // Depth reads as brightness as much as it does as size: the far
+            // side of a tilted ring is dimmer, and without that the two halves
+            // look like one flat band whatever their scale says.
+            let particleOpacity = min(1, opacity * view.brightness)
+
             if fadeIn > 0 {
                 commands.append(Command(
                     easing: .linear,
                     startTime: birth,
                     endTime: fadeInEnd,
-                    payload: .fade(start: 0, end: opacity),
+                    payload: .fade(start: 0, end: particleOpacity),
                 ))
             } else {
                 // Without an explicit start the sprite would hold its default
@@ -553,7 +888,7 @@ public struct EmitterEffect: Effect {
                     easing: .linear,
                     startTime: birth,
                     endTime: birth,
-                    payload: .fade(start: opacity, end: opacity),
+                    payload: .fade(start: particleOpacity, end: particleOpacity),
                 ))
             }
 
@@ -562,7 +897,7 @@ public struct EmitterEffect: Effect {
                     easing: .linear,
                     startTime: fadeOutStart,
                     endTime: death,
-                    payload: .fade(start: opacity, end: 0),
+                    payload: .fade(start: particleOpacity, end: 0),
                 ))
             } else if fadeOut > 0 {
                 // Fades that overlap: run one straight from the end of the
@@ -571,7 +906,7 @@ public struct EmitterEffect: Effect {
                     easing: .linear,
                     startTime: fadeInEnd,
                     endTime: death,
-                    payload: .fade(start: opacity, end: 0),
+                    payload: .fade(start: particleOpacity, end: 0),
                 ))
             } else {
                 commands.append(Command(
@@ -586,16 +921,22 @@ public struct EmitterEffect: Effect {
             //
             // `_V` only when the axes differ: it costs the same as `_S` but
             // writes twice the numbers, and a storyboard is a text file.
-            if stretch != 1 {
+            // The emitter's own stretch, times what the tilt does to this
+            // particular particle: at the sides of a leaning ring a particle is
+            // edge-on and keeps its height, across the top and bottom it lies
+            // flat and loses it.
+            let particleStretch = stretch * view.stretch
+
+            if particleStretch != 1 {
                 commands.append(Command(
                     easing: .linear,
                     startTime: birth,
                     endTime: startScale == endScale ? birth : death,
                     payload: .vectorScale(
                         startX: startScale,
-                        startY: startScale * stretch,
+                        startY: startScale * particleStretch,
                         endX: endScale,
-                        endY: endScale * stretch,
+                        endY: endScale * particleStretch,
                     ),
                 ))
             } else if startScale != endScale {
@@ -679,6 +1020,18 @@ public struct EmitterEffect: Effect {
                 defaultY: startY,
                 commands: commands,
             ))
+        }
+
+        // Far side first.
+        //
+        // Draw order is the one depth cue a storyboard has, and without it a
+        // particle at the back of the ring can land on top of one at the
+        // front — which reads as flat however carefully the rest is scaled.
+        // Only worth doing on a tilted ring: with no tilt every particle is
+        // the same distance away, and reordering would just cost the emitter
+        // its file order for nothing.
+        if shape == .sphere || (tilt > 0 && (shape == .ring || shape == .ellipse)) {
+            sprites.sort { a, b in a.defaultY < b.defaultY }
         }
 
         return sprites

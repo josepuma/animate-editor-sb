@@ -352,9 +352,11 @@ public struct EffectDocument: Sendable, Codable {
         guard let location = locate(nodeID) else { return nil }
         let original = tracks[location.track].nodes[location.node]
 
-        var copy = original
-        copy = EffectNode(
-            id: "\(original.type)-\(UUID().uuidString.prefix(8))",
+        let copyID = "\(original.type)-\(UUID().uuidString.prefix(8))"
+        let copySeed = original.seed &+ 0x9E37_79B9
+
+        let copy = EffectNode(
+            id: copyID,
             type: original.type,
             name: original.name,
             layer: original.layer,
@@ -362,13 +364,16 @@ public struct EffectDocument: Sendable, Codable {
             // the same moment look like one, and the copy would be invisible.
             startTime: original.endTime,
             duration: original.duration,
-            seed: original.seed &+ 0x9E37_79B9,
+            seed: copySeed,
             values: original.values,
             transform: original.transform,
             // Its filters too: a clip is what it does *and* how it looks, and a
             // copy that quietly drops the glow someone tuned is a copy of the
             // wrong thing.
             filters: original.filters.map { $0.reidentified() },
+            // Its layers too, re-homed: a compound is one thing made of
+            // several, and a copy missing them is a copy of the wrong thing.
+            layers: original.layersRehomed(under: copyID, seed: copySeed),
             isVisible: original.isVisible,
             isLocked: original.isLocked,
         )
@@ -381,6 +386,34 @@ public struct EffectDocument: Sendable, Codable {
     public mutating func setValue(_ value: EffectValue, for parameterID: String, on nodeID: EffectNode.ID) {
         guard let location = locate(nodeID) else { return }
         tracks[location.track].nodes[location.node].values[parameterID] = value
+    }
+
+    /// Sets a parameter on one layer of a compound effect.
+    ///
+    /// Addressed by the parent plus the layer's own id rather than by id alone:
+    /// a layer is not in `tracks`, so `locate` cannot find it, and giving
+    /// layers their own index would be a second place for the same truth.
+    public mutating func setValue(
+        _ value: EffectValue,
+        for parameterID: String,
+        onLayer layerID: EffectNode.ID,
+        in nodeID: EffectNode.ID,
+    ) {
+        guard let location = locate(nodeID) else { return }
+        guard let index = tracks[location.track].nodes[location.node]
+            .layers.firstIndex(where: { $0.id == layerID }) else { return }
+        tracks[location.track].nodes[location.node].layers[index].values[parameterID] = value
+    }
+
+    /// Shows or hides one layer of a compound effect.
+    ///
+    /// Worth having on its own: a compound is several things at once, and the
+    /// fastest way to learn what each contributes is to switch one off.
+    public mutating func toggleLayerVisibility(_ layerID: EffectNode.ID, in nodeID: EffectNode.ID) {
+        guard let location = locate(nodeID) else { return }
+        guard let index = tracks[location.track].nodes[location.node]
+            .layers.firstIndex(where: { $0.id == layerID }) else { return }
+        tracks[location.track].nodes[location.node].layers[index].isVisible.toggle()
     }
 
     // ─── Keyframes ───────────────────────────────────────────────────────────

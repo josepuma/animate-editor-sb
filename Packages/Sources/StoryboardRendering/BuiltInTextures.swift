@@ -90,6 +90,14 @@ public enum BuiltInTextures {
         case crescent = "twirl_02"
         case scratch = "scratch_01"
         case slash = "slash_01"
+        case slashWide = "slash_04"
+        case slashDeep = "slash_02"
+        case slashThin = "slash_03"
+        /// A soft vertical column — a beam, drawn rather than simulated.
+        case beam = "trace_01"
+        case beamThin = "trace_02"
+        case scorch = "scorch_01"
+        case rune = "symbol_01"
         case flare = "magic_03"
         case flareSoft = "magic_04"
         case runeRing = "magic_01"
@@ -117,6 +125,13 @@ public enum BuiltInTextures {
             case .crescent: "Crescent"
             case .scratch: "Scratch"
             case .slash: "Slash"
+            case .slashWide: "Wave"
+            case .slashDeep: "Slash Deep"
+            case .slashThin: "Slash Thin"
+            case .beam: "Beam"
+            case .beamThin: "Beam Thin"
+            case .scorch: "Scorch"
+            case .rune: "Rune"
             case .flare: "Flare"
             case .flareSoft: "Flare Soft"
             case .runeRing: "Rune Ring"
@@ -358,32 +373,59 @@ public enum BuiltInTextures {
         context.stroke(rect.insetBy(dx: -0.5, dy: -0.5))
     }
 
-    /// A vertical streak that fades at both ends.
+    /// A vertical streak: brightest and widest at the middle, tapering to
+    /// nothing at both ends.
     ///
     /// Vertical because a sprite is rotated to point where it is going, and
     /// pointing "up" is the convention the emitter's rotation is written
     /// against.
+    ///
+    /// Drawn row by row rather than by clipping a strip and filling it. A clip
+    /// has hard edges by definition, so the earlier version came out a solid
+    /// bar with square sides — and stretched by a preset it read as a plank
+    /// rather than as a trail of light. Both axes have to soften: **the sides
+    /// as much as the ends**, or the shape announces its own bounding box.
     private static func drawStreak(in context: CGContext, extent: CGFloat) {
-        guard let gradient = radial([(0, 1), (0.5, 0.85), (1, 0)]) else { return }
+        let maxWidth = extent * 0.16
+        let steps = Int(extent)
 
-        let width = extent * 0.14
-        context.saveGState()
-        context.clip(to: CGRect(
-            x: (extent - width) / 2, y: 0, width: width, height: extent,
-        ))
-        context.drawLinearGradient(
-            gradient,
-            start: CGPoint(x: 0, y: extent / 2),
-            end: CGPoint(x: 0, y: extent),
-            options: [.drawsBeforeStartLocation],
+        for step in 0 ..< steps {
+            let y = CGFloat(step)
+            // −1 at the bottom, 0 at the middle, +1 at the top.
+            let along = (y / extent) * 2 - 1
+            // Squared, so the taper is a spindle rather than a diamond: a
+            // trail of light narrows slowly and then falls away quickly.
+            let profile = max(0, 1 - along * along)
+
+            let width = maxWidth * profile
+            guard width > 0.5 else { continue }
+
+            // A soft core: the row is drawn as a short horizontal gradient, so
+            // the sides fade instead of ending.
+            let alpha = profile * profile
+            guard let row = horizontal([(0, 0), (0.5, alpha), (1, 0)]) else { continue }
+
+            context.saveGState()
+            context.clip(to: CGRect(x: (extent - width) / 2, y: y, width: width, height: 1))
+            context.drawLinearGradient(
+                row,
+                start: CGPoint(x: (extent - width) / 2, y: y),
+                end: CGPoint(x: (extent + width) / 2, y: y),
+                options: [],
+            )
+            context.restoreGState()
+        }
+    }
+
+    /// A gradient across white with the given stops, for drawing one row.
+    private static func horizontal(_ stops: [(CGFloat, CGFloat)]) -> CGGradient? {
+        let space = CGColorSpaceCreateDeviceRGB()
+        let colours = stops.map { white($0.1) } as CFArray
+        return CGGradient(
+            colorsSpace: space,
+            colors: colours,
+            locations: stops.map(\.0),
         )
-        context.drawLinearGradient(
-            gradient,
-            start: CGPoint(x: 0, y: extent / 2),
-            end: CGPoint(x: 0, y: 0),
-            options: [.drawsBeforeStartLocation],
-        )
-        context.restoreGState()
     }
 
     /// A hollow ring with soft edges, for shockwaves and bubbles.

@@ -148,6 +148,32 @@ struct InspectorView: View {
                 }
             }
         }
+
+        layerSections(node)
+    }
+
+    /// A compound effect's further layers, each with its own parameters.
+    ///
+    /// Open rather than behind a picker: a compound is one thing made of
+    /// several, and what someone does with it is compare them — brighten the
+    /// core against the haze, thin the embers against the flame. A picker makes
+    /// that two clicks per glance and hides that the layers exist at all.
+    @ViewBuilder
+    private func layerSections(_ node: EffectNode) -> some View {
+        ForEach(node.layers) { layer in
+            if let descriptor = shell.library.descriptor(for: layer.type) {
+                LayerSection(
+                    layer: layer,
+                    descriptor: descriptor,
+                    toggle: { shell.toggleLayerVisibility(layer.id, in: node.id) },
+                    onChange: { parameter, value in
+                        shell.setLayerValue(
+                            value, for: parameter, onLayer: layer.id, in: node.id,
+                        )
+                    },
+                )
+            }
+        }
     }
 
     /// The selected keyframe: its time, its value, and the curve leaving it.
@@ -926,4 +952,72 @@ private struct TrackColourOption: Hashable, Identifiable {
 
     static let all: [TrackColourOption] =
         [TrackColourOption(nil)] + TrackColour.allCases.map(TrackColourOption.init)
+}
+
+
+/// One layer of a compound effect, with its parameters laid out below it.
+///
+/// Its groups are flattened into one block: a layer already sits inside the
+/// parent's list, and nesting a second level of headed groups under it makes
+/// three levels of indentation for a handful of fields.
+private struct LayerSection: View {
+    let layer: EffectNode
+    let descriptor: EffectDescriptor
+    let toggle: () -> Void
+    let onChange: (String, EffectValue) -> Void
+
+    /// Collapsed by default.
+    ///
+    /// Every layer open at once is thirty rows before the first one anybody
+    /// wants — the parent's own parameters are already above. Open is one
+    /// click, and which layer is open is the question being asked.
+    @State private var isExpanded = false
+
+    var body: some View {
+        FieldGroup {
+            VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
+                header
+
+                if isExpanded {
+                    ForEach(descriptor.parameters, id: \.id) { parameter in
+                        ParameterControl(
+                            parameter: parameter,
+                            value: layer.values[parameter.id] ?? parameter.defaultValue,
+                            onChange: { onChange(parameter.id, $0) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: Theme.Spacing.snug) {
+            Button(action: { isExpanded.toggle() }) {
+                HStack(spacing: Theme.Spacing.snug) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(Theme.Typography.micro)
+                        .foregroundStyle(Theme.Palette.tertiary)
+                    Text(layer.name)
+                        .font(Theme.Typography.label)
+                        .foregroundStyle(
+                            layer.isVisible ? Theme.Palette.primary : Theme.Palette.tertiary,
+                        )
+                    Spacer(minLength: 0)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+
+            // Switching one layer off is the fastest way to learn what it
+            // contributes, which is most of what tuning a compound is.
+            Button(action: toggle) {
+                Image(systemName: layer.isVisible ? "eye" : "eye.slash")
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.tertiary)
+            }
+            .buttonStyle(.plain)
+            .help(layer.isVisible ? "Hide layer" : "Show layer")
+        }
+    }
 }

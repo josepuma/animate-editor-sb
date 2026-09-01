@@ -23,6 +23,40 @@ public struct EffectPreset: Sendable, Identifiable {
     public var duration: Double
     public var values: [String: EffectValue]
 
+    /// Further layers the preset brings with it.
+    ///
+    /// What makes a compound preset: a circle of fire is a base, embers and a
+    /// halo, each with its own sprite and numbers. Dropped from the library it
+    /// arrives whole — one item to place, several to tune.
+    ///
+    /// Described rather than built: a preset is values, and a layer is more
+    /// values. Whoever places it turns these into nodes, which is the only
+    /// place that knows how to make an id or a seed.
+    public var layers: [Layer]
+
+    /// The pack this belongs to, if it is not simply one of its effect's own
+    /// presets.
+    ///
+    /// A compound is several emitters wearing one name, so filing it under
+    /// "Emitter" beside fifteen single-emitter presets says the wrong thing
+    /// twice: it buries the ones that are worth reaching for, and it implies
+    /// they are variations on the row above rather than built things. `nil`
+    /// keeps a preset with its effect, which is right for the plain ones.
+    public var pack: String?
+
+    /// One layer of a compound preset.
+    public struct Layer: Sendable {
+        public let effectType: String
+        public var name: String
+        public var values: [String: EffectValue]
+
+        public init(effectType: String, name: String, values: [String: EffectValue]) {
+            self.effectType = effectType
+            self.name = name
+            self.values = values
+        }
+    }
+
     public init(
         id: String,
         name: String,
@@ -30,7 +64,11 @@ public struct EffectPreset: Sendable, Identifiable {
         summary: String,
         duration: Double = 4000,
         values: [String: EffectValue],
+        layers: [Layer] = [],
+        pack: String? = nil,
     ) {
+        self.layers = layers
+        self.pack = pack
         self.id = id
         self.name = name
         self.effectType = effectType
@@ -74,6 +112,16 @@ public enum BuiltInSprite {
     public static let crescent = "__builtin__/twirl_02.png"
     public static let scratch = "__builtin__/scratch_01.png"
     public static let slash = "__builtin__/slash_01.png"
+    /// A broad, clean arc — the shape a wave front makes.
+    public static let slashWide = "__builtin__/slash_04.png"
+    public static let slashDeep = "__builtin__/slash_02.png"
+    public static let slashThin = "__builtin__/slash_03.png"
+    /// A soft vertical column: a beam as a drawing, not as a stream of
+    /// particles pretending to be one.
+    public static let beam = "__builtin__/trace_01.png"
+    public static let beamThin = "__builtin__/trace_02.png"
+    public static let scorch = "__builtin__/scorch_01.png"
+    public static let rune = "__builtin__/symbol_01.png"
     public static let flare = "__builtin__/magic_03.png"
     public static let flareSoft = "__builtin__/magic_04.png"
     public static let runeRing = "__builtin__/magic_01.png"
@@ -87,7 +135,9 @@ public enum BuiltInSprite {
         lightning, lightningWide, bolt, boltThin,
         flame, flameTall, flameWisp, ember,
         muzzle, muzzleWide, arc, crescent,
-        scratch, slash, flare, flareSoft, runeRing,
+        scratch, slash, slashWide, slashDeep, slashThin,
+        beam, beamThin, scorch, rune,
+        flare, flareSoft, runeRing,
         cloud, cloudWisp, sparkle, debris, pane,
     ]
 

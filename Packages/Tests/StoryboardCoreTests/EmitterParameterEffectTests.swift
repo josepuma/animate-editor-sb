@@ -77,6 +77,27 @@ struct EmitterParameterEffectTests {
 
         (EmitterEffect.Param.width, .number(200), [:]),
         (EmitterEffect.Param.height, .number(150), [:]),
+        (EmitterEffect.Param.shape, .choice("Ring"), [:]),
+        // Only the sphere stacks bands; every other shape has one.
+        (EmitterEffect.Param.bands, .integer(11), [
+            EmitterEffect.Param.shape: .choice("Sphere"),
+        ]),
+        // Swirl rides on the outward angle, so it needs Radial to act on.
+        (EmitterEffect.Param.swirl, .number(90), [
+            EmitterEffect.Param.shape: .choice("Ring"),
+            EmitterEffect.Param.radial: .toggle(true),
+        ]),
+        // Needs a round shape: on a rectangle there is no circle to lean.
+        (EmitterEffect.Param.tilt, .number(60), [
+            EmitterEffect.Param.shape: .choice("Ring"),
+        ]),
+        // Needs a round shape and an emitter with size: outward from a point
+        // has no meaning, and on a rectangle Direction already says it better.
+        (EmitterEffect.Param.radial, .toggle(true), [
+            EmitterEffect.Param.shape: .choice("Ring"),
+            EmitterEffect.Param.width: .number(200),
+            EmitterEffect.Param.height: .number(200),
+        ]),
 
         (EmitterEffect.Param.direction, .number(90), [:]),
         (EmitterEffect.Param.spread, .number(180), [:]),
