@@ -231,7 +231,50 @@ struct InspectorView: View {
             // than when the file will not open.
             transformCost(node)
             ForEach(TransformProperty.allCases, id: \.self) { property in
-                TransformRow(
+                transformRow(property, node: node)
+                    // The link is drawn across the pair rather than between
+                    // them: a row of its own took a whole row's height to say
+                    // something about its neighbours, and floated free of both.
+                    // Overlaid on the second axis, it reads as joining the two.
+                    .overlay(alignment: .topTrailing) {
+                        if property == .scaleY { scaleLink }
+                    }
+                    // Room for the link to sit beside the column rather than
+                    // over the panel's edge.
+                    .padding(.trailing, property == .scaleX || property == .scaleY
+                        ? Theme.Size.controlTiny
+                        : 0)
+            }
+        }
+    }
+
+    /// Ties the two scale axes together.
+    ///
+    /// Sits in the gutter beside the stopwatches, aligned with them, and spans
+    /// upward into the gap between the rows — the shape a chain link has in
+    /// every editor that pairs two fields.
+    private var scaleLink: some View {
+        IconButton(
+            systemImage: shell.scaleIsLinked ? "link" : "link.badge.plus",
+            size: Theme.Size.controlTiny,
+            isActive: shell.scaleIsLinked,
+            help: shell.scaleIsLinked
+                ? "Scale axes are linked — drag or type to scale both"
+                : "Scale axes move independently",
+        ) {
+            shell.scaleIsLinked.toggle()
+        }
+        // Out past the stopwatches and up into the gap between the rows.
+        //
+        // Sitting in their column it read as a third one, and its background
+        // touched the rows above and below — a control that joins two fields
+        // has to sit clear of both to look like it spans them.
+        .offset(x: Theme.Size.controlTiny, y: -Theme.Size.controlTiny / 2)
+    }
+
+    @ViewBuilder
+    private func transformRow(_ property: TransformProperty, node: EffectNode) -> some View {
+        TransformRow(
                     property: property,
                     track: node.transform[property],
                     current: node.transform.value(
@@ -247,7 +290,11 @@ struct InspectorView: View {
                         // it is a keyframe at the playhead. Always keyframing
                         // meant moving the playhead and typing a number planted
                         // keys on properties nobody was animating.
-                        if node.transform[property].isEmpty {
+                        if property == .scaleX || property == .scaleY {
+                            // Through the model, which carries the other axis
+                            // with it when the two are linked.
+                            shell.setScale(value, for: property, on: node.id, at: time)
+                        } else if node.transform[property].isEmpty {
                             shell.setTransformValue(value, for: property, on: node.id)
                         } else {
                             shell.setKeyframe(value, for: property, at: time, on: node.id)
@@ -261,12 +308,10 @@ struct InspectorView: View {
                             isEnabled, for: property, on: node.id, keeping: time,
                         )
                     },
-                    clear: { time in
-                        shell.clearKeyframes(for: property, on: node.id, keeping: time)
-                    },
-                )
-            }
-        }
+            clear: { time in
+                shell.clearKeyframes(for: property, on: node.id, keeping: time)
+            },
+        )
     }
 
     /// A line saying what an animated transform adds, when it adds enough to

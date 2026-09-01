@@ -26,28 +26,14 @@ struct KeyframeModeTests {
         #expect(shell.keyframeNodeID == node.id)
     }
 
-    /// The fallback that reads a lane's only effect is what made the bug
-    /// invisible, so it has to keep working where it is meant to.
-    @Test("a lane with one effect still resolves without a selection")
-    func laneFallbackStillWorks() {
+    /// Nothing selected means an empty panel, whatever lane is still lit.
+    @Test("deselecting a clip empties the panel")
+    func deselectingEmptiesThePanel() {
         let shell = EditorShellModel()
         let node = shell.addEffect(EmitterEffect.descriptor, at: 0)
-        shell.selectedNodeID = nil
         shell.selectedTrackID = shell.effects.trackID(of: node.id)
 
-        #expect(shell.selectedEffect?.id == node.id)
-    }
-
-    /// With several effects on a lane there is no "the" effect to show.
-    @Test("a lane with several effects resolves to none")
-    func crowdedLaneResolvesToNothing() {
-        let shell = EditorShellModel()
-        let first = shell.addEffect(EmitterEffect.descriptor, at: 0)
-        let trackID = shell.effects.trackID(of: first.id)
-        _ = shell.addEffect(EmitterEffect.descriptor, at: 5000, duration: 1000, on: trackID)
-
         shell.selectedNodeID = nil
-        shell.selectedTrackID = trackID
 
         #expect(shell.selectedEffect == nil)
     }

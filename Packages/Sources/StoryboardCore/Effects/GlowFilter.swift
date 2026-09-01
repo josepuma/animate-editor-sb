@@ -273,6 +273,13 @@ public struct EchoFilter: SpriteFilter {
 
     public func apply(to sprites: [StoryboardSprite], in context: FilterContext) -> [StoryboardSprite] {
         let count = max(1, context.integer(Param.count))
+        // Nothing to trail from when the subject holds still.
+        //
+        // An echo shows where something *was*, so a sprite that never moves
+        // stacks its copies exactly on top of itself — five sprites, one
+        // silhouette, and a file that got bigger for nothing. Text is the usual
+        // way to meet this: placed plain it does not travel, so an echo on it
+        // looks broken until the clip is given somewhere to go.
         let delay = context.number(Param.delay)
         let falloff = context.number(Param.falloff)
 

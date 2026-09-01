@@ -175,6 +175,18 @@ public enum TransformProperty: String, CaseIterable, Sendable {
     case scaleY
     case rotation
     case opacity
+    /// Colour, carried as three tracks so a keyframe stays one number.
+    ///
+    /// The alternative — a keyframe holding a value of any type — would touch
+    /// every piece of code that reads one, for a property the format already
+    /// splits into three numbers when it writes `_C`. Presented as one control
+    /// and animated as three, which is also how a colour reaches the file.
+    case red
+    case green
+    case blue
+
+    /// The three channels, in the order a colour command writes them.
+    public static let colourChannels: [TransformProperty] = [.red, .green, .blue]
 
     /// The two axes of scale, in the order they are shown.
     public static let scaleAxes: [TransformProperty] = [.scaleX, .scaleY]
@@ -185,6 +197,9 @@ public enum TransformProperty: String, CaseIterable, Sendable {
         case .y: "Position Y"
         case .scaleX: "Scale X"
         case .scaleY: "Scale Y"
+        case .red: "Red"
+        case .green: "Green"
+        case .blue: "Blue"
         case .rotation: "Rotation"
         case .opacity: "Opacity"
         }
@@ -196,6 +211,7 @@ public enum TransformProperty: String, CaseIterable, Sendable {
         case .x: 320
         case .y: 240
         case .scaleX, .scaleY: 1
+        case .red, .green, .blue: 255
         case .rotation: 0
         case .opacity: 1
         }
@@ -205,7 +221,7 @@ public enum TransformProperty: String, CaseIterable, Sendable {
         switch self {
         case .x, .y: "px"
         case .rotation: "°"
-        case .scaleX, .scaleY, .opacity: nil
+        case .scaleX, .scaleY, .opacity, .red, .green, .blue: nil
         }
     }
 
@@ -214,6 +230,7 @@ public enum TransformProperty: String, CaseIterable, Sendable {
         case .x: -400...1100
         case .y: -300...800
         case .scaleX, .scaleY: 0...20
+        case .red, .green, .blue: 0...255
         case .rotation: -1080...1080
         case .opacity: 0...1
         }
@@ -221,7 +238,7 @@ public enum TransformProperty: String, CaseIterable, Sendable {
 
     public var step: Double {
         switch self {
-        case .x, .y, .rotation: 1
+        case .x, .y, .rotation, .red, .green, .blue: 1
         case .scaleX, .scaleY, .opacity: 0.05
         }
     }

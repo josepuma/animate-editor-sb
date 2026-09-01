@@ -113,7 +113,9 @@ struct MetalCanvasView: NSViewRepresentable {
                     imageData(for: original, source: source)
                 }
             }
-            return BuiltInTextures.data(for: path) ?? source.imageData(for: path)
+            return TextTextures.data(for: path)
+                ?? BuiltInTextures.data(for: path)
+                ?? source.imageData(for: path)
         }
 
         func setWidescreen(_ isWidescreen: Bool) {

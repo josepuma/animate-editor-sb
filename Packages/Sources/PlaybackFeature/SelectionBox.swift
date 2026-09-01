@@ -231,15 +231,18 @@ struct SelectionBox: View {
                 //
                 // Inset so the corners keep their own margin — a resize handle
                 // buried under the move area cannot be reached.
+                // Inset only while the handles are inside it; once they move
+                // out, the whole interior is grabbable.
+                let inset = handlesSitOutside(box) ? 0 : Self.handleSize
                 Color.clear
                     .frame(
-                        width: max(box.width - Self.handleSize * 2, 1),
-                        height: max(box.height - Self.handleSize * 2, 1),
+                        width: max(box.width - inset * 2, 1),
+                        height: max(box.height - inset * 2, 1),
                     )
                     .contentShape(.rect)
                     .offset(
-                        x: box.minX - liveOffset.width + Self.handleSize,
-                        y: box.minY - liveOffset.height + Self.handleSize,
+                        x: box.minX - liveOffset.width + inset,
+                        y: box.minY - liveOffset.height + inset,
                     )
                     .gesture(moveGesture)
                     .onHover { hovering in
@@ -304,12 +307,12 @@ struct SelectionBox: View {
             }
         }
 
-        func point(in size: CGSize) -> CGPoint {
+        func point(in size: CGSize, outset: CGFloat = 0) -> CGPoint {
             switch self {
-            case .leading: CGPoint(x: 0, y: size.height / 2)
-            case .trailing: CGPoint(x: size.width, y: size.height / 2)
-            case .top: CGPoint(x: size.width / 2, y: 0)
-            case .bottom: CGPoint(x: size.width / 2, y: size.height)
+            case .leading: CGPoint(x: -outset, y: size.height / 2)
+            case .trailing: CGPoint(x: size.width + outset, y: size.height / 2)
+            case .top: CGPoint(x: size.width / 2, y: -outset)
+            case .bottom: CGPoint(x: size.width / 2, y: size.height + outset)
             }
         }
 
@@ -329,10 +332,10 @@ struct SelectionBox: View {
         }
 
         /// Where this corner sits inside a box of the given size.
-        func point(in size: CGSize) -> CGPoint {
+        func point(in size: CGSize, outset: CGFloat = 0) -> CGPoint {
             CGPoint(
-                x: alignment.horizontal == .leading ? 0 : size.width,
-                y: alignment.vertical == .top ? 0 : size.height,
+                x: alignment.horizontal == .leading ? -outset : size.width + outset,
+                y: alignment.vertical == .top ? -outset : size.height + outset,
             )
         }
 
@@ -378,7 +381,7 @@ struct SelectionBox: View {
                 height: side.isHorizontal ? Self.sideLength : Self.handleSize,
             )
             .contentShape(.rect.inset(by: -Self.handleSize))
-            .position(side.point(in: box.size))
+            .position(side.point(in: box.size, outset: handleOffset(box)))
             .gesture(stretchGesture(side))
             .onHover { hovering in setZone(.side(side), hovering) }
     }
@@ -413,6 +416,22 @@ struct SelectionBox: View {
             : ClipDrag(scaleX: 1, scaleY: factor)
     }
 
+    /// Whether the box is too small to hold its handles inside.
+    ///
+    /// A handle's grab area is far larger than the square drawn, and four of
+    /// them meeting in the middle leave nothing to drag: under about 50pt the
+    /// body is a sliver, and under 28pt it is gone entirely — the clip could
+    /// only be resized, never moved. The same problem the timeline's resize
+    /// ears already solve by sitting outside the clip.
+    private func handlesSitOutside(_ box: CGRect) -> Bool {
+        box.width < Self.crowdedSize || box.height < Self.crowdedSize
+    }
+
+    /// How far a handle moves out when it will not fit in.
+    private func handleOffset(_ box: CGRect) -> CGFloat {
+        handlesSitOutside(box) ? Self.handleSize * 1.5 : 0
+    }
+
     private func handle(_ corner: Corner, in box: CGRect) -> some View {
         // Placed by `position`, not by alignment inside a full-size frame.
         //
@@ -428,7 +447,7 @@ struct SelectionBox: View {
             // A 7pt square is a small target, so the grabbable area is larger
             // than what is drawn — but still only around this corner.
             .contentShape(.rect.inset(by: -Self.handleSize))
-            .position(corner.point(in: box.size))
+            .position(corner.point(in: box.size, outset: handleOffset(box)))
             .gesture(resizeGesture(corner))
             .onHover { hovering in
                 setZone(.corner(corner), hovering)
@@ -504,6 +523,9 @@ struct SelectionBox: View {
     }
 
     private static let handleSize: CGFloat = 7
+
+    /// Below this the handles move outside, leaving the body to be dragged.
+    private static let crowdedSize: CGFloat = 56
 
     /// How long a side handle runs along its edge.
     private static let sideLength: CGFloat = 18

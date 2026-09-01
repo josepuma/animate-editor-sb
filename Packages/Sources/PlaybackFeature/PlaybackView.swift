@@ -19,6 +19,9 @@ public struct PlaybackView: View {
     /// on. Absent, the box is not drawn at all.
     private let onClipDrag: ((ClipDrag) -> Void)?
 
+    /// Clicking the stage away from the selection clears it.
+    private let onDeselect: (() -> Void)?
+
     /// Whether the framed clip refuses edits.
     private let isClipLocked: Bool
 
@@ -28,12 +31,14 @@ public struct PlaybackView: View {
         source: any StoryboardSource,
         isClipLocked: Bool = false,
         onClipDrag: ((ClipDrag) -> Void)? = nil,
+        onDeselect: (() -> Void)? = nil,
     ) {
         _model = Bindable(model)
         _timeline = Bindable(timeline)
         self.source = source
         self.isClipLocked = isClipLocked
         self.onClipDrag = onClipDrag
+        self.onDeselect = onDeselect
     }
 
     public var body: some View {
@@ -56,6 +61,7 @@ public struct PlaybackView: View {
             source: source,
             isClipLocked: isClipLocked,
             onClipDrag: onClipDrag,
+            onDeselect: onDeselect,
         )
     }
 }
@@ -67,6 +73,7 @@ public struct PlaybackCanvas: View {
     let source: any StoryboardSource
     var isClipLocked = false
     var onClipDrag: ((ClipDrag) -> Void)?
+    var onDeselect: (() -> Void)?
 
     public var body: some View {
         GeometryReader { proxy in
@@ -82,6 +89,10 @@ public struct PlaybackCanvas: View {
 
             VStack(spacing: 0) {
             ZStack {
+                // Clicking the picture away from a selection clears it, the
+                // way clicking empty space does in any editor. Beneath the
+                // selection box, so the frame's own gestures win where they
+                // overlap — the box is what the pointer was aiming at there.
                 MetalCanvasView(model: model, source: source)
                     .frame(width: size.width, height: size.height)
                     .clipShape(
@@ -99,8 +110,20 @@ public struct PlaybackCanvas: View {
                     )
                     .elevated(Theme.Elevation.high)
 
-                // Under the controls, so a transport button is never blocked
-                // by an invisible drag area behind it.
+                // Clicking the picture away from a selection clears it, the
+                // way clicking empty space does in any editor.
+                //
+                // Above the Metal view, which would otherwise swallow the
+                // click, and below the selection box, so the frame's own
+                // gestures win where they overlap — there the box is what the
+                // pointer was aiming at.
+                if let onDeselect {
+                    Color.clear
+                        .frame(width: size.width, height: size.height)
+                        .contentShape(.rect)
+                        .onTapGesture(perform: onDeselect)
+                }
+
                 if let onClipDrag {
                     let stage = OsuCanvas.size(widescreen: model.isWidescreen)
                     SelectionBox(

@@ -21,6 +21,7 @@ public enum TransformCommands {
         var commands: [Command] = []
 
         commands.append(contentsOf: positionCommands(transform, duration: duration))
+        commands.append(contentsOf: buildColour(transform, duration: duration))
         commands.append(contentsOf: buildScale(
             x: transform[.scaleX],
             y: transform[.scaleY],
@@ -135,6 +136,63 @@ public enum TransformCommands {
                 payload: startX == startY && endX == endY
                     ? .scale(start: startX, end: endX)
                     : .vectorScale(startX: startX, startY: startY, endX: endX, endY: endY),
+            ))
+        }
+        return commands
+    }
+
+    /// Colour commands, `_C` carrying all three channels at once.
+    ///
+    /// The three share a command, so a key on any one has to be a boundary for
+    /// all three — the same rule the scale axes and the position axes follow,
+    /// for the same reason: a curve on one channel would otherwise be lost
+    /// inside a segment another channel defined.
+    public static func buildColour(_ transform: Transform, duration: Double) -> [Command] {
+        let channels = TransformProperty.colourChannels
+        let animated = channels.filter { transform[$0].isActive }
+
+        guard !animated.isEmpty else {
+            // Held, when it is not simply white.
+            let resting = channels.map { transform[value: $0] }
+            guard resting != [255, 255, 255] else { return [] }
+            return [Command(
+                easing: .linear, startTime: 0, endTime: 0,
+                payload: .color(
+                    startR: resting[0], startG: resting[1], startB: resting[2],
+                    endR: resting[0], endG: resting[1], endB: resting[2],
+                ),
+            )]
+        }
+
+        var times = Set<Double>()
+        for property in animated {
+            for keyframe in transform[property].keyframes { times.insert(keyframe.time) }
+        }
+        var boundaries = times.sorted()
+        if boundaries.count == 1 { boundaries.append(boundaries[0]) }
+        guard boundaries.count >= 2 else { return [] }
+
+        func value(_ property: TransformProperty, at time: Double) -> Double {
+            transform[property].isActive
+                ? transform[property].value(at: time)
+                : transform[value: property]
+        }
+
+        var commands: [Command] = []
+        for (start, end) in zip(boundaries, boundaries.dropFirst()) {
+            let from = channels.map { value($0, at: start) }
+            let to = channels.map { value($0, at: end) }
+
+            let easing = animated
+                .compactMap { transform[$0].keyframes.first { $0.time == start }?.easing }
+                .first ?? .linear
+
+            commands.append(Command(
+                easing: easing, startTime: start, endTime: end,
+                payload: .color(
+                    startR: from[0], startG: from[1], startB: from[2],
+                    endR: to[0], endG: to[1], endB: to[2],
+                ),
             ))
         }
         return commands

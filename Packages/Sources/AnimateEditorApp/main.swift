@@ -1,5 +1,6 @@
 import AppKit
 import EditorShellFeature
+import StoryboardRendering
 import SwiftUI
 
 /// Application entry point.
@@ -24,6 +25,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Text needs a font to measure against and a place to draw glyphs, and
+        // neither can live in Core. Installed once, before anything evaluates.
+        TextTextures.install()
+
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1080, height: 700),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],

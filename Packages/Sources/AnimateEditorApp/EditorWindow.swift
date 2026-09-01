@@ -38,6 +38,10 @@ struct EditorWindow: View {
                     isFinished: drag.isFinished, at: playback.currentTime,
                 )
             },
+            onDeselect: {
+                shell.selectedNodeID = nil
+                shell.selectedKeyframe = nil
+            },
         )
         // Read here, in the body itself.
         //

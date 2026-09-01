@@ -44,8 +44,9 @@ public enum GroupTransform {
         let rotates = transform.isSet(.rotation)
         let scales = transform.isSet(.scaleX) || transform.isSet(.scaleY)
         let fades = transform.isSet(.opacity)
+        let tints = TransformProperty.colourChannels.contains { transform.isSet($0) }
 
-        guard movesX || movesY || rotates || scales || fades else { return sprites }
+        guard movesX || movesY || rotates || scales || fades || tints else { return sprites }
 
         // The origin the group turns and scales around: the centre of where its
         // sprites sit. Rotating about the canvas centre instead would swing a
@@ -240,6 +241,24 @@ public enum GroupTransform {
         }()
 
         var commands = sprite.commands.filter { $0.kind != .move && $0.kind != .moveX && $0.kind != .moveY }
+
+        // The group's colour, replacing whatever tint the sprite carried: a
+        // clip tinted as a whole is one decision, and two tints multiplying
+        // would darken with every layer.
+        if TransformProperty.colourChannels.contains(where: { transform.isSet($0) }) {
+            let colour = TransformCommands.buildColour(transform, duration: duration)
+            if !colour.isEmpty {
+                commands.removeAll { $0.kind == .color }
+                commands.append(contentsOf: colour.map { command in
+                    Command(
+                        easing: command.timing.easing,
+                        startTime: birth + command.timing.startTime,
+                        endTime: birth + command.timing.endTime,
+                        payload: command.payload,
+                    )
+                })
+            }
+        }
 
         // An animated scale needs commands of its own.
         //

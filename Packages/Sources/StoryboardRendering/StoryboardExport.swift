@@ -94,13 +94,17 @@ public enum StoryboardExport {
         }
         // The beatmap's own files come last, so a built-in cannot be shadowed
         // by a file that happens to share its name.
-        return BuiltInTextures.data(for: path) ?? beatmapImage(path)
+        return TextTextures.data(for: path)
+            ?? BuiltInTextures.data(for: path)
+            ?? beatmapImage(path)
     }
 
     /// Whether a path names an image the app provides rather than a file the
     /// beatmap already has.
     private static func needsGenerating(_ path: String) -> Bool {
-        DerivedSprite.isDerived(path) || BuiltInTextures.isBuiltIn(path)
+        DerivedSprite.isDerived(path)
+            || BuiltInTextures.isBuiltIn(path)
+            || TextSprite.isText(path)
     }
 
     /// A flat, safe file name for a generated path.
@@ -112,7 +116,9 @@ public enum StoryboardExport {
     /// what these files are.
     static func fileName(for path: String) -> String {
         var name = path
-        for prefix in ["__derived__/", "__builtin__/"] where name.hasPrefix(prefix) {
+        for prefix in ["__derived__/", "__builtin__/", TextSprite.prefix]
+            where name.hasPrefix(prefix)
+        {
             name.removeFirst(prefix.count)
         }
         let cleaned = name

@@ -1,3 +1,4 @@
+import AppKit
 import DesignSystem
 import StoryboardCore
 import SwiftUI
@@ -187,6 +188,22 @@ public struct EditorShellView<Canvas: View>: View {
         .frame(maxHeight: .infinity)
     }
 
+    /// Whether a text field currently holds the keyboard.
+    ///
+    /// Asked of AppKit at the moment the shortcut fires rather than tracked as
+    /// state: the window's first responder is the authority on where the
+    /// keyboard is going, and mirroring it through every field in the tree
+    /// would be a second copy to keep in step.
+    ///
+    /// A focused `NSTextField` hands the keyboard to a shared field editor, so
+    /// the responder is an `NSText` whose delegate is the field — which is why
+    /// this checks for the editor rather than for the field itself.
+    private static var isEditingText: Bool {
+        guard let responder = NSApp.keyWindow?.firstResponder else { return false }
+        if let text = responder as? NSText { return text.isEditable }
+        return responder is NSTextView
+    }
+
     /// Keyboard equivalents for the editing commands.
     @ViewBuilder
     private var editingShortcuts: some View {
@@ -197,24 +214,67 @@ public struct EditorShellView<Canvas: View>: View {
             Button("Export") { shell.exportStoryboard() }
                 .keyboardShortcut("e", modifiers: .command)
 
-            Button("Copy") { shell.copySelectedEffect() }
-                .keyboardShortcut("c", modifiers: .command)
+            // Handed back to the field when one is being edited.
+            //
+            // A `keyboardShortcut` is claimed window-wide, so these swallowed
+            // ⌘C and ⌘V before any text field could see them — copying and
+            // pasting inside a field did nothing, or worse, duplicated the
+            // selected clip instead. The same collision the space bar had with
+            // play/pause.
+            Button("Copy") {
+                if Self.isEditingText {
+                    // Passed on to the field editor, which is what the user was
+                    // aiming at.
+                    NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+                } else {
+                    shell.copySelectedEffect()
+                }
+            }
+            .keyboardShortcut("c", modifiers: .command)
 
-            Button("Paste") { shell.pasteEffect(at: currentTime) }
-                .keyboardShortcut("v", modifiers: .command)
+            Button("Paste") {
+                if Self.isEditingText {
+                    NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
+                } else {
+                    shell.pasteEffect(at: currentTime)
+                }
+            }
+            .keyboardShortcut("v", modifiers: .command)
+
+            // Cut and Select All have no editor-wide meaning yet, so their only
+            // job is to reach the field. Without them macOS offers nothing at
+            // all inside a text field in a window with no Edit menu.
+            Button("Cut") {
+                NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
+            }
+            .keyboardShortcut("x", modifiers: .command)
+
+            Button("Select All") {
+                NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+            }
+            .keyboardShortcut("a", modifiers: .command)
 
             Button("Duplicate") {
-                guard let nodeID = shell.selectedNodeID else { return }
+                guard !Self.isEditingText, let nodeID = shell.selectedNodeID else { return }
                 shell.duplicateEffect(nodeID)
             }
             .keyboardShortcut("d", modifiers: .command)
 
             // Both keys: Delete is the one people reach for, and Forward Delete
             // is the one a full keyboard sends.
-            Button("Delete", action: shell.deleteSelection)
-                .keyboardShortcut(.delete, modifiers: [])
-            Button("Delete Forward", action: shell.deleteSelection)
-                .keyboardShortcut(.deleteForward, modifiers: [])
+            // Delete belongs to the field too, or backspacing a character
+            // destroys the clip being edited.
+            Button("Delete") {
+                guard !Self.isEditingText else { return }
+                shell.deleteSelection()
+            }
+            .keyboardShortcut(.delete, modifiers: [])
+
+            Button("Delete Forward") {
+                guard !Self.isEditingText else { return }
+                shell.deleteSelection()
+            }
+            .keyboardShortcut(.deleteForward, modifiers: [])
         }
         .opacity(0)
         .frame(width: 0, height: 0)

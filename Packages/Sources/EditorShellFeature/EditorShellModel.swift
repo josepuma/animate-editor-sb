@@ -183,8 +183,16 @@ public final class EditorShellModel {
     /// lane has.
     public var selectedEffect: EffectNode? {
         if let selectedNodeID, let node = effects[selectedNodeID] { return node }
-        guard let track = selectedTrack, track.nodes.count == 1 else { return nil }
-        return track.nodes[0]
+
+        // No clip selected means no clip's parameters.
+        //
+        // A lane's only effect used to answer here, so a row holding one clip
+        // did not need that clip clicked as well. Convenient, and it meant the
+        // panel never emptied: after deselecting, it went on offering
+        // parameters for something nothing on screen said was chosen. A panel
+        // that describes an unselected clip is editing blind, and picking the
+        // clip is one click.
+        return nil
     }
 
     /// The descriptor behind the selected effect, for the inspector to render.
@@ -209,7 +217,11 @@ public final class EditorShellModel {
 
     /// Presets available for the effects in the library.
     public var presets: [EffectPreset] {
-        EmitterEffect.presets.filter { library.descriptor(for: $0.effectType) != nil }
+        // Every effect's presets, filtered to what the library can actually
+        // run. The panel groups them by `effectType`, so a new effect's presets
+        // appear under it without any UI work.
+        (TextEffect.presets + EmitterEffect.presets)
+            .filter { library.descriptor(for: $0.effectType) != nil }
     }
 
     // ─── Placing ─────────────────────────────────────────────────────────────
@@ -652,10 +664,16 @@ public final class EditorShellModel {
 
         if dx != 0 { write(origin.x + dx, for: .x, on: &updated, at: local) }
         if dy != 0 { write(origin.y + dy, for: .y, on: &updated, at: local) }
-        // Both axes, so a uniform corner drag stays uniform and a side drag
-        // can stretch one on its own.
-        if scaleX != 1 { write(origin.scaleX * scaleX, for: .scaleX, on: &updated, at: local) }
-        if scaleY != 1 { write(origin.scaleY * scaleY, for: .scaleY, on: &updated, at: local) }
+        // Both axes, so a uniform corner drag stays uniform and a side drag can
+        // stretch one on its own — unless the axes are linked, in which case a
+        // side handle scales the pair. The lock has to mean the same thing on
+        // the canvas as it does in the panel, or the two disagree about what a
+        // side handle does.
+        let linkedX = scaleIsLinked && scaleY != 1 ? scaleY : scaleX
+        let linkedY = scaleIsLinked && scaleX != 1 ? scaleX : scaleY
+
+        if linkedX != 1 { write(origin.scaleX * linkedX, for: .scaleX, on: &updated, at: local) }
+        if linkedY != 1 { write(origin.scaleY * linkedY, for: .scaleY, on: &updated, at: local) }
 
         effects[nodeID] = updated
         effectsChanged()
@@ -675,6 +693,47 @@ public final class EditorShellModel {
             _ = node.transform[property].set(value, at: localTime)
         } else {
             node.transform[value: property] = value
+        }
+    }
+
+    /// Whether the two scale axes move together.
+    ///
+    /// On by default: scaling uniformly is what "make it bigger" means, and
+    /// stretching is the deliberate act. Kept on the model rather than in the
+    /// inspector so it survives the panel being rebuilt, which happens on every
+    /// frame the playhead moves.
+    public var scaleIsLinked = true
+
+    /// Writes one scale axis, and the other with it when they are linked.
+    ///
+    /// The same number in both, which is what the lock is for: keeping a clip
+    /// square while it grows. Carrying a ratio instead sounds cleverer and is
+    /// not what anyone asks of a lock — it also read the axis back *after*
+    /// writing it, so the ratio came out of the value it had just set and one
+    /// axis at 0.3 sent the other to 1.5.
+    public func setScale(
+        _ value: Double,
+        for property: TransformProperty,
+        on nodeID: EffectNode.ID,
+        at time: Double,
+    ) {
+        write(value, for: property, on: nodeID, at: time)
+        guard scaleIsLinked else { return }
+        write(value, for: property == .scaleX ? .scaleY : .scaleX, on: nodeID, at: time)
+    }
+
+    /// One transform write, following the inspector's own rule.
+    private func write(
+        _ value: Double,
+        for property: TransformProperty,
+        on nodeID: EffectNode.ID,
+        at time: Double,
+    ) {
+        guard let node = effects[nodeID] else { return }
+        if node.transform[property].isEmpty {
+            setTransformValue(value, for: property, on: nodeID)
+        } else {
+            setKeyframe(value, for: property, at: time, on: nodeID)
         }
     }
 

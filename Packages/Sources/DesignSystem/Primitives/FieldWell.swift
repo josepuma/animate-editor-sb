@@ -12,8 +12,16 @@ import SwiftUI
 /// layout fault rather than as a design.
 public struct FieldWell<Content: View>: View {
     private let content: Content
+    /// Whether the field inside holds the keyboard.
+    ///
+    /// Shown here rather than by each field, so every control that sits in a
+    /// well says it the same way — and a field that gains focus without saying
+    /// so leaves the keyboard somewhere invisible, which is how a space bar
+    /// ends up typing instead of playing.
+    private let isFocused: Bool
 
-    public init(@ViewBuilder content: () -> Content) {
+    public init(isFocused: Bool = false, @ViewBuilder content: () -> Content) {
+        self.isFocused = isFocused
         self.content = content()
     }
 
@@ -30,8 +38,12 @@ public struct FieldWell<Content: View>: View {
             }
             .overlay {
                 RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                    .strokeBorder(Theme.Border.field, lineWidth: Theme.Size.hairline)
+                    .strokeBorder(
+                        isFocused ? Theme.Palette.accent : Theme.Border.field,
+                        lineWidth: isFocused ? 1.5 : Theme.Size.hairline,
+                    )
             }
+            .animation(Theme.Motion.quick, value: isFocused)
     }
 }
 

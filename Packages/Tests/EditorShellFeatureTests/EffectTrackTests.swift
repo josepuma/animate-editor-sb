@@ -118,16 +118,24 @@ struct EffectTrackTests {
     /// Clicking a row with one clip on it and getting an empty inspector is the
     /// wrong answer to an obvious question: there is exactly one thing there to
     /// edit.
-    @Test("selecting a lane with one effect edits that effect")
-    func laneWithOneEffectFallsThrough() {
+    /// A lane is not a clip.
+    ///
+    /// Its only effect used to answer here, so clicking the row showed that
+    /// clip's parameters without clicking the clip. Convenient, and it meant
+    /// the panel never emptied: after deselecting, it went on offering
+    /// parameters for something nothing on screen said was chosen. A lane's
+    /// own panel carries its name and layer — a clip's parameters belong to
+    /// the clip.
+    @Test("a lane does not stand in for the clip on it")
+    func laneDoesNotStandInForItsClip() {
         let shell = model()
-        let node = shell.addEffect(descriptor, at: 0, duration: 1000)
+        _ = shell.addEffect(descriptor, at: 0, duration: 1000)
 
         shell.selectedNodeID = nil
         shell.selectedTrackID = shell.effects.tracks[0].id
 
-        #expect(shell.selectedEffect?.id == node.id)
-        #expect(shell.selectedDescriptor != nil)
+        #expect(shell.selectedEffect == nil)
+        #expect(shell.selectedTrack != nil)
     }
 
     /// With several, there is no single effect to edit and picking one

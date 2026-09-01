@@ -31,7 +31,7 @@ public struct NumberField: View {
     }
 
     public var body: some View {
-        FieldWell {
+        FieldWell(isFocused: isFocused) {
             HStack(spacing: Theme.Spacing.tight) {
                 TextField(
                     "",
@@ -130,7 +130,7 @@ public struct TextInputField: View {
     }
 
     public var body: some View {
-        FieldWell {
+        FieldWell(isFocused: isFocused) {
             TextField(
                 placeholder,
                 text: Binding(
