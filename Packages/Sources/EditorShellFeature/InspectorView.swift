@@ -16,17 +16,18 @@ struct InspectorView: View {
     static let width: CGFloat = 264
 
     let shell: EditorShellModel
-    let playback: PlaybackSnapshot
 
-    /// The bits of playback state the inspector needs, passed in rather than
-    /// depended on: this panel belongs to the shell, not to playback.
-    struct PlaybackSnapshot {
-        let currentTime: Double
-        let duration: Double
-        let drawnCount: Int
-        let spriteCount: Int
-        let bpm: Double?
-    }
+    /// The playhead, read from the model rather than received as a property.
+    ///
+    /// Handed down as one, this panel was rebuilt on every frame of playback —
+    /// measured at 25 to 35 times a second, for a value used in exactly two
+    /// places and shown in none. SwiftUI rebuilds a view when a stored property
+    /// changes, and the clock changes sixty times a second.
+    ///
+    /// `@ObservationIgnored` on the model's side is what makes this work: the
+    /// value is there to be read when a keyframe needs placing, and reading it
+    /// does not sign the panel up to redraw with the clock.
+    private var playheadTime: Double { shell.playheadTime }
 
 
     var body: some View {
@@ -286,10 +287,10 @@ struct InspectorView: View {
                     track: node.transform[property],
                     current: node.transform.value(
                         property,
-                        at: playback.currentTime - node.startTime,
+                        at: playheadTime - node.startTime,
                     ),
                     // Local to the clip, which is what a keyframe's time means.
-                    localTime: playback.currentTime - node.startTime,
+                    localTime: playheadTime - node.startTime,
                     duration: node.duration,
                     setValue: { value, time in
                         // The distinction that fixes the bug: with animation

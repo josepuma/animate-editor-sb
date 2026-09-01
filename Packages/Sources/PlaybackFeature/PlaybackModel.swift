@@ -12,7 +12,16 @@ import StoryboardPersistence
 @Observable
 public final class PlaybackModel {
     /// Current position, in milliseconds.
-    public private(set) var currentTime: Double = 0
+    /// Told whenever the clock moves.
+    ///
+    /// A callback rather than something to read: anything that reads the time
+    /// in a `body` is rebuilt sixty times a second, and the editor shell has no
+    /// business redrawing for a clock it does not display.
+    @ObservationIgnored public var onTimeChanged: ((Double) -> Void)?
+
+    public private(set) var currentTime: Double = 0 {
+        didSet { onTimeChanged?(currentTime) }
+    }
     public private(set) var isPlaying = false
     /// How far playback runs: the length of the track.
     public private(set) var duration: Double = 1

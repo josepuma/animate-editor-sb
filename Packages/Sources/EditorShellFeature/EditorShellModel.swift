@@ -424,7 +424,17 @@ public final class EditorShellModel {
     /// in a `.background` that SwiftUI has no reason to rebuild as the clock
     /// moves, so a paste landed at whatever time the editor opened at. Written
     /// each frame by whoever owns playback.
-    @ObservationIgnored public var playheadTime: Double = 0
+    @ObservationIgnored public var playheadTime: Double = 0 {
+        didSet { observedPlayheadTime = playheadTime }
+    }
+
+    /// The same value, observed.
+    ///
+    /// Two properties rather than one because they answer opposite needs: the
+    /// playhead marker *must* redraw with the clock, and the inspector must
+    /// not. A single observed property would drag every reader along; a single
+    /// ignored one would leave the marker frozen.
+    public private(set) var observedPlayheadTime: Double = 0
 
     /// The clip that was copied, if any.
     ///

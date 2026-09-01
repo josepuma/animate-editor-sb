@@ -65,11 +65,9 @@ struct EditorWindow: View {
             title: playback.status.message,
             sprites: playback.sprites,
             missingImagePaths: playback.missingImagePaths,
-            currentTime: playback.currentTime,
             isPlaying: playback.isPlaying,
             duration: playback.duration,
             timelineRange: playback.timelineRange,
-            drawnCount: playback.drawnCount,
             grid: timeline.grid,
             breaks: playback.breaks,
             kiaiSections: playback.kiaiSections,
@@ -130,7 +128,16 @@ struct EditorWindow: View {
         .task(id: selectedNodeID) {
             playback.selectedClipID = selectedNodeID
         }
+        // The clock reaches the shell through the model, written from playback
+        // itself rather than read in this body.
+        //
+        // Read here, `currentTime` made the window rebuild sixty times a second
+        // — and with it the shell, the timeline and everything under them. The
+        // fps matched the rebuild rate almost exactly.
         .onAppear {
+            playback.onTimeChanged = { [weak shell] time in
+                shell?.playheadTime = time
+            }
             guard let folder else { return }
             shell.loadProject(fromFolder: folder)
 

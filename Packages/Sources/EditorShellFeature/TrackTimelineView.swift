@@ -10,7 +10,14 @@ import SwiftUI
 /// script's output.
 struct TrackTimelineView: View {
     let shell: EditorShellModel
-    let currentTime: Double
+    /// The playhead, read from the model rather than stored.
+    ///
+    /// A stored one is a property that changes sixty times a second, and
+    /// SwiftUI rebuilds a view when a stored property changes — the whole
+    /// timeline, to move one line. The marker reads the observed copy; every
+    /// other use here wants the value at the moment of a click or a menu, which
+    /// is exactly what an ignored one gives.
+    private var currentTime: Double { shell.playheadTime }
     /// Whether the clock is running: a keyframe cannot be placed against a
     /// moving playhead.
     let isPlaying: Bool
@@ -779,24 +786,7 @@ struct TrackTimelineView: View {
     }
 
     private func playhead(width: CGFloat, height: CGFloat) -> some View {
-        // Mapped across the full span the clips are drawn on, not the ruler's
-        // inset one. The inset exists to keep the ruler's dots off its rounded
-        // corners; borrowing it here would park the playhead twelve points to
-        // the right of the block it is entering, and the block is what the eye
-        // checks it against.
-        let x = TimelineScale(range: visibleRange, width: width).x(of: currentTime)
-
-        return ZStack(alignment: .top) {
-            Rectangle()
-                .fill(Theme.Palette.playhead)
-                .frame(width: 1.5)
-                .shadow(color: Theme.Palette.playhead.opacity(0.6), radius: 4)
-
-            PlayheadHandle(tint: Theme.Palette.playhead)
-                .offset(y: -Theme.Spacing.snug)
-        }
-        .frame(height: height, alignment: .top)
-        .offset(x: x - 1)
+        PlayheadMarker(shell: shell, range: visibleRange, width: width, height: height)
     }
 
     // ─── Formatting ──────────────────────────────────────────────────────────
@@ -1665,3 +1655,43 @@ extension Layer {
 }
 
 
+
+
+// ─── Playhead ────────────────────────────────────────────────────────────────
+
+/// The line that follows the clock.
+///
+/// A view of its own, reading the time from the model rather than receiving it.
+///
+/// Drawn inside the timeline's body, the moving clock rebuilt that body — every
+/// row, block, ruler tick and waveform mark — sixty times a second, to move one
+/// line a couple of points. Measured at 25 to 35 rebuilds a second while
+/// playing, and the fps matched. Here only this view answers the clock, and the
+/// rest of the timeline is rebuilt when something about it actually changes.
+private struct PlayheadMarker: View {
+    let shell: EditorShellModel
+    let range: ClosedRange<Double>
+    let width: CGFloat
+    let height: CGFloat
+
+    var body: some View {
+        // Mapped across the full span the clips are drawn on, not the ruler's
+        // inset one. The inset exists to keep the ruler's dots off its rounded
+        // corners; borrowing it here would park the playhead twelve points to
+        // the right of the block it is entering, and the block is what the eye
+        // checks it against.
+        let x = TimelineScale(range: range, width: width).x(of: shell.observedPlayheadTime)
+
+        ZStack(alignment: .top) {
+            Rectangle()
+                .fill(Theme.Palette.playhead)
+                .frame(width: 1.5)
+                .shadow(color: Theme.Palette.playhead.opacity(0.6), radius: 4)
+
+            PlayheadHandle(tint: Theme.Palette.playhead)
+                .offset(y: -Theme.Spacing.snug)
+        }
+        .frame(height: height, alignment: .top)
+        .offset(x: x - 1)
+    }
+}

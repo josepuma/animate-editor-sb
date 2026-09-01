@@ -25,13 +25,11 @@ public struct EditorShellView<Canvas: View>: View {
     private let title: String
     private let sprites: [PreparedSprite]
     private let missingImagePaths: Set<String>
-    private let currentTime: Double
     /// Whether the clock is running: a keyframe cannot be placed against a
     /// moving playhead.
     private let isPlaying: Bool
     private let duration: Double
     private let timelineRange: ClosedRange<Double>
-    private let drawnCount: Int
     private let grid: BeatGrid?
     private let breaks: [BreakPeriod]
     private let kiaiSections: [KiaiSection]
@@ -50,13 +48,11 @@ public struct EditorShellView<Canvas: View>: View {
         title: String,
         sprites: [PreparedSprite],
         missingImagePaths: Set<String>,
-        currentTime: Double,
         isPlaying: Bool = false,
         duration: Double,
         /// The span the timeline covers, which can start before the track and
         /// end after it. Defaults to the track's own length.
         timelineRange: ClosedRange<Double>? = nil,
-        drawnCount: Int,
         grid: BeatGrid?,
         breaks: [BreakPeriod],
         kiaiSections: [KiaiSection],
@@ -69,11 +65,9 @@ public struct EditorShellView<Canvas: View>: View {
         self.title = title
         self.sprites = sprites
         self.missingImagePaths = missingImagePaths
-        self.currentTime = currentTime
         self.isPlaying = isPlaying
         self.duration = duration
         self.timelineRange = timelineRange ?? 0...max(duration, 1)
-        self.drawnCount = drawnCount
         self.grid = grid
         self.breaks = breaks
         self.kiaiSections = kiaiSections
@@ -100,7 +94,6 @@ public struct EditorShellView<Canvas: View>: View {
             if !isCanvasFullScreen {
                 TrackTimelineView(
                     shell: shell,
-                    currentTime: currentTime,
                     isPlaying: isPlaying,
                     timelineRange: timelineRange,
                     audioDuration: duration,
@@ -139,11 +132,7 @@ public struct EditorShellView<Canvas: View>: View {
         .onChange(of: sprites.count, initial: true) { _, _ in
             shell.load(sprites: sprites, missingImagePaths: missingImagePaths)
         }
-        // The shortcuts read the playhead from the model, since their own view
-        // is not rebuilt as the clock moves.
-        .onChange(of: currentTime, initial: true) { _, time in
-            shell.playheadTime = time
-        }
+
     }
 
     // ─── Workspace ───────────────────────────────────────────────────────────
@@ -168,7 +157,7 @@ public struct EditorShellView<Canvas: View>: View {
                 .surface(.bar, radius: Theme.Radius.control)
 
                 if shell.isSidePanelVisible {
-                    SidePanelView(shell: shell, playheadTime: currentTime)
+                    SidePanelView(shell: shell, playheadTime: shell.playheadTime)
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
             }
@@ -177,16 +166,10 @@ public struct EditorShellView<Canvas: View>: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if shell.isInspectorVisible, !isCanvasFullScreen {
-                InspectorView(
-                    shell: shell,
-                    playback: InspectorView.PlaybackSnapshot(
-                        currentTime: currentTime,
-                        duration: duration,
-                        drawnCount: drawnCount,
-                        spriteCount: sprites.count,
-                        bpm: grid?.primaryBPM,
-                    ),
-                )
+                // Nothing passed but the model: every property handed to a
+                // view is a reason for SwiftUI to rebuild it, and the clock
+                // would have rebuilt this panel sixty times a second.
+                InspectorView(shell: shell)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
