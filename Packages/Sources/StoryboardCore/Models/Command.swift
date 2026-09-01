@@ -64,6 +64,36 @@ public struct Command: Sendable {
         /// `_P` — parameter flag.
         case parameter(ParameterKind)
 
+        /// The same command with its endpoints swapped.
+        ///
+        /// Half of what "backwards" means. Moving a command to an earlier time
+        /// puts the sprite at the right moment doing the wrong thing — a fade
+        /// that rose still rises, so a clip played in reverse would appear at
+        /// the end and brighten into its own beginning. A parameter flag has no
+        /// endpoints to swap and comes back unchanged.
+        public var reversed: Payload {
+            switch self {
+            case let .fade(start, end):
+                .fade(start: end, end: start)
+            case let .move(startX, startY, endX, endY):
+                .move(startX: endX, startY: endY, endX: startX, endY: startY)
+            case let .moveX(start, end):
+                .moveX(start: end, end: start)
+            case let .moveY(start, end):
+                .moveY(start: end, end: start)
+            case let .scale(start, end):
+                .scale(start: end, end: start)
+            case let .vectorScale(startX, startY, endX, endY):
+                .vectorScale(startX: endX, startY: endY, endX: startX, endY: startY)
+            case let .rotate(start, end):
+                .rotate(start: end, end: start)
+            case let .color(sr, sg, sb, er, eg, eb):
+                .color(startR: er, startG: eg, startB: eb, endR: sr, endG: sg, endB: sb)
+            case .parameter:
+                self
+            }
+        }
+
         public var kind: CommandKind {
             switch self {
             case .fade: .fade

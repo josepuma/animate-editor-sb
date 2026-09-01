@@ -167,6 +167,74 @@ struct FilterTests {
 
     // ─── Echo ────────────────────────────────────────────────────────────────
 
+    /// The trail parameters are inert at their defaults.
+    ///
+    /// `Shrink` and `Trail Colour` turn the echo into a streak, and they were
+    /// added to a filter people already have in saved projects. A default that
+    /// changed the output would rewrite work that was already finished and
+    /// approved — so the plain echo has to come out identical, sprite for
+    /// sprite and command for command.
+    @Test("adding the trail parameters leaves a plain echo untouched")
+    func trailDefaultsAreInert() {
+        var document = document(count: 6)
+        let trackID = clip(in: document)
+        let filter = document.addFilter(EchoFilter.descriptor, to: trackID)!
+        document.setFilterValue(.integer(3), for: EchoFilter.Param.count, on: filter.id, in: trackID)
+
+        let withDefaults = evaluator.evaluate(document)
+
+        // Spelled out rather than left implicit: this is the comparison, so the
+        // values it rests on cannot be assumed.
+        document.setFilterValue(.number(0), for: EchoFilter.Param.shrink, on: filter.id, in: trackID)
+        document.setFilterValue(
+            .color(EffectColor(r: 255, g: 255, b: 255)),
+            for: EchoFilter.Param.tint, on: filter.id, in: trackID,
+        )
+        let explicit = evaluator.evaluate(document)
+
+        #expect(withDefaults.count == explicit.count)
+        for (a, b) in zip(withDefaults, explicit) {
+            #expect(a.id == b.id)
+            #expect(a.filePath == b.filePath)
+            #expect(a.commands.count == b.commands.count)
+            for (one, two) in zip(a.commands, b.commands) {
+                #expect(one.kind == two.kind)
+                #expect(one.startTime == two.startTime)
+                #expect(one.endTime == two.endTime)
+            }
+        }
+    }
+
+    /// Turned up, the copies shrink — which is the difference between an echo
+    /// and a trail.
+    @Test("shrink makes the older copies smaller")
+    func shrinkRecedes() {
+        var document = document(count: 4)
+        let trackID = clip(in: document)
+        let filter = document.addFilter(EchoFilter.descriptor, to: trackID)!
+        document.setFilterValue(.integer(4), for: EchoFilter.Param.count, on: filter.id, in: trackID)
+        document.setFilterValue(.number(0.8), for: EchoFilter.Param.shrink, on: filter.id, in: trackID)
+
+        let sprites = evaluator.evaluate(document)
+
+        func scale(_ sprite: StoryboardSprite) -> Double? {
+            for command in sprite.commands {
+                if case let .scale(start, _) = command.payload { return start }
+            }
+            return nil
+        }
+
+        // The furthest copy carries the smallest scale, and the subject itself
+        // is untouched: a trail recedes behind what it follows.
+        let echoes = sprites.filter { $0.id.contains("/e") }
+        let scales = echoes.compactMap(scale)
+
+        #expect(!scales.isEmpty, "no echo carried a scale")
+        #expect(scales.min()! < scales.max()!, "every copy came out the same size")
+    }
+
+
+
     @Test("an echo adds a copy per repeat, offset backwards in time")
     func echoTrails() {
         var document = document(count: 4)
