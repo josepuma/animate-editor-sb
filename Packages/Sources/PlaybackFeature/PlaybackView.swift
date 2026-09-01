@@ -1,4 +1,5 @@
 import DesignSystem
+import StoryboardCore
 import StoryboardRendering
 import SwiftUI
 
@@ -25,6 +26,12 @@ public struct PlaybackView: View {
     /// Whether the framed clip refuses edits.
     private let isClipLocked: Bool
 
+    /// The motion path being edited, asked for rather than passed: read as a
+    /// property in the window's body it would rebuild the window on every edit.
+    private let editablePath: (() -> MotionPath?)?
+    private let isDrawingPath: (() -> Bool)?
+    private let onPathChange: ((MotionPath) -> Void)?
+
     public init(
         model: PlaybackModel,
         timeline: TimelineModel,
@@ -32,6 +39,9 @@ public struct PlaybackView: View {
         isClipLocked: Bool = false,
         onClipDrag: ((ClipDrag) -> Void)? = nil,
         onDeselect: (() -> Void)? = nil,
+        editablePath: (() -> MotionPath?)? = nil,
+        isDrawingPath: (() -> Bool)? = nil,
+        onPathChange: ((MotionPath) -> Void)? = nil,
     ) {
         _model = Bindable(model)
         _timeline = Bindable(timeline)
@@ -39,6 +49,9 @@ public struct PlaybackView: View {
         self.isClipLocked = isClipLocked
         self.onClipDrag = onClipDrag
         self.onDeselect = onDeselect
+        self.editablePath = editablePath
+        self.isDrawingPath = isDrawingPath
+        self.onPathChange = onPathChange
     }
 
     public var body: some View {
@@ -62,6 +75,9 @@ public struct PlaybackView: View {
             isClipLocked: isClipLocked,
             onClipDrag: onClipDrag,
             onDeselect: onDeselect,
+            editablePath: editablePath,
+            isDrawingPath: isDrawingPath,
+            onPathChange: onPathChange,
         )
     }
 }
@@ -74,6 +90,10 @@ public struct PlaybackCanvas: View {
     var isClipLocked = false
     var onClipDrag: ((ClipDrag) -> Void)?
     var onDeselect: (() -> Void)?
+    /// The path being edited, or nil when there is nothing to edit.
+    var editablePath: (() -> MotionPath?)?
+    var isDrawingPath: (() -> Bool)?
+    var onPathChange: ((MotionPath) -> Void)?
 
     public var body: some View {
         GeometryReader { proxy in
@@ -144,6 +164,28 @@ public struct PlaybackCanvas: View {
                     // when it has nothing to draw.
                     .id("selection-box")
                 }
+
+                // The pen tool, above the frame so its points win where they
+                // overlap — there the point is what the pointer was aiming at.
+                //
+                // Asked for on demand rather than passed in, for the same
+                // reason `isClipLocked` is: read as a property in the window's
+                // body, every edit to the path would rebuild the whole window.
+                if let editablePath, let onPathChange {
+                    let stage = OsuCanvas.size(widescreen: model.isWidescreen)
+                    PathEditor(
+                        path: Binding(
+                            get: { editablePath() ?? MotionPath() },
+                            set: { onPathChange($0) },
+                        ),
+                        stageSize: (Double(stage.width), Double(stage.height)),
+                        viewSize: size,
+                        isDrawing: isDrawingPath?() ?? false,
+                    )
+                    .frame(width: size.width, height: size.height)
+                    .id("path-editor")
+                }
+
 
 
             }

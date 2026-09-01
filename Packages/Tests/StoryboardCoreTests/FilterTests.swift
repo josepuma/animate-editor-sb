@@ -334,7 +334,9 @@ struct FilterTests {
                 #expect(parameter.presentation != .slider || parameter.range != nil)
             case .choice:
                 #expect(!parameter.options.isEmpty)
-            case .toggle, .color, .text:
+            // A path is drawn on the canvas, so it declares no bounds and
+            // no options — there is nothing for the inspector to render.
+            case .toggle, .color, .text, .path:
                 break
             }
         }

@@ -77,6 +77,11 @@ public struct EffectContext: Sendable {
         if case let .text(value) = values[id] { return value }
         return ""
     }
+
+    public func path(_ id: String) -> MotionPath {
+        if case let .path(value) = values[id] { return value }
+        return MotionPath()
+    }
 }
 
 /// An effect: a declaration plus a way to turn it into sprites.

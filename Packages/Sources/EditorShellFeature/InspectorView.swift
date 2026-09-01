@@ -96,6 +96,8 @@ struct InspectorView: View {
                         filter: filter,
                         toggle: { shell.toggleFilter(filter.id, in: node.id) },
                         remove: { shell.removeFilter(filter.id, from: node.id) },
+                        isDrawingPath: shell.isDrawingPath,
+                        onToggleDrawing: { shell.isDrawingPath.toggle() },
                         onChange: { parameter, value in
                             shell.setFilterValue(
                                 value, for: parameter, on: filter.id, in: node.id,
@@ -646,6 +648,10 @@ private struct FilterCard: View {
     let filter: FilterNode
     let toggle: () -> Void
     let remove: () -> Void
+    /// Only a Motion Path has a pen to arm; defaulted so nothing else has to
+    /// know about it.
+    var isDrawingPath = false
+    var onToggleDrawing: () -> Void = {}
     let onChange: (String, EffectValue) -> Void
 
     @State private var isExpanded = true
@@ -693,6 +699,8 @@ private struct FilterCard: View {
                         parameter: parameter,
                         value: filter.values[parameter.id] ?? parameter.defaultValue,
                         onChange: { onChange(parameter.id, $0) },
+                        isDrawingPath: isDrawingPath,
+                        onToggleDrawing: onToggleDrawing,
                     )
                 }
                 .disabled(!filter.isEnabled)
@@ -719,6 +727,10 @@ private struct ParameterControl: View {
     let parameter: EffectParameter
     let value: EffectValue
     let onChange: (EffectValue) -> Void
+    /// Only a `.path` row uses these, so they are defaulted rather than
+    /// threaded through every other call site.
+    var isDrawingPath = false
+    var onToggleDrawing: () -> Void = {}
 
     var body: some View {
         PropertyRow(parameter.name) {
@@ -729,6 +741,20 @@ private struct ParameterControl: View {
     @ViewBuilder
     private var control: some View {
         switch value {
+        // Drawn on the canvas, not here.
+        //
+        // A path written as numbers is a table, so the inspector reports what
+        // is there and leaves the shaping to the stage. Saying how many points
+        // it has rather than nothing at all: an empty row reads as a control
+        // that failed to load.
+        case let .path(path):
+            PathControl(
+                path: path,
+                isDrawing: isDrawingPath,
+                onToggleDrawing: onToggleDrawing,
+                onChange: { onChange(.path($0)) },
+            )
+
         case let .number(number):
             if parameter.presentation == .slider, let range = parameter.range {
                 SliderField(
@@ -1018,6 +1044,43 @@ private struct LayerSection: View {
             }
             .buttonStyle(.plain)
             .help(layer.isVisible ? "Hide layer" : "Show layer")
+        }
+    }
+}
+
+/// The row a motion path gets in the inspector.
+///
+/// The path itself is drawn on the canvas — written as numbers it would be a
+/// table, not a path. What belongs here is the switch that arms the pen and a
+/// count, so the row says what is there rather than sitting empty, which reads
+/// as a control that failed to load.
+private struct PathControl: View {
+    let path: MotionPath
+    let isDrawing: Bool
+    let onToggleDrawing: () -> Void
+    let onChange: (MotionPath) -> Void
+
+    var body: some View {
+        // One button and a count, not three controls fighting for a row's
+        // width: a property row is sized for a single control, and three of
+        // them came out as "Do ne" and "Cl e…" — labels broken across lines,
+        // which is a row saying it has more in it than it can hold.
+        //
+        // Clearing moves to the pen itself: it belongs to editing the path, and
+        // it is the rarer action of the two.
+        HStack(spacing: Theme.Spacing.snug) {
+            Button(isDrawing ? "Done" : "Draw", action: onToggleDrawing)
+                .buttonStyle(.themed(isDrawing ? .primary : .secondary, size: .small))
+                .contextMenu {
+                    Button("Clear Path") { onChange(MotionPath()) }
+                }
+
+            Text(path.isEmpty ? "empty" : "\(path.points.count) pts")
+                .font(Theme.Typography.micro)
+                .foregroundStyle(path.isEmpty ? Theme.Palette.tertiary : Theme.Palette.secondary)
+                .fixedSize()
+
+            Spacer(minLength: 0)
         }
     }
 }

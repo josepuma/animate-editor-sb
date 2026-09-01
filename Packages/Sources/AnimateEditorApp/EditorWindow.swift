@@ -45,6 +45,12 @@ struct EditorWindow: View {
                 shell.selectedNodeID = nil
                 shell.selectedKeyframe = nil
             },
+            // Asked for at gesture time, not read here: reading any of these in
+            // this body rebuilds the whole window on every edit, which is the
+            // trap this file has already documented three times.
+            editablePath: { shell.editablePath },
+            isDrawingPath: { shell.isDrawingPath },
+            onPathChange: { shell.setEditablePath($0) },
         )
         // Read here, in the body itself.
         //

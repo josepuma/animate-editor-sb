@@ -1129,6 +1129,36 @@ public final class EditorShellModel {
         return node.loopRepeats
     }
 
+    // ─── Motion path ─────────────────────────────────────────────────────────
+
+    /// Whether the pen tool is armed.
+    ///
+    /// A mode rather than a permanent overlay: the path's points sit on top of
+    /// the canvas and would swallow clicks meant for the clip underneath, and a
+    /// tool that stays armed after it is finished is one that fights the app.
+    public var isDrawingPath = false
+
+    /// The path on the selected clip's Motion Path filter, if it has one.
+    ///
+    /// Nil when there is nothing to edit, which is what the canvas checks
+    /// before drawing anything: an editor for a path that does not exist is an
+    /// overlay intercepting clicks for no reason.
+    public var editablePath: MotionPath? {
+        guard let node = selectedEffect,
+              let filter = node.filters.first(where: { $0.type == "path" && $0.isEnabled }),
+              case let .path(path) = filter.values["path"]
+        else { return nil }
+        return path
+    }
+
+    /// Writes a path back to the selected clip.
+    public func setEditablePath(_ path: MotionPath) {
+        guard let node = selectedEffect,
+              let filter = node.filters.first(where: { $0.type == "path" })
+        else { return }
+        setFilterValue(.path(path), for: "path", on: filter.id, in: node.id)
+    }
+
     public func tail(of nodeID: EffectNode.ID) -> Double {
         guard let node = effects[nodeID] else { return 0 }
         return rawTail(of: node)

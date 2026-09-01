@@ -199,6 +199,11 @@ public struct FilterContext: Sendable {
         if case let .text(value) = values[id] { return value }
         return ""
     }
+
+    public func path(_ id: String) -> MotionPath {
+        if case let .path(value) = values[id] { return value }
+        return MotionPath()
+    }
 }
 
 /// The filters available to apply, looked up by type.
@@ -234,6 +239,6 @@ public struct FilterLibrary: Sendable {
         GlowFilter(), ShadowFilter(), BlurFilter(), TintFilter(),
         EchoFilter(), WiggleFilter(), LoopFilter(),
         TimeFilter(), EaseFilter(), RadialFilter(),
-        MirrorFilter(), ChromaticFilter(),
+        MirrorFilter(), ChromaticFilter(), PathFilter(),
     ])
 }

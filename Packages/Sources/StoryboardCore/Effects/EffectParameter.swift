@@ -82,6 +82,14 @@ public enum EffectValue: Sendable, Equatable, Codable {
     case choice(String)
     case color(EffectColor)
     case text(String)
+    /// A curve across the stage.
+    ///
+    /// The one case that does need UI of its own: a path written as numbers is
+    /// a table, not a path, so it is drawn on the canvas. That breaks the rule
+    /// the other six keep — that a new effect needs no new controls — and it is
+    /// worth breaking exactly once, because nothing else in the system says
+    /// "this shape, here".
+    case path(MotionPath)
 
     /// Discriminator used to check a value against its declaration.
     public var kind: EffectParameter.Kind {
@@ -92,6 +100,7 @@ public enum EffectValue: Sendable, Equatable, Codable {
         case .choice: .choice
         case .color: .color
         case .text: .text
+        case .path: .path
         }
     }
 }
@@ -111,6 +120,7 @@ public struct EffectParameter: Sendable, Equatable {
         case choice
         case color
         case text
+        case path
     }
 
     /// How a numeric parameter should be presented.
@@ -185,7 +195,8 @@ public struct EffectParameter: Sendable, Equatable {
             // showing a selection absent from its own menu.
             return options.contains(option) ? value : defaultValue
 
-        case .toggle, .color, .text:
+        // Nothing to clamp: a path is a shape, and any shape is a valid one.
+        case .toggle, .color, .text, .path:
             return value
         }
     }

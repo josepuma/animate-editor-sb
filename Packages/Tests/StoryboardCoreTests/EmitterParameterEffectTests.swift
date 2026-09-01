@@ -163,7 +163,7 @@ struct EmitterParameterEffectTests {
                     )
                 }
 
-            case .toggle, .color, .text:
+            case .toggle, .color, .text, .path:
                 break
             }
 
