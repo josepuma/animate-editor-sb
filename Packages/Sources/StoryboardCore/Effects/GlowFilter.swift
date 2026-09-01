@@ -230,6 +230,8 @@ public struct EchoFilter: SpriteFilter {
         public static let count = "count"
         public static let delay = "delay"
         public static let falloff = "falloff"
+        public static let shrink = "shrink"
+        public static let tint = "tint"
     }
 
     public static let descriptor = FilterDescriptor(
@@ -264,6 +266,32 @@ public struct EchoFilter: SpriteFilter {
                 step: 0.05,
                 presentation: .slider,
             ),
+            // Zero by default, which is the plain echo: copies at full size,
+            // only dimmer. Turned up, the same filter is a trail.
+            //
+            // Parameters rather than a second filter: an echo and a trail are
+            // one idea — copies of where something was — with the trail adding
+            // decay. Two entries doing almost the same thing would make someone
+            // pick between them without knowing the difference, and whoever
+            // wants a streak looks under "Echo" anyway.
+            EffectParameter(
+                id: Param.shrink,
+                name: "Shrink",
+                group: "Trail",
+                defaultValue: .number(0),
+                range: 0...1,
+                step: 0.05,
+                presentation: .slider,
+            ),
+            // Off by default: an echo is the subject's own colour, seen again.
+            // A trail is often something else — heat, speed, magic — and that
+            // reads as a colour the subject never had.
+            EffectParameter(
+                id: Param.tint,
+                name: "Trail Colour",
+                group: "Trail",
+                defaultValue: .color(EffectColor(r: 255, g: 255, b: 255)),
+            ),
         ],
     )
 
@@ -282,6 +310,8 @@ public struct EchoFilter: SpriteFilter {
         // looks broken until the clip is given somewhere to go.
         let delay = context.number(Param.delay)
         let falloff = context.number(Param.falloff)
+        let shrink = context.number(Param.shrink)
+        let tint = context.color(Param.tint)
 
         guard delay > 0 else { return sprites }
 
@@ -294,6 +324,15 @@ public struct EchoFilter: SpriteFilter {
             let opacity = pow(1 - falloff, Double(echo) / Double(count))
             let offset = -delay * Double(echo)
 
+            // How far along the trail this copy sits: 0 nearest the subject,
+            // 1 at the far end. Older copies are smaller, which is what turns
+            // a row of echoes into a streak that recedes.
+            let age = Double(echo) / Double(count)
+            let scale = 1 - shrink * age
+            // White leaves the sprite's own colour alone, so the plain echo is
+            // unchanged and a trail colour is something asked for.
+            let tinted = tint.r < 255 || tint.g < 255 || tint.b < 255
+
             for (index, sprite) in sprites.enumerated() {
                 var copy = sprite
                 copy.id = "\(context.idPrefix)/e\(echo)-\(index)"
@@ -301,10 +340,54 @@ public struct EchoFilter: SpriteFilter {
                     var shifted = command
                     shifted.timing.startTime += offset
                     shifted.timing.endTime += offset
-                    if case let .fade(start, end) = command.payload {
+
+                    switch command.payload {
+                    case let .fade(start, end):
                         shifted.payload = .fade(start: start * opacity, end: end * opacity)
+
+                    case let .scale(start, end) where scale != 1:
+                        shifted.payload = .scale(start: start * scale, end: end * scale)
+
+                    case let .vectorScale(startX, startY, endX, endY) where scale != 1:
+                        shifted.payload = .vectorScale(
+                            startX: startX * scale, startY: startY * scale,
+                            endX: endX * scale, endY: endY * scale,
+                        )
+
+                    case let .color(sr, sg, sb, er, eg, eb) where tinted:
+                        // Blended towards the trail colour by age, so the
+                        // streak drifts out of the subject's own hue rather
+                        // than switching to another one at the first copy.
+                        func blend(_ own: Double, _ towards: Double) -> Double {
+                            own + (towards - own) * age
+                        }
+                        shifted.payload = .color(
+                            startR: blend(sr, tint.r),
+                            startG: blend(sg, tint.g),
+                            startB: blend(sb, tint.b),
+                            endR: blend(er, tint.r),
+                            endG: blend(eg, tint.g),
+                            endB: blend(eb, tint.b),
+                        )
+
+                    default:
+                        break
                     }
                     return shifted
+                }
+
+                // A sprite with no scale command has an implied scale of 1, and
+                // a shrinking copy needs to say it is smaller than that.
+                if scale != 1,
+                   !sprite.commands.contains(where: { $0.kind == .scale || $0.kind == .vectorScale }),
+                   let first = sprite.commands.map(\.startTime).min()
+                {
+                    copy.commands.append(Command(
+                        easing: .linear,
+                        startTime: first + offset,
+                        endTime: first + offset,
+                        payload: .scale(start: scale, end: scale),
+                    ))
                 }
                 copy.loops = sprite.loops.map { loop in
                     var moved = loop
