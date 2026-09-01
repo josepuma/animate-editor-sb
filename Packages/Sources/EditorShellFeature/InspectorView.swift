@@ -231,7 +231,13 @@ struct InspectorView: View {
             // than when the file will not open.
             transformCost(node)
             ForEach(TransformProperty.allCases, id: \.self) { property in
-                transformRow(property, node: node)
+                // The three channels are one property to anyone using them, so
+                // green and blue are not rows of their own: red carries the
+                // colour well, and its stopwatch animates all three together.
+                if property == .green || property == .blue {
+                    EmptyView()
+                } else {
+                    transformRow(property, node: node)
                     // The link is drawn across the pair rather than between
                     // them: a row of its own took a whole row's height to say
                     // something about its neighbours, and floated free of both.
@@ -244,6 +250,7 @@ struct InspectorView: View {
                     .padding(.trailing, property == .scaleX || property == .scaleY
                         ? Theme.Size.controlTiny
                         : 0)
+                }
             }
         }
     }

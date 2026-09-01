@@ -204,12 +204,16 @@ struct TrackTimelineView: View {
             }
         }
         .surface(.panel)
-        .onChange(of: shell.effects.tracks.count) { _, _ in
-            // A new storyboard is a new span, so the view starts whole again
-            // rather than keeping a window onto the last one. Keyed on the
-            // track count rather than the range: the range settles in stages as
-            // a beatmap loads, and resetting on each of those would undo a zoom
-            // the moment it was applied.
+        .onChange(of: shell.projectFolder) { _, _ in
+            // A new project is a new span, so the view starts whole again
+            // rather than keeping a window onto the last one.
+            //
+            // Keyed on the project rather than on the track count: adding a
+            // lane also changes that count, and it threw away whatever zoom was
+            // in use — the timeline snapped back to the whole song every time
+            // someone made room for another effect. The range is no better a
+            // key, since it settles in stages as a beatmap loads and would undo
+            // a zoom the moment it was applied.
             zoomState = TimelineZoom.State()
         }
         .onChange(of: currentTime) { _, time in

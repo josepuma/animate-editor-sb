@@ -216,6 +216,7 @@ public struct FilterLibrary: Sendable {
 
     /// The built-in library.
     public static let standard = FilterLibrary(filters: [
-        GlowFilter(), BlurFilter(), EchoFilter(), LoopFilter(),
+        GlowFilter(), ShadowFilter(), BlurFilter(), TintFilter(),
+        EchoFilter(), WiggleFilter(), LoopFilter(),
     ])
 }

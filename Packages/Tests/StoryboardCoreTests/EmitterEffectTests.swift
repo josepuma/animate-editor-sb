@@ -715,6 +715,25 @@ struct GroupTransformTests {
     /// whatever the scale happened to be when it was born, while the inspector
     /// showed the number moving. The same shape of mistake had already been
     /// made with opacity.
+    /// Values inside each property's own range: a colour channel tops out at
+    /// 255, so driving one to 400 would clamp and the test would see no change
+    /// where the code was working.
+    private static func low(for property: TransformProperty) -> Double {
+        switch property {
+        case .opacity: 1
+        case .red, .green, .blue: 20
+        default: 100
+        }
+    }
+
+    private static func high(for property: TransformProperty) -> Double {
+        switch property {
+        case .opacity: 0.1
+        case .red, .green, .blue: 240
+        default: 400
+        }
+    }
+
     @Test(
         "every animated property changes what is drawn",
         arguments: TransformProperty.allCases,
@@ -726,6 +745,9 @@ struct GroupTransformTests {
             case .y: state.y
             case .scaleX: state.scaleX
             case .scaleY: state.scaleY
+            case .red: state.r
+            case .green: state.g
+            case .blue: state.b
             case .rotation: state.rotation
             case .opacity: state.opacity
             }
@@ -735,8 +757,8 @@ struct GroupTransformTests {
         var node = document.add(ImageEffect.descriptor, at: 0, duration: 3000)
         node.values[ImageEffect.Param.sprite] = .text("a.png")
         node.transform[property] = KeyframeTrack([
-            Keyframe(time: 0, value: property == .opacity ? 1 : 100),
-            Keyframe(time: 3000, value: property == .opacity ? 0.1 : 400),
+            Keyframe(time: 0, value: Self.low(for: property)),
+            Keyframe(time: 3000, value: Self.high(for: property)),
         ])
         document[node.id] = node
 

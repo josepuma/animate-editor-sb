@@ -150,6 +150,17 @@ public enum GroupTransform {
                 )
             }
 
+            // The group's colour, after the commands are rebuilt above.
+            //
+            // Placed before that rebuild it was simply thrown away: the line
+            // that carries the sprite's own commands *assigns* the array rather
+            // than appending to it, so anything added first vanished.
+            let colour = TransformCommands.buildColour(transform, duration: duration)
+            if !colour.isEmpty {
+                result.commands.removeAll { $0.kind == .color }
+                result.commands.append(contentsOf: colour)
+            }
+
             // A sprite with no scale command of its own draws at 1, so scaling
             // by multiplying its commands reaches nothing — the group's scale
             // has to be stated outright.
