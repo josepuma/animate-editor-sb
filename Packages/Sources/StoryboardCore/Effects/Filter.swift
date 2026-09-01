@@ -105,6 +105,21 @@ public struct FilterDescriptor: Sendable, Equatable {
 /// One filter applied to a track, with its settings.
 public struct FilterNode: Identifiable, Sendable, Equatable, Codable {
     public let id: String
+
+    /// The same filter with a fresh identity.
+    ///
+    /// A copy needs one: the id prefixes the sprites a filter derives, so two
+    /// nodes sharing it would name the same sprites — and a wiggle seeded from
+    /// it would wobble identically in both, which is a copy of a copy rather
+    /// than a second effect.
+    public func reidentified() -> FilterNode {
+        FilterNode(
+            id: "\(type)-\(UUID().uuidString.prefix(8))",
+            type: type,
+            isEnabled: isEnabled,
+            values: values,
+        )
+    }
     /// Matches `FilterDescriptor.type`.
     public let type: String
     public var isEnabled: Bool

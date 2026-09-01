@@ -378,6 +378,43 @@ struct BlurFilterTests {
 /// a number, not ten copies.
 @Suite("Loop filter")
 struct LoopFilterTests {
+
+    /// A loop body is replayed from zero every pass, so a sprite with no
+    /// command over its opening stretch is drawn at whatever its default
+    /// opacity is — visible. Every particle not yet born appeared at once at
+    /// the top of each iteration, held, and the sequence began underneath them.
+    ///
+    /// Invisible in the editor and plain in the game: this resolver treats an
+    /// uncommanded sprite as not drawn, and osu! draws it.
+    @Test("a looped body is covered from its first moment")
+    func loopBodyCoversItsStart() {
+        var late = StoryboardSprite(
+            id: "s", layer: .foreground, origin: .centre,
+            filePath: "a.png", defaultX: 320, defaultY: 240,
+        )
+        late.commands = [Command(
+            easing: .linear, startTime: 800, endTime: 1400,
+            payload: .fade(start: 0, end: 1),
+        )]
+
+        let context = FilterContext(
+            descriptor: LoopFilter.descriptor,
+            node: FilterNode(id: "l", type: LoopFilter.descriptor.type, values: [:]),
+        )
+        let body = LoopFilter().apply(to: [late], in: context)[0].loops[0].commands
+
+        // Nothing between zero and the first command.
+        #expect(body.map(\.startTime).min() == 0)
+
+        // And the sprite is invisible there.
+        let opening = body.first { $0.startTime == 0 }
+        if case let .fade(start, end) = opening?.payload {
+            #expect(start == 0 && end == 0)
+        } else {
+            Issue.record("the body's opening command should be a fade to nothing")
+        }
+    }
+
     private let evaluator = EffectEvaluator()
 
     private func document(count: Int = 6) -> (EffectDocument, EffectNode.ID) {

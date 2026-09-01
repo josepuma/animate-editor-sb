@@ -106,6 +106,26 @@ public struct LoopFilter: SpriteFilter {
                 ))
             }
 
+            // And the same at the front, for a sprite that starts partway in.
+            //
+            // A loop body is replayed from zero every pass, and a sprite with
+            // no command over the opening stretch is drawn at its default
+            // opacity there — visible. Every particle that had not been born
+            // yet appeared at once at the top of each iteration, held, and then
+            // the sequence began underneath them.
+            //
+            // Invisible in the editor and plain in the game: this resolver
+            // treats an uncommanded sprite as not yet drawn, and osu! draws it.
+            // Agreeing with the stricter of the two is the only safe reading.
+            if let first = body.map(\.startTime).min(), first > 0 {
+                body.insert(Command(
+                    easing: .linear,
+                    startTime: 0,
+                    endTime: first,
+                    payload: .fade(start: 0, end: 0),
+                ), at: 0)
+            }
+
             looped.commands = []
             looped.loops = sprite.loops + [LoopGroup(
                 startTime: 0,

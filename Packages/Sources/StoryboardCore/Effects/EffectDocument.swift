@@ -344,6 +344,10 @@ public struct EffectDocument: Sendable, Codable {
             seed: original.seed &+ 0x9E37_79B9,
             values: original.values,
             transform: original.transform,
+            // Its filters too: a clip is what it does *and* how it looks, and a
+            // copy that quietly drops the glow someone tuned is a copy of the
+            // wrong thing.
+            filters: original.filters.map { $0.reidentified() },
             isVisible: original.isVisible,
             isLocked: original.isLocked,
         )

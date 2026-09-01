@@ -139,6 +139,11 @@ public struct EditorShellView<Canvas: View>: View {
         .onChange(of: sprites.count, initial: true) { _, _ in
             shell.load(sprites: sprites, missingImagePaths: missingImagePaths)
         }
+        // The shortcuts read the playhead from the model, since their own view
+        // is not rebuilt as the clock moves.
+        .onChange(of: currentTime, initial: true) { _, time in
+            shell.playheadTime = time
+        }
     }
 
     // ─── Workspace ───────────────────────────────────────────────────────────
@@ -236,7 +241,7 @@ public struct EditorShellView<Canvas: View>: View {
                 if Self.isEditingText {
                     NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
                 } else {
-                    shell.pasteEffect(at: currentTime)
+                    shell.pasteEffect(at: shell.playheadTime)
                 }
             }
             .keyboardShortcut("v", modifiers: .command)

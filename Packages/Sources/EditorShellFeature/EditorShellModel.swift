@@ -417,6 +417,15 @@ public final class EditorShellModel {
         }
     }
 
+    /// Where the playhead is, in project time.
+    ///
+    /// Kept here because the keyboard shortcuts need it and a `View`'s stored
+    /// `currentTime` is captured when its body runs — the shortcut buttons live
+    /// in a `.background` that SwiftUI has no reason to rebuild as the clock
+    /// moves, so a paste landed at whatever time the editor opened at. Written
+    /// each frame by whoever owns playback.
+    @ObservationIgnored public var playheadTime: Double = 0
+
     /// The clip that was copied, if any.
     ///
     /// Kept in the model rather than the system pasteboard: a clip is a value
@@ -451,6 +460,9 @@ public final class EditorShellModel {
         node.name = source.name
         node.values = source.values
         node.transform = source.transform
+        // And its filters, reidentified: the id prefixes the sprites a filter
+        // derives, so two nodes sharing it would name the same ones.
+        node.filters = source.filters.map { $0.reidentified() }
         // A fresh seed, for the same reason a duplicate gets one: the same
         // field drawn twice is not a second effect.
         node.seed = source.seed &+ 0x9E37_79B9
