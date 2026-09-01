@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import DesignSystem
 import StoryboardCore
 import SwiftUI
@@ -318,6 +319,18 @@ public struct EditorShellView<Canvas: View>: View {
                     .help("Unsaved changes — ⌘S to save")
             }
 
+            if let progress = shell.videoProgress {
+                // A percentage while it runs: an export takes minutes, and one
+                // that says nothing is one people assume has hung.
+                Text("Rendering \(Int(progress * 100))%")
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.tertiary)
+            } else if shell.canExportVideo {
+                Button("Video", systemImage: "film") { chooseVideoDestination() }
+                    .buttonStyle(.themed(.secondary, size: .small, capsule: true))
+                    .help("Render the storyboard to a video file")
+            }
+
             if shell.canExport {
                 // Visible rather than only a shortcut: exporting is the point
                 // of the editor, and a command no one can see is one no one
@@ -329,6 +342,21 @@ public struct EditorShellView<Canvas: View>: View {
                 .help(exportHelp)
             }
         }
+    }
+
+    /// Asks where the video should go.
+    ///
+    /// A save panel rather than writing beside the project: a video is
+    /// something taken elsewhere — uploaded, shared, edited — so where it lands
+    /// is the author's to choose.
+    private func chooseVideoDestination() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.mpeg4Movie]
+        panel.nameFieldStringValue = "\(title).mp4"
+        panel.canCreateDirectories = true
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        shell.exportVideo(to: url)
     }
 
     /// What the export button says it will do, or what went wrong.

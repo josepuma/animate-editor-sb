@@ -347,6 +347,52 @@ public final class MetalStoryboardRenderer {
               let drawable = view.currentDrawable
         else { return }
 
+        render(at: time, into: descriptor) { commandBuffer in
+            commandBuffer.present(drawable)
+            commandBuffer.commit()
+        }
+    }
+
+    /// Draws one frame into a texture, for anything that is not a screen.
+    ///
+    /// An export needs the same picture without a window to put it in — and
+    /// faster than real time, since nothing is watching. Everything the frame
+    /// needs is already independent of the view: only the pass descriptor and
+    /// the drawable came from it, and a texture supplies the first while the
+    /// second is what presenting is *for*.
+    ///
+    /// - Returns: false when the frame could not be drawn.
+    @discardableResult
+    public func render(at time: Double, into texture: MTLTexture) -> Bool {
+        let descriptor = MTLRenderPassDescriptor()
+        descriptor.colorAttachments[0].texture = texture
+        descriptor.colorAttachments[0].loadAction = .clear
+        descriptor.colorAttachments[0].storeAction = .store
+        // Black, as a storyboard is composited over — anything else tints every
+        // partly transparent sprite.
+        descriptor.colorAttachments[0].clearColor = MTLClearColor(
+            red: 0, green: 0, blue: 0, alpha: 1,
+        )
+
+        var drew = false
+        render(at: time, into: descriptor) { commandBuffer in
+            // Waited on rather than presented: an exporter reads the texture
+            // back the moment this returns, and reading a frame the GPU has not
+            // finished writing gives whatever was there before.
+            commandBuffer.commit()
+            commandBuffer.waitUntilCompleted()
+            drew = true
+        }
+        return drew
+    }
+
+    /// The frame itself, whatever it is being drawn into.
+    private func render(
+        at time: Double,
+        into descriptor: MTLRenderPassDescriptor,
+        finish: (MTLCommandBuffer) -> Void,
+    ) {
+
         frameSemaphore.wait()
         frameIndex = (frameIndex + 1) % Self.maxFramesInFlight
 
@@ -420,12 +466,12 @@ public final class MetalStoryboardRenderer {
         }
 
         encoder.endEncoding()
-        commandBuffer.present(drawable)
+
 
         commandBuffer.addCompletedHandler { [frameSemaphore] _ in
             frameSemaphore.signal()
         }
-        commandBuffer.commit()
+        finish(commandBuffer)
     }
 
     /// Turns resolved states into GPU instances, in storyboard draw order,

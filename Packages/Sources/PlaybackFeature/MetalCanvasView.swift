@@ -29,6 +29,17 @@ struct MetalCanvasView: NSViewRepresentable {
         view.preferredFramesPerSecond = 60
         view.delegate = context.coordinator
         context.coordinator.configure(view: view)
+
+        // The export shares this renderer rather than building a second: the
+        // atlas is tens of megabytes and its sprites are already uploaded.
+        model.writeVideo = { [weak coordinator = context.coordinator, weak view] url, range, progress in
+            guard let renderer = coordinator?.rendererForExport,
+                  let device = view?.device
+            else { return }
+            try await VideoExport(renderer: renderer, device: device)
+                .write(range: range, to: url, audio: model.trackURL, progress: progress)
+        }
+
         return view
     }
 
@@ -42,6 +53,12 @@ struct MetalCanvasView: NSViewRepresentable {
         private let model: PlaybackModel
         private let source: any StoryboardSource
         private var renderer: MetalStoryboardRenderer?
+
+        /// The renderer, for an export to draw frames with.
+        ///
+        /// Sharing the editor's rather than building a second: the atlas is
+        /// tens of megabytes and its sprites are already uploaded.
+        var rendererForExport: MetalStoryboardRenderer? { renderer }
         private var lastFrameTimestamp: CFTimeInterval?
         private var smoothedFPS: Double = 60
         /// The sprite revision already on the GPU.

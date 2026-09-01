@@ -19,6 +19,20 @@ public final class PlaybackModel {
     /// business redrawing for a clock it does not display.
     @ObservationIgnored public var onTimeChanged: ((Double) -> Void)?
 
+    /// The audio file behind the beatmap, for an export to take its sound from.
+    @ObservationIgnored public private(set) var trackURL: URL?
+
+    /// Renders the storyboard to a video file.
+    ///
+    /// Installed by the canvas, which owns the renderer. Held here so the app
+    /// can reach it without the renderer becoming public — an export is the
+    /// only thing outside this feature that needs to draw a frame, and it needs
+    /// no more of the renderer than this.
+    @ObservationIgnored
+    public var writeVideo: (
+        (URL, ClosedRange<Double>, @escaping @Sendable (Double) -> Void) async throws -> Void
+    )?
+
     public private(set) var currentTime: Double = 0 {
         didSet { onTimeChanged?(currentTime) }
     }
@@ -229,6 +243,7 @@ public final class PlaybackModel {
 
         do {
             try audio.load(url: audioURL)
+            trackURL = audioURL
             hasAudio = true
             audioWarning = nil
             loadWaveform(from: audioURL)

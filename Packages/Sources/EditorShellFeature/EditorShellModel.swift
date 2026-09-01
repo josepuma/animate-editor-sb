@@ -424,6 +424,72 @@ public final class EditorShellModel {
 
     public var canExport: Bool { projectFolder != nil && exportHandler != nil }
 
+    // ─── Video ───────────────────────────────────────────────────────────────
+
+    /// Renders the storyboard to a video file, if someone has wired up how.
+    ///
+    /// Supplied by the app for the same reason the storyboard export is: the
+    /// renderer belongs to another feature, and features do not import each
+    /// other.
+    @ObservationIgnored
+    public var videoExportHandler: ((URL, @escaping @Sendable (Double) -> Void) async throws -> Void)?
+
+    /// How far a running video export has got, or `nil` when none is running.
+    public private(set) var videoProgress: Double?
+
+    /// Why the last video export failed, if it did.
+    public private(set) var videoError: String?
+
+    public var canExportVideo: Bool { videoExportHandler != nil && videoProgress == nil }
+
+    /// The stretch a video needs to cover: from the first sprite to the last.
+    ///
+    /// Not the song. A storyboard often occupies a fraction of the track, and
+    /// rendering the silence around it is minutes of work producing black
+    /// frames — a five-minute song is nineteen thousand of them.
+    public var videoRange: ClosedRange<Double>? {
+        let sprites = evaluated
+        guard !sprites.isEmpty else { return nil }
+
+        var lower = Double.greatestFiniteMagnitude
+        var upper = -Double.greatestFiniteMagnitude
+        for sprite in sprites {
+            for command in sprite.commands {
+                lower = Swift.min(lower, command.startTime)
+                upper = Swift.max(upper, command.endTime)
+            }
+            for loop in sprite.loops {
+                lower = Swift.min(lower, loop.startTime)
+                for command in loop.commands {
+                    upper = Swift.max(upper, loop.startTime
+                        + command.endTime * Double(loop.loopCount))
+                }
+            }
+        }
+
+        guard upper > lower else { return nil }
+        // A moment either side, so the first frame is not already mid-fade.
+        return Swift.max(0, lower - 500)...(upper + 500)
+    }
+
+    public func exportVideo(to url: URL) {
+        guard let videoExportHandler, videoProgress == nil else { return }
+        videoProgress = 0
+        videoError = nil
+
+        Task { @MainActor in
+            do {
+                try await videoExportHandler(url) { [weak self] fraction in
+                    Task { @MainActor in self?.videoProgress = fraction }
+                }
+                videoProgress = nil
+            } catch {
+                videoError = String(describing: error)
+                videoProgress = nil
+            }
+        }
+    }
+
     @discardableResult
     public func exportStoryboard() -> Bool {
         guard let projectFolder, let exportHandler else { return false }

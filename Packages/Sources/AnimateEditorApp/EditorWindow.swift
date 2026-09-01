@@ -146,6 +146,11 @@ struct EditorWindow: View {
             // Installed here because exporting needs images the renderer owns
             // and the shell cannot import it. The app already stands between
             // the two for the canvas; this is the same seam.
+            shell.videoExportHandler = { [weak playback] url, progress in
+                guard let playback, let write = playback.writeVideo else { return }
+                // Only where something is drawn, falling back to the track.
+                try await write(url, shell.videoRange ?? playback.timelineRange, progress)
+            }
             shell.exportHandler = { sprites, projectFolder in
                 let prepared = StoryboardExport.prepareUsingAppImages(sprites) { path in
                     // Read straight off the folder being edited. A sprite path
