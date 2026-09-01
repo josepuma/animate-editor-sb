@@ -1208,17 +1208,20 @@ struct TrackRowView: View {
 
     @ViewBuilder
     private func clip(_ node: EffectNode) -> some View {
+        // What the repeats and the tail add, drawn behind the clip — and
+        // **outside** the block's own visibility test.
+        //
+        // A loop leaves the block where it was while the effect plays for
+        // several times as long, so zooming until the first pass scrolls off
+        // the left used to take every later pass with it: the guard was on the
+        // parent's span, and the repeats were nested under it. They crop
+        // themselves through `VisibleSpan` already, so what is on screen is
+        // drawn whether or not the clip that spawned it still is.
+        tailGhost(node)
+        repeatGhost(node)
+
         if let span = span(of: node) {
             let width = span.width
-
-            // What the repeats add, drawn behind the clip.
-            //
-            // A loop leaves the block where it was while the effect plays for
-            // several times as long — and a clip that says twenty-five seconds
-            // and runs for two minutes is one nobody can arrange the rest of
-            // the timeline against.
-            tailGhost(node, span: span)
-            repeatGhost(node, span: span)
 
             TrackBlock(
                 tint: track.tint,
@@ -1369,7 +1372,7 @@ struct TrackRowView: View {
     /// and what keyframes are measured against, so growing it would make
     /// dragging move something other than what is shown.
     @ViewBuilder
-    private func tailGhost(_ node: EffectNode, span: VisibleSpan) -> some View {
+    private func tailGhost(_ node: EffectNode) -> some View {
         // Worked out before the builder, not inside it: a `@ViewBuilder` body
         // is not ordinary statement scope, and bindings declared in a branch
         // there leave the compiler reporting a type failure on whatever comes
@@ -1439,7 +1442,7 @@ struct TrackRowView: View {
 
     /// The stretch a looped clip covers beyond its own block.
     @ViewBuilder
-    private func repeatGhost(_ node: EffectNode, span: VisibleSpan) -> some View {
+    private func repeatGhost(_ node: EffectNode) -> some View {
         // One block per pass, not one long block covering them all.
         //
         // A single stretch says how much longer the clip runs and nothing else:
