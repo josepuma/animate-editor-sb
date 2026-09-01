@@ -1316,9 +1316,22 @@ struct TrackRowView: View {
             // filter that lengthens it.
             let passes = max(1, Int((played / node.duration).rounded(.down)) - 1)
             let stride = (played - node.duration) / Double(passes)
-            let bodyWidth = scale.width(of: min(node.duration, stride))
 
-            ForEach(1...passes, id: \.self) { pass in
+            // Clipped to the window, like the clip itself.
+            //
+            // Drawn from raw times, a pass was placed and sized in the
+            // timeline's own scale — and zoomed in that is enormous: at 64×, a
+            // six-second body is six thousand points wide and the tenth
+            // repetition sits tens of thousands of points off to the right.
+            // Passing the ranges through `VisibleSpan` throws away the ones off
+            // screen and trims the ones that cross the edge, which is what
+            // keeps a zoomed-in timeline drawable.
+            let ranges = (1...passes).map { pass -> ClosedRange<Double> in
+                let from = node.startTime + stride * Double(pass)
+                return from...(from + min(node.duration, stride))
+            }
+
+            ForEach(VisibleSpan.spans(of: ranges, scale: scale), id: \.index) { ghost in
                 RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
                     .fill(track.layer.tint.opacity(0.12))
                     .overlay {
@@ -1328,8 +1341,8 @@ struct TrackRowView: View {
                                 dash: [3, 3],
                             ))
                     }
-                    .frame(width: max(0, bodyWidth))
-                    .offset(x: span.start + scale.width(of: stride * Double(pass)))
+                    .frame(width: ghost.width)
+                    .offset(x: ghost.start)
                     .allowsHitTesting(false)
             }
         }

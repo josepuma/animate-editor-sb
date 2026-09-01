@@ -48,8 +48,15 @@ struct TimelineZoom: Equatable {
     var magnification: Double { state.magnification }
 
     /// Where the window begins, held inside the span.
-    var start: Double {
-        min(max(full.lowerBound, state.start), full.upperBound - windowDuration)
+    var start: Double { held(state.start) }
+
+    /// Holds a start inside the span.
+    ///
+    /// `max` last, so a window wider than the span lands at its beginning
+    /// rather than before it: with the two the other way round, an upper bound
+    /// smaller than the lower one wins and the view starts left of zero.
+    private func held(_ value: Double) -> Double {
+        max(full.lowerBound, min(value, full.upperBound - windowDuration))
     }
 
     /// How much time the window covers.
@@ -105,14 +112,14 @@ struct TimelineZoom: Equatable {
 
         // The anchor keeps its place on screen, so the window starts wherever
         // puts it back there.
-        state.start = anchor - windowDuration * anchorFraction
+        state.start = held(anchor - windowDuration * anchorFraction)
     }
 
     // ─── Panning ─────────────────────────────────────────────────────────────
 
     /// Slides the window by a fraction of its own width.
     mutating func pan(byFractionOfWindow fraction: Double) {
-        state.start = start + windowDuration * fraction
+        state.start = held(start + windowDuration * fraction)
     }
 
     /// Slides the window by a length of time.
@@ -121,7 +128,13 @@ struct TimelineZoom: Equatable {
     /// through the scale. The fraction form above is for the keyboard, where a
     /// step means "a screenful" rather than a distance.
     mutating func pan(by milliseconds: Double) {
-        state.start = start + milliseconds
+        // Clamped as it is stored, not only as it is read.
+        //
+        // Reading through a clamp while storing raw values lets the stored one
+        // drift far outside the span — and it comes back the moment the window
+        // changes size, because a different width clamps to a different place.
+        // Scrolling past the end and then zooming put the view before zero.
+        state.start = held(start + milliseconds)
     }
 
     /// How close to the edge the playhead gets before the view follows it.
@@ -147,7 +160,7 @@ struct TimelineZoom: Equatable {
 
         // Landing a little in from the left leaves the moment just played still
         // visible, which is what makes the jump readable.
-        state.start = time - margin
+        state.start = held(time - margin)
     }
 
     /// Brings `time` into view if it has scrolled off, centring on it.
@@ -158,6 +171,6 @@ struct TimelineZoom: Equatable {
         let window = visible
         guard !window.contains(time) else { return }
 
-        state.start = time - windowDuration / 2
+        state.start = held(time - windowDuration / 2)
     }
 }

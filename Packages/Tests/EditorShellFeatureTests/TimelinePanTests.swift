@@ -90,3 +90,45 @@ struct TimelinePanTests {
         #expect(abs((zoom.start - 60_000) - window / 2) < 0.001)
     }
 }
+
+@Suite("Timeline window bounds")
+struct TimelineWindowTests {
+    private let full = 0.0...65_799.0
+
+    /// Clamping on read while storing raw values lets the stored one drift far
+    /// outside the span — and it comes back the moment the window changes size,
+    /// because a different width clamps to a different place. Scrolling past
+    /// the end and then zooming put the view before zero, and every clip with
+    /// it.
+    @Test("panning past the end does not poison the stored start")
+    func panIsClampedAsItIsStored() {
+        var zoom = TimelineZoom(full: full, state: .init(magnification: 5, start: 0))
+
+        // Well past the end, many times over.
+        for _ in 0..<20 { zoom.pan(by: 100_000) }
+        // Then back out, which changes the window's width.
+        zoom.setMagnification(1, around: 0)
+
+        #expect(zoom.visible.lowerBound >= full.lowerBound - 0.001)
+        #expect(zoom.visible.upperBound <= full.upperBound + 0.001)
+    }
+
+    @Test("panning before the start is held at zero")
+    func panBeforeStartIsHeld() {
+        var zoom = TimelineZoom(full: full, state: .init(magnification: 5, start: 30_000))
+
+        for _ in 0..<20 { zoom.pan(by: -100_000) }
+
+        #expect(zoom.visible.lowerBound == full.lowerBound)
+    }
+
+    /// A window wider than the span belongs at its beginning, not before it:
+    /// with the bounds applied the other way round, an upper bound smaller than
+    /// the lower one wins.
+    @Test("a window wider than the span starts at the beginning")
+    func oversizedWindowStartsAtZero() {
+        let zoom = TimelineZoom(full: 0...1_000, state: .init(magnification: 1, start: -5_000))
+
+        #expect(zoom.start == 0)
+    }
+}
