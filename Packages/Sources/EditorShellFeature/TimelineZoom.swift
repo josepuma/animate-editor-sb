@@ -150,17 +150,22 @@ struct TimelineZoom: Equatable {
     /// every frame pins the playhead and moves the world around it, which is
     /// far harder to read than a view that holds still and jumps.
     mutating func follow(_ time: Double) {
-        let window = visible
-        let width = window.upperBound - window.lowerBound
         guard magnification > 1 else { return }
 
-        let margin = width * Self.followMargin
-        let comfortable = (window.lowerBound + margin)...(window.upperBound - margin)
-        guard !comfortable.contains(time) else { return }
+        let window = visible
+
+        // Paged when the playhead leaves, not when it nears the edge.
+        //
+        // The margin was a share of the window, so zoomed in it was a sliver:
+        // the playhead crossed it and the jump came too late to be read as one
+        // — it simply ran off the end. Testing against the window itself makes
+        // the trigger the same however far in the view is zoomed.
+        guard !window.contains(time) else { return }
 
         // Landing a little in from the left leaves the moment just played still
-        // visible, which is what makes the jump readable.
-        state.start = held(time - margin)
+        // visible, which is what makes the jump readable — a fixed share of the
+        // new window, so it reads the same at any zoom.
+        state.start = held(time - (window.upperBound - window.lowerBound) * Self.followMargin)
     }
 
     /// Brings `time` into view if it has scrolled off, centring on it.

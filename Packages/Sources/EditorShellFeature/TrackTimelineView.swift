@@ -56,6 +56,18 @@ struct TrackTimelineView: View {
     /// How far the current pan drag had travelled at the last event.
     /// Where the window started when a pan drag began.
     @State private var panOrigin: Double?
+    /// When the view was last moved by hand, so the clock does not fight it.
+    @State private var lastManualPan: Date = .distantPast
+
+    /// Whether someone is moving the timeline right now.
+    ///
+    /// A moment's grace after the last scroll rather than only during a drag: a
+    /// wheel arrives as a burst of separate events with gaps between them, and
+    /// a follow that slipped into one of those gaps undid the scroll that was
+    /// still in progress.
+    private var isPanning: Bool {
+        panOrigin != nil || Date().timeIntervalSince(lastManualPan) < 0.4
+    }
 
     /// The span the timeline actually has to cover.
     ///
@@ -248,6 +260,14 @@ struct TrackTimelineView: View {
         // the ruler — the lanes are most of what is on screen, and a gesture
         // that only works on a strip at the top is one nobody finds.
         .onScrollPan { delta in
+            // Only a real movement counts as a hand on the timeline.
+            //
+            // A trackpad keeps sending events with tiny deltas as a gesture
+            // decays, and marking every one of them left the view permanently
+            // "being panned" — measured, `panning` was true on all 79 calls, so
+            // the playhead was never followed again after a single scroll.
+            guard abs(delta) >= 0.5 else { return }
+            lastManualPan = Date()
             mutateZoom { zoom in
                 // A finger moving right shows what is to the *left*, the same
                 // direction a page scrolls under a hand.
@@ -267,8 +287,20 @@ struct TrackTimelineView: View {
             zoomState = TimelineZoom.State()
         }
         .onChange(of: currentTime) { _, time in
-            // Pages the view forward as the playhead nears the edge, so playing
-            // past the window carries on rather than running off it.
+            // Not while a hand is moving the view.
+            //
+            // Following on every frame *and* scrolling at the same time is two
+            // things writing the window at once: the view lurched between where
+            // the hand put it and where the clock wanted it. Whoever is holding
+            // the timeline wins until they let go.
+            guard !isPanning else { return }
+            // Pages only once the playhead leaves the window.
+            //
+            // Scrolling somewhere else leaves the view there: a hand that moved
+            // the timeline was looking at something, and yanking it back the
+            // moment the gesture ends throws that away. The view holds until
+            // the playhead crosses the edge of what is on screen, which is what
+            // a video editor does.
             mutateZoom { $0.follow(time) }
         }
     }

@@ -138,18 +138,26 @@ struct TimelineZoomTests {
         #expect(z.visible == before)
     }
 
-    @Test("following pages forward before the playhead reaches the edge")
+    /// Paged when the playhead *leaves*, not when it nears the edge.
+    ///
+    /// The margin used to be a share of the window, which zoomed in is a
+    /// sliver: the playhead crossed it and the jump came too late to read as
+    /// one — it simply ran off the end. Testing against the window itself makes
+    /// the trigger behave the same however far in the view is zoomed.
+    @Test("following pages forward once the playhead leaves the window")
     func followPagesAhead() {
-        // Waiting for the boundary itself shows nothing of what is coming,
-        // which is what the eye reads ahead for.
         var z = zoom()
         z.setMagnification(4, around: 20_000)
 
         let before = z.visible
-        let width = before.upperBound - before.lowerBound
-        // Just inside the right edge, but within the margin.
-        z.follow(before.upperBound - width * 0.05)
 
+        // Still inside: the view holds still rather than sliding under the
+        // playhead, which is far harder to read.
+        z.follow(before.upperBound - (before.upperBound - before.lowerBound) * 0.05)
+        #expect(z.visible.lowerBound == before.lowerBound)
+
+        // Past the end: the view pages.
+        z.follow(before.upperBound + 1)
         #expect(z.visible.lowerBound > before.lowerBound)
     }
 
