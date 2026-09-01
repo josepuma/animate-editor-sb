@@ -16,12 +16,18 @@ struct TimelineZoom: Equatable {
     struct State: Equatable {
         /// How much of the span is shown, from 1 (all of it) upwards.
         var magnification: Double = 1
-        /// Where the window sits, as a fraction of the space it can travel.
+
+        /// Where the window starts, in milliseconds.
         ///
-        /// A fraction rather than a time so that zooming out does not slide the
-        /// view: the same fraction of a wider window shows the same part of the
-        /// track.
-        var offset: Double = 0
+        /// A time, not a fraction of the travel.
+        ///
+        /// As a fraction every pan divided by `fullDuration - windowWidth`, and
+        /// at high magnification that divisor is nearly the whole track: a
+        /// pixel of drag became a fraction so small it rounded away, and moving
+        /// about while zoomed in was a fight. In milliseconds a pan is the same
+        /// arithmetic at every magnification — the window simply starts
+        /// somewhere else.
+        var start: Double = 0
     }
 
     /// The whole storyboard, in milliseconds.
@@ -40,17 +46,20 @@ struct TimelineZoom: Equatable {
     }
 
     var magnification: Double { state.magnification }
-    var offset: Double { state.offset }
+
+    /// Where the window begins, held inside the span.
+    var start: Double {
+        min(max(full.lowerBound, state.start), full.upperBound - windowDuration)
+    }
+
+    /// How much time the window covers.
+    var windowDuration: Double { fullDuration / magnification }
 
     // ─── Visible span ────────────────────────────────────────────────────────
 
     /// The stretch of time on screen.
     var visible: ClosedRange<Double> {
-        let width = fullDuration / magnification
-        let travel = fullDuration - width
-        let start = full.lowerBound + travel * offset
-
-        return start...(start + width)
+        start...(start + windowDuration)
     }
 
     var fullDuration: Double {
@@ -77,7 +86,7 @@ struct TimelineZoom: Equatable {
 
     mutating func reset() {
         state.magnification = 1
-        state.offset = 0
+        state.start = full.lowerBound
     }
 
     mutating func setMagnification(_ value: Double, around anchor: Double) {
@@ -94,26 +103,25 @@ struct TimelineZoom: Equatable {
 
         state.magnification = clamped
 
-        let width = fullDuration / magnification
-        let travel = fullDuration - width
-        guard travel > 0 else {
-            state.offset = 0
-            return
-        }
-
-        let desiredStart = anchor - width * anchorFraction
-        state.offset = min(max((desiredStart - full.lowerBound) / travel, 0), 1)
+        // The anchor keeps its place on screen, so the window starts wherever
+        // puts it back there.
+        state.start = anchor - windowDuration * anchorFraction
     }
 
     // ─── Panning ─────────────────────────────────────────────────────────────
 
     /// Slides the window by a fraction of its own width.
     mutating func pan(byFractionOfWindow fraction: Double) {
-        let width = fullDuration / magnification
-        let travel = fullDuration - width
-        guard travel > 0 else { return }
+        state.start = start + windowDuration * fraction
+    }
 
-        state.offset = min(max(offset + fraction * width / travel, 0), 1)
+    /// Slides the window by a length of time.
+    ///
+    /// What a scroll or a drag actually knows: so many pixels, converted once
+    /// through the scale. The fraction form above is for the keyboard, where a
+    /// step means "a screenful" rather than a distance.
+    mutating func pan(by milliseconds: Double) {
+        state.start = start + milliseconds
     }
 
     /// How close to the edge the playhead gets before the view follows it.
@@ -131,8 +139,7 @@ struct TimelineZoom: Equatable {
     mutating func follow(_ time: Double) {
         let window = visible
         let width = window.upperBound - window.lowerBound
-        let travel = fullDuration - width
-        guard travel > 0 else { return }
+        guard magnification > 1 else { return }
 
         let margin = width * Self.followMargin
         let comfortable = (window.lowerBound + margin)...(window.upperBound - margin)
@@ -140,8 +147,7 @@ struct TimelineZoom: Equatable {
 
         // Landing a little in from the left leaves the moment just played still
         // visible, which is what makes the jump readable.
-        let desiredStart = time - margin
-        state.offset = min(max((desiredStart - full.lowerBound) / travel, 0), 1)
+        state.start = time - margin
     }
 
     /// Brings `time` into view if it has scrolled off, centring on it.
@@ -152,11 +158,6 @@ struct TimelineZoom: Equatable {
         let window = visible
         guard !window.contains(time) else { return }
 
-        let width = window.upperBound - window.lowerBound
-        let travel = fullDuration - width
-        guard travel > 0 else { return }
-
-        let desiredStart = time - width / 2
-        state.offset = min(max((desiredStart - full.lowerBound) / travel, 0), 1)
+        state.start = time - windowDuration / 2
     }
 }

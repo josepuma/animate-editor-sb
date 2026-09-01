@@ -54,7 +54,8 @@ struct TrackTimelineView: View {
     /// key drawn against it lands far from the playhead it was placed at.
     @State private var zoomBeforeKeyframes: TimelineZoom.State?
     /// How far the current pan drag had travelled at the last event.
-    @State private var lastPanTranslation: CGFloat = 0
+    /// Where the window started when a pan drag began.
+    @State private var panOrigin: Double?
 
     /// The span the timeline actually has to cover.
     ///
@@ -108,8 +109,6 @@ struct TrackTimelineView: View {
     private static let rulerHeight: CGFloat = 32
     /// Tall enough for a clip pill to carry a thumbnail and a label.
     private static let trackHeight: CGFloat = 52
-    /// Shorter than a clip row: the waveform is reference, not content to edit.
-    private static let audioTrackHeight: CGFloat = 40
 
     /// What the ruler and every track row span, given the width inside the
     /// panel's padding.
@@ -139,12 +138,32 @@ struct TrackTimelineView: View {
         return rulerHeight
             // The gap the stack puts between the ruler and the first row.
             + Theme.Spacing.snug
-            // The audio row, which is there once a track is loaded — but not
-            // while editing keyframes, so the strip does not reserve a band of
-            // nothing.
-            + (isEditingKeyframes ? 0 : audioTrackHeight + Theme.Spacing.tight)
             + min(rows, maximumRowsHeight)
+            // The panel's own inset, top and bottom.
+            //
+            // Counted once here and once by the padding around the stack, the
+            // rows were given less room than the scroll view was told to fill —
+            // so the last lane was cut off with nowhere to scroll to. One place
+            // decides the height, and the ceiling below is measured against the
+            // same number.
             + Theme.Spacing.compact * 2
+    }
+
+    /// The room the lanes actually get, once the ruler and the insets have
+    /// taken theirs.
+    static func rowsHeight(trackCount: Int) -> CGFloat {
+        min((trackHeight + Theme.Spacing.tight) * CGFloat(max(trackCount, 1)), maximumRowsHeight)
+    }
+
+    /// Rows plus the ruler and the gap between them, which is everything the
+    /// inner stack has to fit.
+    ///
+    /// The panel's frame and this have to agree exactly. Given less than it
+    /// needs, the stack does not scroll — it squeezes, and the last lane is
+    /// shaved thinner with every track added.
+    static func stackHeight(trackCount: Int, isEditingKeyframes: Bool) -> CGFloat {
+        let rows = isEditingKeyframes ? KeyframeRows.height : rowsHeight(trackCount: trackCount)
+        return rulerHeight + Theme.Spacing.snug + rows
     }
 
     /// Ceiling on the space the effect rows take, after which they scroll.
@@ -185,6 +204,20 @@ struct TrackTimelineView: View {
                     }
                     tracks(contentWidth: contentWidth)
                 }
+                // Given exactly what it needs, so it never has to squeeze.
+                //
+                // Left to take what the reader offered, the stack was handed
+                // less than the ruler plus the rows come to — and a stack that
+                // does not fit compresses its children rather than scrolling
+                // them. Every track added shaved the last lane thinner, which
+                // is what "it does not reach the bottom" looked like.
+                .frame(
+                    height: Self.stackHeight(
+                        trackCount: shell.effects.tracks.count,
+                        isEditingKeyframes: shell.keyframeNode != nil,
+                    ),
+                    alignment: .top,
+                )
 
                 // Drawn over both, so the line runs unbroken from the ruler
                 // down through every track.
@@ -197,7 +230,7 @@ struct TrackTimelineView: View {
         .frame(height: Self.height(
             trackCount: shell.effects.tracks.count,
             isEditingKeyframes: shell.keyframeNode != nil,
-        ))
+        ), alignment: .top)
         .onChange(of: shell.keyframeNodeID) { _, newValue in
             if newValue != nil {
                 // Entering: the clip fills the view, which is the whole point
@@ -211,6 +244,16 @@ struct TrackTimelineView: View {
             }
         }
         .surface(.panel)
+        // Scrolling sideways anywhere on the timeline pans it, not only over
+        // the ruler — the lanes are most of what is on screen, and a gesture
+        // that only works on a strip at the top is one nobody finds.
+        .onScrollPan { delta in
+            mutateZoom { zoom in
+                // A finger moving right shows what is to the *left*, the same
+                // direction a page scrolls under a hand.
+                zoom.pan(by: -Double(delta) * zoom.windowDuration / 600)
+            }
+        }
         .onChange(of: shell.projectFolder) { _, _ in
             // A new project is a new span, so the view starts whole again
             // rather than keeping a window onto the last one.
@@ -326,19 +369,26 @@ struct TrackTimelineView: View {
         )
         // Held-shift drags the view instead of the playhead — the same
         // distinction a video editor draws between scrubbing and panning.
+        //
+        // Measured from where the drag began, against the window it began in.
+        // Differencing each event put the clamp in the middle of a running
+        // total: at either end it trimmed the step while the total moved on, so
+        // the pointer had to travel back over that slack before the view
+        // answered again.
         .simultaneousGesture(
             DragGesture(minimumDistance: 4)
                 .modifiers(.shift)
                 .onChanged { value in
                     guard width > 0 else { return }
-                    // `translation` measures from where the drag began, so it
-                    // has to be differenced: applying it whole on every event
-                    // would pan by the total again and again and race away.
-                    let step = value.translation.width - lastPanTranslation
-                    lastPanTranslation = value.translation.width
-                    mutateZoom { $0.pan(byFractionOfWindow: -Double(step / width)) }
+                    let origin = panOrigin ?? zoom.start
+                    if panOrigin == nil { panOrigin = zoom.start }
+
+                    let travelled = Double(value.translation.width) / Double(width)
+                    mutateZoom {
+                        $0.state.start = origin - $0.windowDuration * travelled
+                    }
                 }
-                .onEnded { _ in lastPanTranslation = 0 },
+                .onEnded { _ in panOrigin = nil },
         )
         .onChange(of: waveformPeaks.count, initial: true) { _, count in
             guard count > 0 else {
@@ -675,8 +725,15 @@ struct TrackTimelineView: View {
     ///   here would report whatever the enclosing stack offered rather than the
     ///   span the ruler was drawn against, and the two would disagree.
     private func tracks(contentWidth: CGFloat) -> some View {
+        // The scroll view sits directly in this stack.
+        //
+        // Wrapped in a `ZStack` holding a `VStack` holding it, the height asked
+        // for never arrived: measured, it was given 56 points — one row, which
+        // is a scroll view's own minimum — while being told to take 280. Each
+        // wrapper offered its child the ideal size rather than the one demanded,
+        // and by the time the request reached the scroll view there was nothing
+        // left of it.
         ZStack(alignment: .topLeading) {
-            VStack(spacing: Theme.Spacing.tight) {
                 // Scrolled rather than grown: the timeline has a ceiling so a
                 // project with many effects cannot squeeze the canvas — the
                 // thing the editor exists for — off the window.
@@ -706,23 +763,21 @@ struct TrackTimelineView: View {
                     }
                 }
                 .scrollBounceBehavior(.basedOnSize)
-                .frame(maxHeight: Self.maximumRowsHeight)
+                // A fixed height, not a ceiling.
+                //
+                // `maxHeight` permits a height without asking for one, so the
+                // scroll view sized itself to its content and had nothing left
+                // to scroll — six lanes of 336pt drawn inside a view that had
+                // grown to 336pt. Told exactly how tall to be, it keeps the
+                // overflow and scrolls it.
+                .frame(height: Self.rowsHeight(trackCount: shell.effects.tracks.count))
 
-                // The soundtrack sits under the layers it is written against,
-                // the way a video editor puts audio beneath its video tracks —
-                // but not while editing one clip's keyframes, where the lanes
-                // it belongs under are not on screen and it is a strip of
-                // nothing to act on.
-                if !waveformPeaks.isEmpty, shell.keyframeNode == nil {
-                    AudioTrackRow(
-                        peaks: waveformPeaks,
-                        scale: TimelineScale(range: visibleRange, width: contentWidth),
-                        audioDuration: audioDuration,
-                        headerWidth: Self.headerWidth,
-                        height: Self.audioTrackHeight,
-                    )
-                }
-            }
+                // No audio row.
+                //
+                // The waveform is already drawn into the ruler, where it doubles
+                // as the progress bar — a second copy below the lanes said the
+                // same thing again and took a row's height from the clips,
+                // which are the only thing here anyone can act on.
 
             // Regions and the playhead span every row, so they are drawn
             // over the stack rather than inside each one.
@@ -740,11 +795,7 @@ struct TrackTimelineView: View {
                     seek(scale.time(atX: value.location.x - Self.contentOrigin))
                 },
         )
-        .frame(
-            height: (Self.trackHeight + Theme.Spacing.tight)
-                * CGFloat(max(shell.effects.tracks.count, 1))
-                + (waveformPeaks.isEmpty ? 0 : Self.audioTrackHeight + Theme.Spacing.tight),
-        )
+        .frame(height: Self.rowsHeight(trackCount: shell.effects.tracks.count))
     }
 
     /// Whether break and kiai bands are painted across the tracks.
