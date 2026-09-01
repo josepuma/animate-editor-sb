@@ -126,6 +126,18 @@ public final class VideoExport {
             throw Failure.textureCreationFailed
         }
 
+        // Started now, and left to run alongside the frames.
+        //
+        // Fed after the video instead, the two deadlocked: a writer holds back
+        // every input until each of them has data, so the video loop waited for
+        // `isReadyForMoreMediaData` that would only come once audio arrived —
+        // and audio was queued to arrive after the video loop finished. The
+        // export stopped dead on frame zero.
+        if let sound {
+            sound.reader.startReading()
+            feed(sound)
+        }
+
         let frameCount = max(1, Int((range.upperBound - range.lowerBound)
             / 1000 * Double(settings.frameRate)))
         let step = 1000.0 / Double(settings.frameRate)
@@ -177,10 +189,9 @@ public final class VideoExport {
 
         input.markAsFinished()
 
-        if let sound {
-            sound.reader.startReading()
-            await feed(sound)
-        }
+        // The sound is written on its own schedule, so the file is not finished
+        // until it has caught up.
+        if let sound { await sound.finished.value }
 
         await writer.finishWriting()
 
@@ -294,6 +305,30 @@ extension VideoExport {
         let input: AVAssetWriterInput
         let reader: AVAssetReader
         let output: AVAssetReaderTrackOutput
+        /// Completed when every sample has been handed over.
+        let finished = Finished()
+
+        final class Finished: @unchecked Sendable {
+            private let semaphore = DispatchSemaphore(value: 0)
+            private var isDone = false
+
+            func signal() {
+                guard !isDone else { return }
+                isDone = true
+                semaphore.signal()
+            }
+
+            var value: Void {
+                get async {
+                    await withCheckedContinuation { continuation in
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            self.semaphore.wait()
+                            continuation.resume()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Prepares the track's audio, without starting to read it.
@@ -335,18 +370,19 @@ extension VideoExport {
         return Sound(input: input, reader: reader, output: output)
     }
 
-    /// Pumps every sample from the reader into the writer.
-    private func feed(_ sound: Sound) async {
-        await withCheckedContinuation { continuation in
-            sound.input.requestMediaDataWhenReady(on: .global(qos: .userInitiated)) {
-                while sound.input.isReadyForMoreMediaData {
-                    guard let buffer = sound.output.copyNextSampleBuffer() else {
-                        sound.input.markAsFinished()
-                        continuation.resume()
-                        return
-                    }
-                    sound.input.append(buffer)
+    /// Pumps every sample from the reader into the writer, on its own queue.
+    ///
+    /// Not awaited here: the writer wants both inputs filled at once, so the
+    /// sound has to flow while the frames are still being drawn.
+    private func feed(_ sound: Sound) {
+        sound.input.requestMediaDataWhenReady(on: .global(qos: .userInitiated)) {
+            while sound.input.isReadyForMoreMediaData {
+                guard let buffer = sound.output.copyNextSampleBuffer() else {
+                    sound.input.markAsFinished()
+                    sound.finished.signal()
+                    return
                 }
+                sound.input.append(buffer)
             }
         }
     }
