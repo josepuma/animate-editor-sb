@@ -567,7 +567,7 @@ private struct TrackRow: View {
     var body: some View {
         HStack(spacing: Theme.Spacing.snug) {
             Circle()
-                .fill(track.layer.tint)
+                .fill(track.tint)
                 .frame(width: Theme.Spacing.snug, height: Theme.Spacing.snug)
 
             VStack(alignment: .leading, spacing: 0) {

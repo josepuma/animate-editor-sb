@@ -411,6 +411,20 @@ struct InspectorView: View {
                     label: \.title,
                 )
             }
+
+            // Beside the name and the layer, which is what a track's panel is
+            // for. Buried in a context menu it was a setting you had to know
+            // was there.
+            PropertyRow("Colour") {
+                MenuField(
+                    items: TrackColourOption.all,
+                    selection: Binding(
+                        get: { TrackColourOption(track.colour) },
+                        set: { shell.setColour($0.colour, on: track.id) },
+                    ),
+                    label: \.title,
+                )
+            }
         }
 
         if track.nodes.count > 1 {
@@ -456,7 +470,7 @@ struct InspectorView: View {
         if let track = shell.selectedTrack {
             HStack(spacing: Theme.Spacing.snug) {
                 Circle()
-                    .fill(track.layer.tint)
+                    .fill(track.tint)
                     .frame(width: Theme.Spacing.snug, height: Theme.Spacing.snug)
 
                 Text(track.name)
@@ -895,4 +909,21 @@ private struct ChoiceOption: Hashable, Identifiable {
     init(_ id: String) {
         self.id = id
     }
+}
+
+
+/// A colour choice for a track, with an entry for following the layer.
+///
+/// `nil` is one of the options rather than a separate control: "match the
+/// layer" is a choice among the colours, not a switch beside them.
+private struct TrackColourOption: Hashable, Identifiable {
+    let colour: TrackColour?
+
+    init(_ colour: TrackColour?) { self.colour = colour }
+
+    var id: String { colour?.rawValue ?? "layer" }
+    var title: String { colour?.title ?? "Match Layer" }
+
+    static let all: [TrackColourOption] =
+        [TrackColourOption(nil)] + TrackColour.allCases.map(TrackColourOption.init)
 }

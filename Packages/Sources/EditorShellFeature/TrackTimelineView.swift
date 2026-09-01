@@ -108,6 +108,12 @@ struct TrackTimelineView: View {
         var updated = zoom
         change(&updated)
         zoomState = updated.state
+        // Reported so it can be saved with the project: the view's own state is
+        // gone by the time a file is written.
+        shell.timelineView = Project.TimelineView(
+            magnification: updated.magnification,
+            start: updated.start,
+        )
     }
 
     /// What the ruler and rows are drawn against: the visible window, which is
@@ -274,17 +280,23 @@ struct TrackTimelineView: View {
                 zoom.pan(by: -Double(delta) * zoom.windowDuration / 600)
             }
         }
-        .onChange(of: shell.projectFolder) { _, _ in
-            // A new project is a new span, so the view starts whole again
-            // rather than keeping a window onto the last one.
-            //
-            // Keyed on the project rather than on the track count: adding a
-            // lane also changes that count, and it threw away whatever zoom was
-            // in use — the timeline snapped back to the whole song every time
-            // someone made room for another effect. The range is no better a
-            // key, since it settles in stages as a beatmap loads and would undo
-            // a zoom the moment it was applied.
-            zoomState = TimelineZoom.State()
+        // One place decides what a new project does to the view.
+        //
+        // Two `onChange` handlers on the same value ran in an order nobody
+        // chose: the one restoring the saved window and the one resetting to
+        // the whole track, each undoing the other depending on which went last.
+        .onChange(of: shell.projectFolder, initial: true) { _, _ in
+            if let view = shell.timelineView {
+                zoomState = TimelineZoom.State(
+                    magnification: view.magnification,
+                    start: view.start,
+                )
+            } else {
+                // A project with nothing saved starts whole, which is what a
+                // new span deserves — a window onto the last one means nothing
+                // here.
+                zoomState = TimelineZoom.State()
+            }
         }
         .onChange(of: currentTime) { _, time in
             // Not while a hand is moving the view.
@@ -1004,7 +1016,7 @@ struct TrackRowView: View {
         .overlay {
             if isAssetTargeted {
                 RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                    .strokeBorder(track.layer.tint, style: StrokeStyle(
+                    .strokeBorder(track.tint, style: StrokeStyle(
                         lineWidth: Theme.Size.ring,
                         dash: [5, 3],
                     ))
@@ -1055,7 +1067,7 @@ struct TrackRowView: View {
 
                 HStack(spacing: Theme.Spacing.hair) {
                     Rectangle()
-                        .fill(track.layer.tint)
+                        .fill(track.tint)
                         .frame(width: Theme.Size.controlTiny, height: Theme.Size.ring)
 
                 }
@@ -1147,13 +1159,13 @@ struct TrackRowView: View {
            let span = VisibleSpan.spans(of: [preview.range], scale: scale).first
         {
             RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
-                .strokeBorder(track.layer.tint, style: StrokeStyle(
+                .strokeBorder(track.tint, style: StrokeStyle(
                     lineWidth: Theme.Size.ring,
                     dash: [4, 3],
                 ))
                 .background {
                     RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
-                        .fill(track.layer.tint.opacity(0.15))
+                        .fill(track.tint.opacity(0.15))
                 }
                 .frame(width: span.width)
                 .offset(x: span.start)
@@ -1199,7 +1211,7 @@ struct TrackRowView: View {
             repeatGhost(node, span: span)
 
             TrackBlock(
-                tint: track.layer.tint,
+                tint: track.tint,
                 // A narrow pill has no room for text, and a truncated label
                 // reads as a rendering fault.
                 label: width > 90 ? node.name : nil,
@@ -1207,7 +1219,7 @@ struct TrackRowView: View {
                 isSelected: node.id == shell.selectedNodeID,
             ) {
                 if width > 56 {
-                    SpanThumbnail(tint: track.layer.tint, height: height - 16)
+                    SpanThumbnail(tint: track.tint, height: height - 16)
                 }
             } badge: {
                 // A badge per filter, so a clip's look is legible from the
@@ -1365,10 +1377,10 @@ struct TrackRowView: View {
 
             ForEach(VisibleSpan.spans(of: ranges, scale: scale), id: \.index) { ghost in
                 RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
-                    .fill(track.layer.tint.opacity(0.12))
+                    .fill(track.tint.opacity(0.12))
                     .overlay {
                         RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
-                            .strokeBorder(track.layer.tint.opacity(0.4), style: StrokeStyle(
+                            .strokeBorder(track.tint.opacity(0.4), style: StrokeStyle(
                                 lineWidth: Theme.Size.hairline,
                                 dash: [3, 3],
                             ))
@@ -1409,7 +1421,7 @@ struct TrackRowView: View {
             // same piece extending past its edge rather than as a separate
             // control resting against it.
             RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-                .fill(track.layer.tint.opacity(0.55))
+                .fill(track.tint.opacity(0.55))
                 .frame(width: Self.earWidth)
                 .padding(.vertical, Theme.Spacing.compact)
                 .contentShape(.rect)
@@ -1652,6 +1664,8 @@ struct TrackRowView: View {
 
         Divider()
 
+        Divider()
+
         if actions.canPaste {
             Button("Paste", systemImage: "doc.on.clipboard", action: actions.paste)
                 .keyboardShortcut("v", modifiers: .command)
@@ -1770,6 +1784,30 @@ private struct SpanThumbnail: View {
 }
 
 // ─── Layer colours ───────────────────────────────────────────────────────────
+
+extension TrackColour {
+    /// What each name looks like.
+    ///
+    /// The mapping lives here rather than in Core, which has no business
+    /// knowing what blue is.
+    var colour: Color {
+        switch self {
+        case .blue: Theme.TrackPalette.blue
+        case .violet: Theme.TrackPalette.violet
+        case .pink: Theme.TrackPalette.pink
+        case .teal: Theme.TrackPalette.teal
+        case .amber: Theme.TrackPalette.amber
+        case .green: Theme.TrackPalette.green
+        case .red: Theme.TrackPalette.red
+        }
+    }
+}
+
+extension EffectTrack {
+    /// The colour this track draws in: its own, or its layer's until one is
+    /// chosen.
+    var tint: Color { colour?.colour ?? layer.tint }
+}
 
 extension Layer {
     /// A colour per layer, so a track is identifiable at a glance in both the

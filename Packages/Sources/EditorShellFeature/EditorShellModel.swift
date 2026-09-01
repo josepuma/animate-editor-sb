@@ -338,6 +338,13 @@ public final class EditorShellModel {
 
     // ─── Saving ──────────────────────────────────────────────────────────────
 
+    /// Where the timeline is looking, kept so it can be saved and restored.
+    ///
+    /// On the model rather than left in the view: the view's own `@State` is
+    /// gone by the time a project is written, and a window someone spent time
+    /// arranging is worth reopening as they left it.
+    @ObservationIgnored public var timelineView: Project.TimelineView?
+
     /// Where this project is saved, once it has a home.
     public var projectFolder: URL?
 
@@ -364,6 +371,7 @@ public final class EditorShellModel {
         do {
             guard let project = try ProjectFile.read(fromFolder: folder) else { return }
             effects = project.document
+            timelineView = project.view
             selectedNodeID = nil
             selectedTrackID = effects.tracks.last?.id
             effectsChanged()
@@ -381,7 +389,10 @@ public final class EditorShellModel {
     public func saveProject() -> Bool {
         guard let projectFolder, !loadFailed else { return false }
         do {
-            try ProjectFile.write(Project(document: effects), toFolder: projectFolder)
+            try ProjectFile.write(
+                Project(document: effects, view: timelineView),
+                toFolder: projectFolder,
+            )
             hasUnsavedChanges = false
             saveError = nil
             return true
@@ -863,7 +874,8 @@ public final class EditorShellModel {
 
     public func renameTrack(_ trackID: EffectTrack.ID, to name: String) {
         effects.rename(trackID, to: name)
-        effectsChanged()
+        // A name is a label; no sprite carries it.
+        appearanceChanged()
     }
 
     // ─── Filters ─────────────────────────────────────────────────────────────
@@ -992,6 +1004,23 @@ public final class EditorShellModel {
         return evaluator.spriteMultiplier(for: node)
     }
 
+    public func setColour(_ colour: TrackColour?, on trackID: EffectTrack.ID) {
+        effects.setColour(colour, on: trackID)
+        // Not `effectsChanged()`: a track's colour is a label in the editor and
+        // reaches no sprite, so re-running every emitter for it is a second of
+        // the main thread spent producing exactly what was already on screen.
+        appearanceChanged()
+    }
+
+    /// Records a change that alters how the editor looks but not what it draws.
+    ///
+    /// The document still has to be saved and the views still have to redraw —
+    /// what it skips is the evaluation, which is the expensive half.
+    private func appearanceChanged() {
+        effectsRevision &+= 1
+        hasUnsavedChanges = true
+    }
+
     public func setLayer(_ layer: Layer, on trackID: EffectTrack.ID) {
         effects.setLayer(layer, on: trackID)
         effectsChanged()
@@ -1004,7 +1033,8 @@ public final class EditorShellModel {
 
     public func toggleLock(of trackID: EffectTrack.ID) {
         effects.toggleLock(of: trackID)
-        effectsChanged()
+        // A lock refuses edits; it changes nothing about what is drawn.
+        appearanceChanged()
     }
 
     public func raiseTrack(_ trackID: EffectTrack.ID) {

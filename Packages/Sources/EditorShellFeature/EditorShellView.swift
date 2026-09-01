@@ -111,8 +111,27 @@ public struct EditorShellView<Canvas: View>: View {
             minWidth: ShellLayout.minimumWidth,
             minHeight: ShellLayout.minimumHeight,
         )
-        .background(Theme.Palette.stage)
+        .background {
+            // A click on the editor's own background clears the selection and
+            // hands the keyboard back.
+            //
+            // The canvas already did this for clicks on the picture, but the
+            // rest of the window did nothing — so a clip stayed selected while
+            // pointing at nothing, and a field being edited kept the keyboard
+            // wherever you clicked. Fields commit when they lose focus, so a
+            // typed value was only kept by pressing Return.
+            Theme.Palette.stage
+                .contentShape(.rect)
+                .onTapGesture {
+                    // Clearing the selection only: releasing the keyboard is
+                    // handled window-wide, since a backdrop sees just the gaps
+                    // between controls and most of an editor is controls.
+                    shell.selectedNodeID = nil
+                    shell.selectedKeyframe = nil
+                }
+        }
         .surfaceGroup()
+        .releasesFocusOnOutsideClick()
         .toolbar { windowToolbar }
         // Copy, paste and delete, on the whole editor.
         //

@@ -13,7 +13,7 @@ public struct EffectTrack: Identifiable, Sendable, Equatable, Codable {
     // ─── Decoding ────────────────────────────────────────────────────────────
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, layer, nodes, isVisible, isLocked
+        case id, name, layer, nodes, isVisible, isLocked, colour
         /// Filters used to live on the track. They belong to a clip now, but a
         /// project written before that move still has them here, and a decoder
         /// that simply failed would open a real project as an empty one.
@@ -26,6 +26,10 @@ public struct EffectTrack: Identifiable, Sendable, Equatable, Codable {
         name = try container.decode(String.self, forKey: .name)
         layer = try container.decode(Layer.self, forKey: .layer)
         isVisible = try container.decode(Bool.self, forKey: .isVisible)
+        // Absent in files written before tracks could be coloured, and a track
+        // without one falls back to its layer's — which is what every track
+        // showed until now, so an old project opens looking as it did.
+        colour = try container.decodeIfPresent(TrackColour.self, forKey: .colour)
         isLocked = try container.decode(Bool.self, forKey: .isLocked)
 
         var decodedNodes = try container.decode([EffectNode].self, forKey: .nodes)
@@ -54,6 +58,7 @@ public struct EffectTrack: Identifiable, Sendable, Equatable, Codable {
         try container.encode(layer, forKey: .layer)
         try container.encode(nodes, forKey: .nodes)
         try container.encode(isVisible, forKey: .isVisible)
+        try container.encodeIfPresent(colour, forKey: .colour)
         try container.encode(isLocked, forKey: .isLocked)
     }
 
@@ -62,6 +67,14 @@ public struct EffectTrack: Identifiable, Sendable, Equatable, Codable {
     public var layer: Layer
     public var nodes: [EffectNode]
     public var isVisible: Bool
+
+    /// The track's own colour, or `nil` to take its layer's.
+    ///
+    /// Optional rather than defaulted so "never chosen" and "chosen to match
+    /// the layer" stay different: a track that has not been given a colour
+    /// follows its layer when that layer changes, and one that has been given
+    /// a colour keeps it.
+    public var colour: TrackColour?
     public var isLocked: Bool
 
     public init(
@@ -70,6 +83,7 @@ public struct EffectTrack: Identifiable, Sendable, Equatable, Codable {
         layer: Layer = .foreground,
         nodes: [EffectNode] = [],
         isVisible: Bool = true,
+        colour: TrackColour? = nil,
         isLocked: Bool = false,
     ) {
         self.id = id
@@ -77,6 +91,7 @@ public struct EffectTrack: Identifiable, Sendable, Equatable, Codable {
         self.layer = layer
         self.nodes = nodes
         self.isVisible = isVisible
+        self.colour = colour
         self.isLocked = isLocked
     }
 
@@ -225,6 +240,12 @@ public struct EffectDocument: Sendable, Codable {
                   .firstIndex(where: { $0.id == filterID })
         else { return }
         tracks[location.track].nodes[location.node].filters[index].isEnabled.toggle()
+    }
+
+    /// Gives a track its own colour, or `nil` to follow its layer again.
+    public mutating func setColour(_ colour: TrackColour?, on trackID: EffectTrack.ID) {
+        guard let index = tracks.firstIndex(where: { $0.id == trackID }) else { return }
+        tracks[index].colour = colour
     }
 
     public mutating func setLayer(_ layer: Layer, on trackID: EffectTrack.ID) {

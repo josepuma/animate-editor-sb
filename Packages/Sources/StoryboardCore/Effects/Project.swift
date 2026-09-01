@@ -20,15 +20,41 @@ public struct Project: Codable, Sendable {
     public var formatVersion: Int
     public var document: EffectDocument
 
+    /// Where the timeline was looking when the project was saved.
+    ///
+    /// Part of the project rather than of the app's preferences: it belongs to
+    /// this storyboard, and reopening one to find the view somewhere else means
+    /// finding your place again every time. Optional, so a file written before
+    /// this opens showing the whole track as it always did.
+    public var view: TimelineView?
+
     /// The version this build writes.
     public static let currentVersion = 1
 
     /// The oldest version this build can still read.
     public static let minimumReadableVersion = 1
 
-    public init(document: EffectDocument, formatVersion: Int = Project.currentVersion) {
+    /// The timeline's window, saved with the project.
+    public struct TimelineView: Codable, Sendable, Equatable {
+        /// How far in the view was zoomed.
+        public var magnification: Double
+        /// Where the window began, in milliseconds.
+        public var start: Double
+
+        public init(magnification: Double, start: Double) {
+            self.magnification = magnification
+            self.start = start
+        }
+    }
+
+    public init(
+        document: EffectDocument,
+        view: TimelineView? = nil,
+        formatVersion: Int = Project.currentVersion,
+    ) {
         self.formatVersion = formatVersion
         self.document = document
+        self.view = view
     }
 }
 
