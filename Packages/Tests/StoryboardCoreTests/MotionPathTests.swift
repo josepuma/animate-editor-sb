@@ -246,4 +246,54 @@ struct PathFilterTests {
             #expect(sprite.defaultX >= 99 && sprite.defaultX <= 501)
         }
     }
+
+    /// A burst has nothing to spread by time, so it spreads by index instead.
+    ///
+    /// Everything leaves at once, so every sprite asked the path for the same
+    /// point and landed in a heap — the filter looked broken on half the
+    /// presets in the library. Spread by index the same burst becomes a row of
+    /// sparks laid along the curve, which was not obtainable any other way.
+    @Test("a burst is laid along the path rather than heaped")
+    func burstSpreadsByIndex() {
+        var document = EffectDocument()
+        let node = document.add(EmitterEffect.descriptor, at: 0, duration: 2000)
+        document.setValue(.integer(20), for: EmitterEffect.Param.count, on: node.id)
+        document.setValue(.choice("Burst"), for: EmitterEffect.Param.emission, on: node.id)
+        document.setValue(.number(0), for: EmitterEffect.Param.velocity, on: node.id)
+        document.setValue(.number(0), for: EmitterEffect.Param.width, on: node.id)
+        document.setValue(.number(0), for: EmitterEffect.Param.height, on: node.id)
+
+        let filter = document.addFilter(PathFilter.descriptor, to: node.id)!
+        document.setFilterValue(
+            .path(MotionPath(points: [.init(x: 100, y: 240), .init(x: 500, y: 240)])),
+            for: PathFilter.Param.path, on: filter.id, in: node.id,
+        )
+
+        let xs = evaluator.evaluate(document).map(\.defaultX).sorted()
+        #expect(xs.last! - xs.first! > 350, "the burst heaped up: \(xs.last! - xs.first!)px across")
+    }
+
+    /// And a continuous emitter still spreads by time, which is what makes the
+    /// source read as travelling rather than as a shape being drawn all at once.
+    @Test("a continuous emitter still spreads by time")
+    func continuousStillUsesTime() {
+        var document = EffectDocument()
+        let node = document.add(EmitterEffect.descriptor, at: 0, duration: 2000)
+        document.setValue(.integer(20), for: EmitterEffect.Param.count, on: node.id)
+        document.setValue(.number(0), for: EmitterEffect.Param.velocity, on: node.id)
+        document.setValue(.number(0), for: EmitterEffect.Param.width, on: node.id)
+        document.setValue(.number(0), for: EmitterEffect.Param.height, on: node.id)
+
+        let filter = document.addFilter(PathFilter.descriptor, to: node.id)!
+        document.setFilterValue(
+            .path(MotionPath(points: [.init(x: 100, y: 240), .init(x: 500, y: 240)])),
+            for: PathFilter.Param.path, on: filter.id, in: node.id,
+        )
+
+        // Sorted by birth, the positions have to climb: later means further on.
+        let byBirth = evaluator.evaluate(document)
+            .sorted { ($0.commands.map(\.startTime).min() ?? 0) < ($1.commands.map(\.startTime).min() ?? 0) }
+
+        #expect(byBirth.last!.defaultX > byBirth.first!.defaultX + 300)
+    }
 }

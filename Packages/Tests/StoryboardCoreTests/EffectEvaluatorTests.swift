@@ -223,7 +223,7 @@ private struct StubEffect: Effect {
     static let descriptor = EffectDescriptor(
         type: "stub",
         name: "Stub",
-        category: "Test",
+        category: .generate,
         systemImage: "circle",
         parameters: [],
     )

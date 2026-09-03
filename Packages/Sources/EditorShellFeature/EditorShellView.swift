@@ -229,6 +229,32 @@ public struct EditorShellView<Canvas: View>: View {
             Button("Export") { shell.exportStoryboard() }
                 .keyboardShortcut("e", modifiers: .command)
 
+            // Handed to the field editor while one is being edited, for the
+            // same reason ⌘C and ⌘V are: a shortcut is claimed window-wide, so
+            // undoing a typo in a text field would otherwise undo the last edit
+            // to the document instead — a keystroke doing something far larger
+            // than what was asked, in an app where the alternative used to be
+            // nothing at all.
+            Button("Undo") {
+                if Self.isEditingText {
+                    NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
+                } else {
+                    shell.undo()
+                }
+            }
+            .keyboardShortcut("z", modifiers: .command)
+            .disabled(!shell.canUndo && !Self.isEditingText)
+
+            Button("Redo") {
+                if Self.isEditingText {
+                    NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
+                } else {
+                    shell.redo()
+                }
+            }
+            .keyboardShortcut("z", modifiers: [.command, .shift])
+            .disabled(!shell.canRedo && !Self.isEditingText)
+
             // Handed back to the field when one is being edited.
             //
             // A `keyboardShortcut` is claimed window-wide, so these swallowed

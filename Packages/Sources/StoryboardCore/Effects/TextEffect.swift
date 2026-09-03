@@ -41,7 +41,7 @@ public struct TextEffect: Effect {
     public static let descriptor = EffectDescriptor(
         type: "text",
         name: "Text",
-        category: "Basic",
+        category: .generate,
         systemImage: "textformat",
         parameters: [
             EffectParameter(

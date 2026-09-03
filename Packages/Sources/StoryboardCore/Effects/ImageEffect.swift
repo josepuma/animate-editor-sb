@@ -23,7 +23,7 @@ public struct ImageEffect: Effect {
     public static let descriptor = EffectDescriptor(
         type: "image",
         name: "Image",
-        category: "Basic",
+        category: .generate,
         systemImage: "photo",
         // Position, scale, rotation and opacity are absent on purpose: they are
         // keyframed on the node's `transform`, not declared as parameters.

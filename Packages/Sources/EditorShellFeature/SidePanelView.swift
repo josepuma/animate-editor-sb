@@ -17,6 +17,20 @@ struct SidePanelView: View {
     /// list this grouping exists to avoid.
     @State private var expandedEffect: String?
 
+    /// What is typed into the search box.
+    @State private var query = ""
+
+    /// Categories the user has folded away.
+    ///
+    /// Held as what is *closed* rather than what is open, so the default —
+    /// nothing in the set — is everything visible. A new category added later
+    /// appears rather than hiding, which is the right way round for a list that
+    /// is still growing.
+    @State private var collapsed: Set<LibraryCategory> = []
+
+    /// Which pack the preset list is narrowed to, or all of them.
+    @State private var selectedPack: String?
+
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.compact) {
             SectionHeader(shell.sidePanel.title)
@@ -78,53 +92,166 @@ struct SidePanelView: View {
     /// arrangement that matters. Repeating it here spends the panel's height on
     /// a second, worse view of the same thing.
     private var scripts: some View {
-        ScrollView {
-            LazyVStack(spacing: Theme.Spacing.tight) {
-                // One row per effect, with its presets folded inside.
-                //
-                // Every preset is the same emitter with different numbers, so
-                // listing them flat would put fifteen rows at one level and
-                // hide that they are all one effect — and the list only grows
-                // from here.
-                ForEach(shell.library.descriptors, id: \.type) { descriptor in
-                    EffectGroup(
-                        descriptor: descriptor,
-                        presets: shell.presets.filter {
-                            $0.effectType == descriptor.type && $0.pack == nil
-                        },
-                        isExpanded: expandedEffect == descriptor.type,
-                        toggleExpanded: {
-                            expandedEffect = expandedEffect == descriptor.type
-                                ? nil
-                                : descriptor.type
-                        },
-                        // Placed where the playhead is, the way a video editor
-                        // drops a clip at the cursor.
-                        addBlank: { shell.addEffect(descriptor, at: playheadTime) },
-                        addPreset: { shell.addPreset($0, at: playheadTime) },
-                    )
-                }
+        VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
+            tools
+            search
+            packFilter
 
-                // Packs, after the effects that build them.
-                //
-                // Their own rows rather than presets filed under "Emitter":
-                // a compound is several emitters wearing one name, so listing
-                // it beside fifteen single-emitter presets buries the ones
-                // worth reaching for and implies they are variations on the
-                // row above.
-                ForEach(shell.packs, id: \.name) { pack in
-                    PackGroup(
-                        name: pack.name,
-                        presets: pack.presets,
-                        isExpanded: expandedEffect == pack.name,
-                        toggleExpanded: {
-                            expandedEffect = expandedEffect == pack.name ? nil : pack.name
-                        },
-                        addPreset: { shell.addPreset($0, at: playheadTime) },
-                    )
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: Theme.Spacing.hair) {
+                    ForEach(visiblePresets, id: \.id) { preset in
+                        PresetRow(preset: preset) { shell.addPreset(preset, at: playheadTime) }
+                    }
+
+                    if visiblePresets.isEmpty {
+                        Text("Nothing matches")
+                            .font(Theme.Typography.micro)
+                            .foregroundStyle(Theme.Palette.tertiary)
+                            .padding(.top, Theme.Spacing.compact)
+                    }
                 }
             }
         }
+    }
+
+    /// What can be created, as a row of buttons.
+    ///
+    /// Separated from the presets because they are different kinds of thing: a
+    /// tool is *what you can make*, a preset is *something already made*. In one
+    /// list they read as peers, and the list grows past reading — which is how
+    /// three levels of folding appeared for four packs holding one preset each.
+    ///
+    /// This is the split every editor makes between a toolbar and an asset
+    /// library, and the reason a toolbar is always visible while a library is
+    /// browsed.
+    private var tools: some View {
+        HStack(spacing: Theme.Spacing.tight) {
+            ForEach(shell.library.descriptors, id: \.type) { descriptor in
+                // `IconButton`, not a `Button` with a frame on its label.
+                //
+                // The hand-rolled version asked for a `control`-sized frame
+                // inside a `small` style, so the two fought: the glyph was
+                // drawn for 22pt in a box demanding 34. The primitive derives
+                // the glyph size **and** the corner radius from its own size,
+                // which is the rule this design system already states.
+                IconButton(
+                    systemImage: descriptor.systemImage,
+                    size: Theme.Size.controlSmall,
+                    help: "Add \(descriptor.name)",
+                ) {
+                    shell.addEffect(descriptor, at: playheadTime)
+                }
+            }
+        }
+        // Centred, and only as wide as the tools themselves: a toolbar pinned
+        // to one edge of a panel this narrow reads as the first row of the list
+        // below it rather than as its own thing.
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Which pack the list is showing, as a row of chips.
+    ///
+    /// A filter rather than a container. Packs nested inside a "Packs" heading
+    /// put a category above the categories — three levels deep for a library
+    /// this size, and two chevrons that looked identical without meaning the
+    /// same thing.
+    @ViewBuilder
+    private var packFilter: some View {
+        let packs = shell.packs.map(\.name)
+
+        if !packs.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Theme.Spacing.hair) {
+                    chip(nil, label: "All")
+                    ForEach(packs, id: \.self) { chip($0, label: $0) }
+                }
+            }
+            // The row is chips, not a scrolling region: without this it takes
+            // whatever height a scroll view asks for, which is all of it.
+            .frame(height: Theme.Size.controlSmall)
+        }
+    }
+
+    private func chip(_ pack: String?, label: String) -> some View {
+        Button {
+            selectedPack = pack
+        } label: {
+            Text(label)
+                .font(Theme.Typography.micro)
+                .padding(.horizontal, Theme.Spacing.compact)
+                .frame(height: Theme.Size.controlSmall)
+                .background {
+                    Capsule().fill(
+                        selectedPack == pack ? Theme.Fill.selected : Theme.Fill.well,
+                    )
+                }
+                .foregroundStyle(
+                    selectedPack == pack ? Theme.Palette.primary : Theme.Palette.secondary,
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func toggle(_ category: LibraryCategory) {
+        if collapsed.contains(category) {
+            collapsed.remove(category)
+        } else {
+            collapsed.insert(category)
+        }
+    }
+
+    /// The presets on show: everything, or one pack, narrowed by the search.
+    private var visiblePresets: [EffectPreset] {
+        shell.presets.filter { preset in
+            let inPack = selectedPack == nil || preset.pack == selectedPack
+            return inPack && matches(preset.name)
+        }
+    }
+
+
+    /// Whether a name and its presets match what is typed.
+    ///
+    /// Matched on the preset names too, not only the effect's: someone hunting
+    /// for "portal" is looking for a preset, and a search that only reads the
+    /// row above it would come back empty on the thing they can see in the
+    /// panel.
+    private func matches(_ name: String, presets: [EffectPreset] = []) -> Bool {
+        guard !query.isEmpty else { return true }
+        let needle = query.lowercased()
+        return name.lowercased().contains(needle)
+            || presets.contains { $0.name.lowercased().contains(needle) }
+    }
+
+    /// Filters the library as you type.
+    ///
+    /// Search beats hierarchy once a list stops fitting on screen: the groups
+    /// are for browsing, this is for when you already know the name. After
+    /// Effects puts one at the top of its effects panel for the same reason —
+    /// nobody opens six folders to find something they can spell.
+    private var search: some View {
+        HStack(spacing: Theme.Spacing.snug) {
+            Image(systemName: "magnifyingglass")
+                .font(Theme.Typography.micro)
+                .foregroundStyle(Theme.Palette.tertiary)
+
+            TextField("Search", text: $query)
+                .textFieldStyle(.plain)
+                .font(Theme.Typography.label)
+
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(Theme.Typography.micro)
+                        .foregroundStyle(Theme.Palette.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, Theme.Spacing.compact)
+        .frame(height: Theme.Size.controlSmall)
+        .surface(.inset, radius: Theme.Radius.control)
     }
 
     // ─── Filters ─────────────────────────────────────────────────────────────
@@ -140,17 +267,45 @@ struct SidePanelView: View {
                 .font(Theme.Typography.micro)
                 .foregroundStyle(Theme.Palette.tertiary)
 
+            search
+
             ScrollView {
-                LazyVStack(spacing: Theme.Spacing.tight) {
-                    ForEach(shell.filterDescriptors, id: \.type) { descriptor in
-                        FilterLibraryRow(
-                            descriptor: descriptor,
-                            canApply: shell.selectedEffect != nil,
-                            apply: {
-                                guard let node = shell.selectedEffect else { return }
-                                shell.addFilter(descriptor, to: node.id)
-                            },
-                        )
+                LazyVStack(alignment: .leading, spacing: Theme.Spacing.tight) {
+                    // Grouped by what a filter does, not by the order they were
+                    // written. Nine in a flat list was already past the point
+                    // where anyone reads it as a list rather than as a wall.
+                    //
+                    // Headings are dropped while searching: with the list cut
+                    // to two matches, six headings above them are the noise the
+                    // search was meant to remove.
+                    ForEach(LibraryCategory.displayOrder, id: \.self) { category in
+                        let inCategory = shell.filterDescriptors.filter {
+                            $0.category == category && matches($0.name)
+                        }
+
+                        if !inCategory.isEmpty {
+                            if query.isEmpty {
+                                CategoryHeader(
+                                    category: category,
+                                    count: inCategory.count,
+                                    isExpanded: !collapsed.contains(category),
+                                    toggle: { toggle(category) },
+                                )
+                            }
+
+                            if query.isEmpty ? !collapsed.contains(category) : true {
+                            ForEach(inCategory, id: \.type) { descriptor in
+                                FilterLibraryRow(
+                                    descriptor: descriptor,
+                                    canApply: shell.selectedEffect != nil,
+                                    apply: {
+                                        guard let node = shell.selectedEffect else { return }
+                                        shell.addFilter(descriptor, to: node.id)
+                                    },
+                                )
+                            }
+                            }
+                        }
                     }
                 }
             }
@@ -238,7 +393,7 @@ private struct EffectLibraryRow: View {
                     Text(descriptor.name)
                         .font(Theme.Typography.label)
                         .foregroundStyle(Theme.Palette.primary)
-                    Text(descriptor.category)
+                    Text(descriptor.category.rawValue)
                         .font(Theme.Typography.micro)
                         .foregroundStyle(Theme.Palette.tertiary)
                 }
@@ -301,6 +456,59 @@ private struct EffectGroup: View {
     }
 }
 
+/// A category heading that folds the rows under it away.
+///
+/// After Effects' shape, and worth copying once a library outgrows one screen:
+/// closing what you are not using is the difference between a list and a wall.
+/// What is **not** copied is starting everything collapsed — AE ships two
+/// hundred effects, so it has to; twenty means every session would begin with
+/// six clicks before anything is visible.
+private struct CategoryHeader: View {
+    let category: LibraryCategory
+    let count: Int
+    let isExpanded: Bool
+    let toggle: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: Theme.Spacing.snug) {
+                Image(systemName: "chevron.right")
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.tertiary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .frame(width: Theme.Size.hairline * 8)
+
+                Image(systemName: category.systemImage)
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.tertiary)
+
+                Text(category.rawValue)
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.secondary)
+
+                Spacer(minLength: 0)
+
+                // The count stays while the group is shut, which is what makes
+                // a closed heading worth reading rather than just a lid.
+                Text("\(count)")
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.tertiary)
+            }
+            .padding(.horizontal, Theme.Spacing.compact)
+            .frame(height: Theme.Size.controlSmall)
+            .background {
+                RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                    .fill(isHovered ? Theme.Fill.rowHover : .clear)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+    }
+}
+
 /// A pack of built effects, as one collapsible row.
 ///
 /// Shaped like `EffectGroup` on purpose: a pack is browsed the same way an
@@ -329,14 +537,12 @@ private struct PackGroup: View {
                         .foregroundStyle(Theme.Palette.secondary)
                         .frame(width: Theme.Size.ring * 2)
 
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(name)
-                            .font(Theme.Typography.label)
-                            .foregroundStyle(Theme.Palette.primary)
-                        Text("Pack")
-                            .font(Theme.Typography.micro)
-                            .foregroundStyle(Theme.Palette.tertiary)
-                    }
+                    // No "Pack" subtitle: the heading above already says it,
+                    // and a row that repeats its own group costs twice the
+                    // height to say nothing new.
+                    Text(name)
+                        .font(Theme.Typography.label)
+                        .foregroundStyle(Theme.Palette.primary)
 
                     Spacer(minLength: 0)
 
@@ -492,19 +698,22 @@ private struct FilterLibraryRow: View {
 
     var body: some View {
         HStack(spacing: Theme.Spacing.snug) {
+            // Indented past where the heading's chevron sits, so a row reads as
+            // belonging to the group above it rather than as a sibling of it.
+            // The width matches the chevron's exactly: eyeballing the gap is
+            // how a list ends up almost aligned, which is worse than not.
+            Color.clear.frame(width: Theme.Size.hairline * 8, height: 0)
+
             Image(systemName: descriptor.systemImage)
                 .font(Theme.Typography.micro)
                 .foregroundStyle(Theme.Palette.secondary)
-                .frame(width: Theme.Size.ring * 2)
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(descriptor.name)
-                    .font(Theme.Typography.label)
-                    .foregroundStyle(Theme.Palette.primary)
-                Text(descriptor.category)
-                    .font(Theme.Typography.micro)
-                    .foregroundStyle(Theme.Palette.tertiary)
-            }
+            // No category subtitle: the heading above already says it, and a
+            // row repeating its own group costs twice the height to say nothing
+            // new. The same redundancy the pack rows had.
+            Text(descriptor.name)
+                .font(Theme.Typography.label)
+                .foregroundStyle(Theme.Palette.primary)
 
             Spacer(minLength: Theme.Spacing.tight)
 
@@ -512,8 +721,9 @@ private struct FilterLibraryRow: View {
                 .font(Theme.Typography.micro)
                 .foregroundStyle(isHovered ? Theme.Palette.secondary : Theme.Palette.tertiary)
         }
-        .padding(.horizontal, Theme.Spacing.snug)
-        .frame(height: Theme.Size.control)
+        // The heading's padding, so the two line up down the left edge.
+        .padding(.horizontal, Theme.Spacing.compact)
+        .frame(height: Theme.Size.controlSmall)
         .background {
             RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
                 .fill(isHovered ? Theme.Fill.rowHover : .clear)

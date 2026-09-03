@@ -170,7 +170,51 @@ public final class EditorShellModel {
 
     /// The effects placed on the timeline — what the project actually authors,
     /// as opposed to the layer tracks derived from a parsed `.osb`.
-    public private(set) var effects = EffectDocument()
+    public private(set) var effects = EffectDocument() {
+        // Captured here rather than at each of the thirty-odd mutations.
+        //
+        // A `willSet` sees both sides of every write, whoever made it, so undo
+        // cannot be forgotten when an edit is added later — and a gap in an
+        // undo stack is worse than no undo at all: it takes the document
+        // somewhere the author never was.
+        willSet {
+            guard isRecordingUndo else { return }
+            history.record(effects)
+        }
+    }
+
+    /// Turned off while undo itself is writing, so stepping back does not
+    /// record the step back as an edit — the stack would fill with itself and
+    /// a second undo would go nowhere.
+    @ObservationIgnored private var isRecordingUndo = true
+
+    /// Undo and redo.
+    ///
+    /// Not observed: the history changes on every edit and nothing about the
+    /// view depends on its contents — only on whether the two commands are
+    /// available, which is read at menu time.
+    @ObservationIgnored private var history = EditHistory()
+
+    public var canUndo: Bool { history.canUndo }
+    public var canRedo: Bool { history.canRedo }
+
+    public func undo() {
+        guard let previous = history.undo(from: effects) else { return }
+        withoutRecording { effects = previous }
+        effectsChanged()
+    }
+
+    public func redo() {
+        guard let next = history.redo(from: effects) else { return }
+        withoutRecording { effects = next }
+        effectsChanged()
+    }
+
+    private func withoutRecording(_ write: () -> Void) {
+        isRecordingUndo = false
+        write()
+        isRecordingUndo = true
+    }
     public let library: EffectLibrary
     public let filters: FilterLibrary
     private let evaluator: EffectEvaluator
@@ -417,7 +461,13 @@ public final class EditorShellModel {
         loadFailed = false
         do {
             guard let project = try ProjectFile.read(fromFolder: folder) else { return }
-            effects = project.document
+            // Cleared before the write, and the write itself is not recorded.
+            //
+            // Undoing into the previous beatmap's document would restore
+            // effects belonging to a different map — worse than having no undo
+            // at all, because it looks like it worked.
+            history.clear()
+            withoutRecording { effects = project.document }
             timelineView = project.view
             selectedNodeID = nil
             selectedTrackID = effects.tracks.last?.id

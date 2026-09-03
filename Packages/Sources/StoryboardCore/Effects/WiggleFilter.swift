@@ -22,7 +22,7 @@ public struct WiggleFilter: SpriteFilter {
     public static let descriptor = FilterDescriptor(
         type: "wiggle",
         name: "Wiggle",
-        category: "Stylise",
+        category: .motion,
         systemImage: "wave.3.right",
         parameters: [
             EffectParameter(

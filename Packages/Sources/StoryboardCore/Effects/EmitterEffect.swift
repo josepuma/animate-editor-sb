@@ -327,7 +327,7 @@ public struct EmitterEffect: Effect {
     public static let descriptor = EffectDescriptor(
         type: "emitter",
         name: "Emitter",
-        category: "Particles",
+        category: .generate,
         systemImage: "sparkles",
         parameters: [
             // ── Emission ────────────────────────────────────────────────────

@@ -25,7 +25,7 @@ public struct MirrorFilter: SpriteFilter {
     public static let descriptor = FilterDescriptor(
         type: "mirror",
         name: "Mirror",
-        category: "Stylise",
+        category: .stylise,
         systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right",
         parameters: [
             EffectParameter(

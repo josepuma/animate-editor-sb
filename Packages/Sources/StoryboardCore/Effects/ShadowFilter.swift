@@ -20,7 +20,7 @@ public struct ShadowFilter: SpriteFilter {
     public static let descriptor = FilterDescriptor(
         type: "shadow",
         name: "Shadow",
-        category: "Stylise",
+        category: .stylise,
         systemImage: "shadow",
         parameters: [
             EffectParameter(

@@ -32,7 +32,7 @@ public struct LoopFilter: SpriteFilter {
     public static let descriptor = FilterDescriptor(
         type: "loop",
         name: "Loop",
-        category: "Time",
+        category: .utility,
         systemImage: "repeat",
         parameters: [
             EffectParameter(

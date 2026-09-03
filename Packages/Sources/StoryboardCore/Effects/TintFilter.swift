@@ -21,7 +21,7 @@ public struct TintFilter: SpriteFilter {
     public static let descriptor = FilterDescriptor(
         type: "tint",
         name: "Tint",
-        category: "Stylise",
+        category: .stylise,
         systemImage: "paintpalette",
         parameters: [
             EffectParameter(

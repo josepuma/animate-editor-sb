@@ -30,7 +30,10 @@ public struct EffectLibrary: Sendable {
     public var descriptors: [EffectDescriptor] {
         effects.values
             .map { Swift.type(of: $0).descriptor }
-            .sorted { ($0.category, $0.name) < ($1.category, $1.name) }
+            // By the declared order, not alphabetically: the categories are
+            // listed roughly in the order they are reached for — something has
+            // to exist before it can be styled.
+            .sorted { LibraryCategory.precedes(($0.category, $0.name), ($1.category, $1.name)) }
     }
 
     /// The built-in library.

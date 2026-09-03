@@ -22,7 +22,7 @@ public struct EffectDescriptor: Sendable, Equatable {
     public let type: String
     public var name: String
     /// Grouping for the effect browser.
-    public var category: String
+    public var category: LibraryCategory
     /// SF Symbol shown beside the name.
     public var systemImage: String
     public var parameters: [EffectParameter]
@@ -30,7 +30,7 @@ public struct EffectDescriptor: Sendable, Equatable {
     public init(
         type: String,
         name: String,
-        category: String,
+        category: LibraryCategory,
         systemImage: String,
         parameters: [EffectParameter],
     ) {
@@ -45,7 +45,7 @@ public struct EffectDescriptor: Sendable, Equatable {
     public init(
         type: String,
         name: String,
-        category: String,
+        category: LibraryCategory,
         systemImage: String,
         parameters: [EffectParameter],
         initialTransform: @escaping @Sendable (Double) -> Transform,

@@ -26,7 +26,7 @@ public struct PathFilter: SpriteFilter {
     public static let descriptor = FilterDescriptor(
         type: "path",
         name: "Motion Path",
-        category: "Motion",
+        category: .motion,
         systemImage: "scribble.variable",
         parameters: [
             EffectParameter(
@@ -100,9 +100,20 @@ public struct PathFilter: SpriteFilter {
         // journey. Measured from the sprites rather than taken from the clip
         // because a filter is handed output, not the node that made it.
         let birthTimes = sprites.compactMap { $0.commands.map(\.startTime).min() }
-        guard let first = birthTimes.min(), let last = birthTimes.max(), last > first else {
+        guard let first = birthTimes.min(), let last = birthTimes.max() else {
             return sprites
         }
+
+        // A burst has nothing to spread by time — everything leaves at once, so
+        // every sprite would ask the path for the same point and land in a
+        // heap. Spread by **index** instead: the burst becomes a row of sparks
+        // laid along the curve, which is an effect there was no other way to
+        // get.
+        //
+        // Detected rather than declared. A parameter would make the author
+        // classify their own emitter before the filter would work, and the
+        // answer is already in the sprites.
+        let isInstant = last - first < 1
 
         // Where the effect sits before the path takes it over.
         //
@@ -122,7 +133,9 @@ public struct PathFilter: SpriteFilter {
             // whole idea. Sampling at the *current* time instead would drag
             // every particle along the curve behind the source, and the trail
             // would collapse back into a moving cloud.
-            let elapsed = (birth - first) / (last - first)
+            let elapsed = isInstant
+                ? Double(index) / Double(max(1, sprites.count - 1))
+                : (birth - first) / (last - first)
             let t = (pacing.progress(elapsed) * laps).truncatingRemainder(dividingBy: 1.0000001)
 
             guard let at = path.position(at: t) else { return sprite }

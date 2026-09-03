@@ -21,7 +21,7 @@ public struct TimeFilter: SpriteFilter {
     public static let descriptor = FilterDescriptor(
         type: "time",
         name: "Time",
-        category: "Time",
+        category: .motion,
         systemImage: "gauge.with.needle",
         parameters: [
             EffectParameter(

@@ -70,14 +70,14 @@ public extension SpriteFilter {
 public struct FilterDescriptor: Sendable, Equatable {
     public let type: String
     public var name: String
-    public var category: String
+    public var category: LibraryCategory
     public var systemImage: String
     public var parameters: [EffectParameter]
 
     public init(
         type: String,
         name: String,
-        category: String,
+        category: LibraryCategory,
         systemImage: String,
         parameters: [EffectParameter],
     ) {
@@ -231,7 +231,10 @@ public struct FilterLibrary: Sendable {
     public var descriptors: [FilterDescriptor] {
         filters.values
             .map { Swift.type(of: $0).descriptor }
-            .sorted { ($0.category, $0.name) < ($1.category, $1.name) }
+            // By the declared order, not alphabetically: the categories are
+            // listed roughly in the order they are reached for — something has
+            // to exist before it can be styled.
+            .sorted { LibraryCategory.precedes(($0.category, $0.name), ($1.category, $1.name)) }
     }
 
     /// The built-in library.
