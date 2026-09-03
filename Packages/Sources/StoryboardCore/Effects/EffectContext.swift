@@ -15,11 +15,22 @@ public struct EffectContext: Sendable {
     /// from colliding.
     public let idPrefix: String
 
+    /// The song's beat, when there is one.
+    ///
+    /// Carried on the context rather than asked of the author as a parameter:
+    /// the map already states its tempo, and typing a number the app is holding
+    /// is work that exists only because the two were not connected. Optional,
+    /// because an effect is evaluated in tests and previews where no beatmap is
+    /// open — one that needs a beat falls back to a plain interval rather than
+    /// producing nothing.
+    public let beat: BeatGrid?
+
     private let values: [String: EffectValue]
 
-    public init(descriptor: EffectDescriptor, node: EffectNode) {
+    public init(descriptor: EffectDescriptor, node: EffectNode, beat: BeatGrid? = nil) {
         self.descriptor = descriptor
         self.node = node
+        self.beat = beat
         duration = max(0, node.duration)
         idPrefix = node.id
 
