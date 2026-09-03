@@ -94,6 +94,16 @@ public struct ProjectBrowserView: View {
 
             Spacer(minLength: Theme.Spacing.regular)
 
+            // Creating in the header as well as in the empty state.
+            //
+            // The empty state is where somebody starts their *first* project,
+            // and it is gone the moment there is a second — so putting the only
+            // way to create one there means the command disappears exactly when
+            // a project already exists. The header is where it has to live.
+            Button("New Project", systemImage: "plus", action: createProject)
+                .buttonStyle(.themed(.primary, size: .small, capsule: true))
+                .disabled(model.openingURL != nil)
+
             // A folder chosen from the panel has no card to spin, so the button
             // carries the wait: the spinner takes the icon's place rather than
             // appearing beside it, which would shift the label mid-click.
@@ -102,9 +112,13 @@ public struct ProjectBrowserView: View {
                     Text("Open Folder")
                 } icon: {
                     ZStack {
+                        // A folder, not a plus: it sits beside New Project now,
+                        // and two pluses side by side say the same thing about
+                        // two commands that do not.
+                        //
                         // Both drawn into one slot so the label does not shift
-                        // when they swap: a spinner is wider than a `plus`.
-                        Image(systemName: "plus")
+                        // when they swap: a spinner is wider than the icon.
+                        Image(systemName: "folder")
                             .opacity(model.openingURL != nil ? 0 : 1)
 
                         if model.openingURL != nil {
