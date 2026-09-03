@@ -28,8 +28,8 @@ struct SidePanelView: View {
     /// is still growing.
     @State private var collapsed: Set<LibraryCategory> = []
 
-    /// Which pack the preset list is narrowed to, or all of them.
-    @State private var selectedPack: String?
+    /// What the preset list is narrowed to, or nothing for everything.
+    @State private var selectedFilter: PresetFilter?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.compact) {
@@ -127,7 +127,7 @@ struct SidePanelView: View {
             // there is no top view to scroll to. Changing the identity throws
             // the offset away with the view, and a fresh one starts at the top
             // by definition.
-            .id("presets-\(selectedPack ?? "all")-\(query)")
+            .id("presets-\(String(describing: selectedFilter))-\(query)")
         }
     }
 
@@ -177,24 +177,42 @@ struct SidePanelView: View {
     /// same thing.
     @ViewBuilder
     private var packFilter: some View {
-        let packs = shell.packs.map(\.name)
+        // Effects first, then packs.
+        //
+        // Chips that only named packs reached seven presets out of thirty-seven:
+        // everything from the text effect and every plain emitter preset
+        // belonged to no pack, so each chip held one or two while "All" held
+        // the rest. A filter that leaves most of the library unreachable is one
+        // that was not finished.
+        //
+        // By effect rather than by inventing a "Basics" pack for the leftovers:
+        // a text preset genuinely *is* a text preset, while "Basics" would mean
+        // "the others" — a name for a gap rather than for a thing.
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Spacing.hair) {
+                chip(nil, label: "All")
 
-        if !packs.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: Theme.Spacing.hair) {
-                    chip(nil, label: "All")
-                    ForEach(packs, id: \.self) { chip($0, label: $0) }
+                ForEach(shell.library.descriptors, id: \.type) { descriptor in
+                    if shell.presets.contains(where: {
+                        $0.effectType == descriptor.type && $0.pack == nil
+                    }) {
+                        chip(.effect(descriptor.type), label: descriptor.name)
+                    }
+                }
+
+                ForEach(shell.packs.map(\.name), id: \.self) { pack in
+                    chip(.pack(pack), label: pack)
                 }
             }
-            // The row is chips, not a scrolling region: without this it takes
-            // whatever height a scroll view asks for, which is all of it.
-            .frame(height: Theme.Size.controlSmall)
         }
+        // The row is chips, not a scrolling region: without this it takes
+        // whatever height a scroll view asks for, which is all of it.
+        .frame(height: Theme.Size.controlSmall)
     }
 
-    private func chip(_ pack: String?, label: String) -> some View {
+    private func chip(_ filter: PresetFilter?, label: String) -> some View {
         Button {
-            selectedPack = pack
+            selectedFilter = filter
         } label: {
             Text(label)
                 .font(Theme.Typography.micro)
@@ -202,11 +220,11 @@ struct SidePanelView: View {
                 .frame(height: Theme.Size.controlSmall)
                 .background {
                     Capsule().fill(
-                        selectedPack == pack ? Theme.Fill.selected : Theme.Fill.well,
+                        selectedFilter == filter ? Theme.Fill.selected : Theme.Fill.well,
                     )
                 }
                 .foregroundStyle(
-                    selectedPack == pack ? Theme.Palette.primary : Theme.Palette.secondary,
+                    selectedFilter == filter ? Theme.Palette.primary : Theme.Palette.secondary,
                 )
         }
         .buttonStyle(.plain)
@@ -223,8 +241,14 @@ struct SidePanelView: View {
     /// The presets on show: everything, or one pack, narrowed by the search.
     private var visiblePresets: [EffectPreset] {
         shell.presets.filter { preset in
-            let inPack = selectedPack == nil || preset.pack == selectedPack
-            return inPack && matches(preset.name)
+            let kept = switch selectedFilter {
+            case .none: true
+            // An effect's chip shows its own presets, not the packs built from
+            // it: a pack is a thing in its own right and has a chip of its own.
+            case let .effect(type): preset.effectType == type && preset.pack == nil
+            case let .pack(name): preset.pack == name
+            }
+            return kept && matches(preset.name)
         }
     }
 
@@ -1044,4 +1068,10 @@ private extension View {
     ) -> some View {
         modifier(PreviewOnHover(title: title, summary: summary, frames: frames))
     }
+}
+
+/// What the preset list is narrowed to.
+private enum PresetFilter: Hashable {
+    case effect(String)
+    case pack(String)
 }
