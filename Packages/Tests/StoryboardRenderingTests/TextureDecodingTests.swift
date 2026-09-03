@@ -136,9 +136,53 @@ struct BuiltInTextureTests {
     /// rather than the asset looking missing.
     @Test("every built-in Core names is one the renderer supplies")
     func builtInListsAgree() {
-        #expect(Set(BuiltInSprite.shapes) == Set(BuiltInTextures.Shape.allCases.map(\.path)))
+        // The hoop is excluded on both sides: it is drawn on demand at a
+        // given thickness, so it is a family of textures rather than one of the
+        // fixed shapes.
+        #expect(
+            Set(BuiltInSprite.shapes)
+                == Set(BuiltInTextures.Shape.allCases.filter { $0 != .hoop }.map(\.path)),
+        )
         #expect(Set(BuiltInSprite.textures) == Set(BuiltInTextures.Texture.allCases.map(\.path)))
         #expect(Set(BuiltInSprite.all) == Set(BuiltInTextures.allPaths))
+    }
+
+    /// Core and the renderer have to spell a hoop's path the same way.
+    ///
+    /// The thickness is baked into the texture, so the path *is* the parameter
+    /// — and the two sides build it independently because Core cannot see the
+    /// renderer. A disagreement would leave the ring naming an image nothing
+    /// provides: a bare quad, with nothing to say why.
+    @Test("a hoop path round-trips between core and the renderer", arguments: [0.02, 0.12, 0.35, 0.5] as [Double])
+    func hoopPathsAgree(thickness: Double) throws {
+        let fromCore = BuiltInSprite.hoop(thickness: thickness)
+        #expect(fromCore == BuiltInTextures.hoopPath(thickness: thickness))
+        #expect(BuiltInTextures.data(for: fromCore) != nil, "no image for \(fromCore)")
+    }
+
+    /// A thicker ring really is thicker, rather than the same picture renamed.
+    @Test("thickness changes the image")
+    func thicknessDraws() throws {
+        let thin = try #require(BuiltInTextures.data(for: BuiltInSprite.hoop(thickness: 0.02)))
+        let thick = try #require(BuiltInTextures.data(for: BuiltInSprite.hoop(thickness: 0.4)))
+        #expect(thin != thick)
+    }
+
+    /// The size `ShapeEffect` converts against has to be the size the renderer
+    /// actually draws.
+    ///
+    /// Core cannot see the renderer, so it states the number itself — and a
+    /// silent disagreement would make **every** shape come out at the wrong
+    /// size with nothing to say why: a bar asked for at 854 would quietly be
+    /// half or double that.
+    @Test("the shape effect knows how large the built-in shapes are")
+    func shapeSourceSizeMatches() throws {
+        let data = try #require(BuiltInTextures.data(for: BuiltInSprite.square))
+        let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+
+        #expect(Double(image.width) == ShapeEffect.sourceSize)
+        #expect(Double(image.height) == ShapeEffect.sourceSize)
     }
 
     @Test("every shape decodes to an image", arguments: BuiltInTextures.Shape.allCases)
@@ -157,6 +201,20 @@ struct BuiltInTextureTests {
         )
         #expect(data.count > 100)
         #expect(!texture.title.isEmpty)
+    }
+
+    /// Core spells out the stage's dimensions itself, because it sits below the
+    /// renderer and cannot import `OsuCanvas`.
+    ///
+    /// A silent disagreement would snap clips to a centre that is not the
+    /// centre, and draw the guide somewhere else again — the kind of wrongness
+    /// that looks like a rendering bug rather than a constant.
+    @Test("core and the renderer agree on the stage")
+    func stageConstantsAgree() {
+        #expect(StageSnap.Stage.width == Double(OsuCanvas.width))
+        #expect(StageSnap.Stage.height == Double(OsuCanvas.height))
+        #expect(StageSnap.Stage.minX == -Double(OsuCanvas.xOffset))
+        #expect(StageSnap.Stage.maxX == Double(OsuCanvas.width) - Double(OsuCanvas.xOffset))
     }
 
     @Test("built-in paths are unique")

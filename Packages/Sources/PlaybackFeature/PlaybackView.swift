@@ -84,6 +84,14 @@ public struct PlaybackView: View {
 
 /// The canvas and everything drawn over it.
 public struct PlaybackCanvas: View {
+    /// Which stage lines the dragged clip is currently caught on.
+    ///
+    /// Held here rather than in `SelectionBox` because the guides are drawn
+    /// beside the box, not inside it: they run the whole stage while the box is
+    /// only as large as its clip.
+    @State private var snappedX: Double?
+    @State private var snappedY: Double?
+
     @Bindable var model: PlaybackModel
     @Bindable var timeline: TimelineModel
     let source: any StoryboardSource
@@ -152,6 +160,10 @@ public struct PlaybackCanvas: View {
                         viewSize: size,
                         isLocked: isClipLocked,
                         onDrag: onClipDrag,
+                        onSnap: { snapX, snapY in
+                            snappedX = snapX
+                            snappedY = snapY
+                        },
                     )
                     .frame(width: size.width, height: size.height)
                     // One identity for the life of the canvas.
@@ -163,6 +175,24 @@ public struct PlaybackCanvas: View {
                     // one. Two borders, flickering. The box decides for itself
                     // when it has nothing to draw.
                     .id("selection-box")
+                }
+
+                // Outside the drag branch, because a standing centre line has to
+                // be visible with nothing selected — which is exactly when
+                // someone is deciding where to put something.
+                //
+                // Above the frame: a guide the box covers cannot say what the
+                // clip landed on.
+                if model.showsGuides || snappedX != nil || snappedY != nil {
+                    let stage = OsuCanvas.size(widescreen: model.isWidescreen)
+                    SnapGuides(
+                        x: snappedX,
+                        y: snappedY,
+                        showsCentre: model.showsGuides,
+                        stageSize: (Double(stage.width), Double(stage.height)),
+                        viewSize: size,
+                    )
+                    .frame(width: size.width, height: size.height)
                 }
 
                 // The pen tool, above the frame so its points win where they

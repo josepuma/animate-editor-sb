@@ -86,6 +86,17 @@ public final class PlaybackModel {
     /// window with all its panels still showing does not give.
     public var isCanvasFullScreen = false
 
+    /// Whether the stage's centre lines are drawn over the canvas.
+    ///
+    /// The same landmarks a drag snaps to, shown all the time rather than only
+    /// while something is caught on one. Placing by eye needs to see where the
+    /// middle *is*, and a guide that appears only mid-drag cannot be aimed at
+    /// beforehand.
+    ///
+    /// Off by default: the canvas is the picture, and a line across it is the
+    /// one thing that is not part of the storyboard.
+    public var showsGuides = false
+
     /// Timing and metadata from the beatmap, when it has a readable `.osu`.
     public private(set) var timing: BeatmapTimingData?
 

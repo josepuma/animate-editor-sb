@@ -118,10 +118,12 @@ struct CanvasOverlayControls: View {
     private var tools: some View {
         HStack(spacing: Theme.Spacing.compact) {
             IconButton(
-                systemImage: "square.grid.2x2",
+                systemImage: model.showsGuides ? "grid" : "square.grid.2x2",
                 size: Theme.Size.controlSmall,
-                help: "Toggle grid",
-            ) {}
+                help: model.showsGuides ? "Hide guides" : "Show guides",
+            ) {
+                model.showsGuides.toggle()
+            }
 
             IconButton(
                 systemImage: "slider.horizontal.3",

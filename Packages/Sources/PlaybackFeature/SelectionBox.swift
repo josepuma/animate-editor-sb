@@ -1,3 +1,4 @@
+import AppKit
 import DesignSystem
 import Foundation
 import StoryboardCore
@@ -38,6 +39,16 @@ struct SelectionBox: View {
     /// gesture would move something.
     var isLocked: Bool
     let onDrag: (ClipDrag) -> Void
+
+    /// Which stage lines the clip is currently caught on, for the canvas to
+    /// draw.
+    ///
+    /// Reported rather than drawn here, because the guides run the width and
+    /// height of the stage and this view is only as large as the clip.
+    var onSnap: ((Double?, Double?) -> Void)?
+
+    /// Whether the stage's landmarks pull a drag.
+    var isSnappingEnabled = true
 
     /// Points per stage unit. One number because the stage keeps its aspect.
     private var scale: Double { viewSize.width / stageSize.width }
@@ -270,27 +281,53 @@ struct SelectionBox: View {
     private var moveGesture: some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged { value in
-                liveOffset = value.translation
-
                 // Converted through the stage scale, not tracked in points: at
                 // any size but 1:1 the two disagree and the box drifts away
                 // from the pointer.
-                onDrag(ClipDrag(
-                    dx: value.translation.width / scale,
-                    dy: value.translation.height / scale,
-                ))
+                let snapped = snap(value.translation)
+
+                // The box follows the *snapped* travel, not the hand's: a frame
+                // that keeps following the pointer while the clip has jumped to
+                // a line shows the two in different places, and the snap reads
+                // as the drag being broken.
+                liveOffset = CGSize(
+                    width: snapped.dx * scale,
+                    height: snapped.dy * scale,
+                )
+                onSnap?(snapped.snappedX, snapped.snappedY)
+                onDrag(ClipDrag(dx: snapped.dx, dy: snapped.dy))
             }
             .onEnded { value in
                 // Released before reporting: the measurement that arrives next
                 // already contains this move, so keeping the offset would apply
                 // it twice.
                 liveOffset = .zero
-                onDrag(ClipDrag(
-                    dx: value.translation.width / scale,
-                    dy: value.translation.height / scale,
-                    isFinished: true,
-                ))
+                onSnap?(nil, nil)
+
+                let snapped = snap(value.translation)
+                onDrag(ClipDrag(dx: snapped.dx, dy: snapped.dy, isFinished: true))
             }
+    }
+
+    /// A drag pulled onto the stage's landmarks.
+    ///
+    /// Only while a box has actually been measured: with nothing to snap, a
+    /// drag has no edges to test and passes through untouched.
+    private func snap(_ translation: CGSize) -> StageSnap.Result {
+        let travel = (dx: translation.width / scale, dy: translation.height / scale)
+        guard let bounds else { return StageSnap.Result(dx: travel.dx, dy: travel.dy) }
+
+        return StageSnap.adjust(
+            (minX: bounds.minX, minY: bounds.minY, maxX: bounds.maxX, maxY: bounds.maxY),
+            by: travel,
+            // Held down, the drag passes through untouched.
+            //
+            // A snap with no way out is a cage: sometimes 318 is the number
+            // somebody wants, and without an escape the only way to reach it is
+            // to type it into the inspector. Command is what Figma and Sketch
+            // use, and Option is already spoken for by the pen tool.
+            isEnabled: isSnappingEnabled && !NSEvent.modifierFlags.contains(.command),
+        )
     }
 
     // ─── Resizing ────────────────────────────────────────────────────────────
