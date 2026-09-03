@@ -106,11 +106,16 @@ struct FilterTests {
         })
     }
 
-    @Test("the halo is larger than its sprite")
+    /// Size is what makes the halo bigger, and it is off by default — so the
+    /// test asks for it rather than assuming a value someone may reasonably
+    /// change. What must hold is that turning it up **works**, not that it
+    /// starts turned up.
+    @Test("size makes the halo larger than its sprite")
     func haloIsLargerAndFainter() {
         var document = document(count: 1)
         let trackID = clip(in: document)
-        _ = document.addFilter(GlowFilter.descriptor, to: trackID)
+        let filter = document.addFilter(GlowFilter.descriptor, to: trackID)!
+        document.setFilterValue(.number(2), for: GlowFilter.Param.size, on: filter.id, in: trackID)
 
         let sprites = evaluator.evaluate(document)
         let prepared = StoryboardResolver.prepare(sprites)
@@ -653,5 +658,108 @@ struct LoopFilterTests {
         // every one of them into a loop body.
         #expect(sprites.count == 6)
         #expect(sprites.allSatisfy { $0.loops.count == 1 })
+    }
+
+    /// A wiggle folds its shake into the movement rather than writing beside it.
+    ///
+    /// osu! cannot add two movements together: two `_M` commands overlapping in
+    /// time fight over the same property and one wins at each instant, which
+    /// reads as the sprite stuttering between two paths. Reading the subject's
+    /// position and writing a second command was not enough — only one command
+    /// may ever describe where a sprite is.
+    @Test("a wiggle leaves no overlapping movement")
+    func wiggleWritesOneMovement() {
+        var document = EffectDocument()
+        let node = document.add(EmitterEffect.descriptor, at: 0, duration: 2000)
+        document.setValue(.integer(2), for: EmitterEffect.Param.count, on: node.id)
+        document.setKeyframe(240, for: .y, at: 0, on: node.id)
+        document.setKeyframe(400, for: .y, at: 2000, on: node.id)
+        _ = document.addFilter(WiggleFilter.descriptor, to: node.id)
+
+        for sprite in evaluator.evaluate(document) {
+            let moves = sprite.commands.filter {
+                $0.kind == .move || $0.kind == .moveX || $0.kind == .moveY
+            }
+
+            for (index, first) in moves.enumerated() {
+                for second in moves[(index + 1)...] {
+                    #expect(
+                        first.startTime >= second.endTime || second.startTime >= first.endTime,
+                        "two movements overlap on \(sprite.id)",
+                    )
+                }
+            }
+        }
+    }
+
+    /// And the movement it was given survives: the shake rides on the keyframed
+    /// path rather than replacing it.
+    @Test("a wiggle keeps the motion it was given")
+    func wiggleKeepsTheJourney() {
+        var document = EffectDocument()
+        let node = document.add(ShapeEffect.descriptor, at: 0, duration: 2000)
+        document.setKeyframe(240, for: .y, at: 0, on: node.id)
+        document.setKeyframe(400, for: .y, at: 2000, on: node.id)
+        _ = document.addFilter(WiggleFilter.descriptor, to: node.id)
+
+        let prepared = StoryboardResolver.prepare(evaluator.evaluate(document))
+
+        func y(at time: Double) -> Double {
+            var states: [SpriteRenderState] = []
+            StoryboardResolver.resolve(prepared, at: time, into: &states)
+            return states.first.map { Double($0.y) } ?? 0
+        }
+
+        // Within a wobble's reach of where the keyframes say it should be.
+        #expect(abs(y(at: 0) - 240) < 30)
+        #expect(abs(y(at: 2000) - 400) < 30)
+        #expect(y(at: 2000) > y(at: 0) + 100, "the journey was lost")
+    }
+
+    /// No filter in the library may leave two movements overlapping.
+    ///
+    /// Asked of **every** filter rather than the one that failed: osu! has no
+    /// way to add two movements together, so a filter that writes an `_M`
+    /// beside an existing one makes the sprite stutter between two paths.
+    /// Wiggle was the only offender — the others transform the commands that
+    /// are there or copy the whole sprite — and this is what keeps the next one
+    /// from reintroducing it.
+    @Test("no filter overlaps movement", arguments: FilterLibrary.standard.descriptors)
+    func noFilterOverlapsMovement(descriptor: FilterDescriptor) {
+        var document = EffectDocument()
+        let node = document.add(ShapeEffect.descriptor, at: 0, duration: 2000)
+        // A moving subject, which is the only case where a collision can occur.
+        document.setKeyframe(240, for: .y, at: 0, on: node.id)
+        document.setKeyframe(400, for: .y, at: 2000, on: node.id)
+        let filter = document.addFilter(descriptor, to: node.id)!
+
+        // Every numeric parameter turned up.
+        //
+        // Defaults are the wrong setting to audit with: Chromatic's jitter is
+        // off by default and writes movement only when it is on, so a sweep at
+        // the defaults declared it clean while it was the second offender. A
+        // guard has to exercise the thing it guards.
+        for parameter in descriptor.parameters {
+            guard case .number = parameter.defaultValue, let range = parameter.range else { continue }
+            document.setFilterValue(
+                .number(min(range.upperBound, 1)),
+                for: parameter.id, on: filter.id, in: node.id,
+            )
+        }
+
+        for sprite in evaluator.evaluate(document) {
+            let moves = sprite.commands.filter {
+                $0.kind == .move || $0.kind == .moveX || $0.kind == .moveY
+            }
+
+            for (index, first) in moves.enumerated() {
+                for second in moves[(index + 1)...] {
+                    #expect(
+                        first.startTime >= second.endTime || second.startTime >= first.endTime,
+                        "\(descriptor.name) leaves two movements overlapping",
+                    )
+                }
+            }
+        }
     }
 }

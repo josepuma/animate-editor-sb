@@ -123,32 +123,75 @@ public struct ChromaticFilter: SpriteFilter {
         let count = min(Int((last - first) / step), 120)
         guard count > 1 else { return [] }
 
-        let baseX = sprite.defaultX + dx
-        let baseY = sprite.defaultY + dy
-
         var written: [Command] = []
         written.reserveCapacity(count)
 
         for index in 0 ..< count {
             let at = first + step * Double(index)
+            let until = min(last, at + step)
 
-            // Most steps sit still: a glitch that fires on every frame is
-            // static, and what reads as breaking up is that the calm between
-            // bursts makes each one an event.
-            guard rng.unit() < 0.45 else { continue }
+            // Where the subject itself is over this step, which the jitter
+            // rides on rather than replacing.
+            let from = placement(of: sprite, at: at, dx: dx, dy: dy)
+            let to = placement(of: sprite, at: until, dx: dx, dy: dy)
 
-            let toX = baseX + rng.symmetric(reach)
-            let toY = baseY + rng.symmetric(reach)
+            // Most steps sit still: a glitch firing on every one is static,
+            // and what reads as breaking up is that the calm between bursts
+            // makes each one an event.
+            //
+            // The quiet steps are still written, because these commands are
+            // now the sprite's only movement — a skipped one would leave a
+            // gap where nothing says where it is.
+            let jumps = rng.unit() < 0.45
+            let offsetX = jumps ? rng.symmetric(reach) : 0
+            let offsetY = jumps ? rng.symmetric(reach) : 0
 
             written.append(Command(
                 easing: .linear,
                 startTime: at,
-                endTime: min(last, at + step),
-                payload: .move(startX: toX, startY: toY, endX: toX, endY: toY),
+                endTime: until,
+                payload: .move(
+                    startX: from.x + offsetX,
+                    startY: from.y + offsetY,
+                    endX: to.x + offsetX,
+                    endY: to.y + offsetY,
+                ),
             ))
         }
 
         return written
+    }
+
+    /// Where a sprite's own commands put it at a moment, plus the channel's
+    /// offset.
+    private func placement(
+        of sprite: StoryboardSprite,
+        at time: Double,
+        dx: Double,
+        dy: Double,
+    ) -> (x: Double, y: Double) {
+        var x = sprite.defaultX
+        var y = sprite.defaultY
+
+        for command in sprite.commands {
+            guard command.startTime <= time else { continue }
+            let span = command.endTime - command.startTime
+            let progress = span > 0 ? min(1, (time - command.startTime) / span) : 1
+
+            switch command.payload {
+            case let .move(startX, startY, endX, endY):
+                x = startX + (endX - startX) * progress
+                y = startY + (endY - startY) * progress
+            case let .moveX(start, end):
+                x = start + (end - start) * progress
+            case let .moveY(start, end):
+                y = start + (end - start) * progress
+            default:
+                continue
+            }
+        }
+
+        return (x + dx, y + dy)
     }
 
     private static func seed(from string: String) -> UInt64 {
@@ -275,6 +318,17 @@ public struct ChromaticFilter: SpriteFilter {
                 ))
 
                 if jitter > 0, last > first {
+                    // Replacing the movement, not adding to it.
+                    //
+                    // osu! cannot add two movements together: two `_M` commands
+                    // overlapping in time fight over the same property and one
+                    // wins at each instant, so a jittering channel over a
+                    // sprite that was already moving stuttered between the two
+                    // paths. The steps cover the whole life and carry the
+                    // subject's own motion inside them, so they stand alone.
+                    copy.commands.removeAll {
+                        $0.kind == .move || $0.kind == .moveX || $0.kind == .moveY
+                    }
                     copy.commands += jumps(
                         of: sprite,
                         from: first, to: last,

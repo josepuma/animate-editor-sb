@@ -95,6 +95,7 @@ public struct WiggleFilter: SpriteFilter {
 
         var result = sprite
         var position = (x: 0.0, y: 0.0)
+        var moves: [Command] = []
 
         for index in 0..<steps {
             let start = birth + step * Double(index)
@@ -113,13 +114,25 @@ public struct WiggleFilter: SpriteFilter {
             let settled = (x: next.x * 0.7, y: next.y * 0.7)
 
             if amount > 0 {
-                result.commands.append(Command(
+                // One movement command per step, replacing whatever was there.
+                //
+                // osu! has no notion of adding two movements together: two `_M`
+                // commands overlapping in time fight over the same property and
+                // one of them wins at each instant, which reads as the sprite
+                // stuttering between two paths. Reading the subject's position
+                // and writing a second command beside it was not enough — the
+                // shake has to be folded *into* the movement, so only one
+                // command ever describes where the sprite is.
+                let from = placement(of: sprite, at: start)
+                let to = placement(of: sprite, at: end)
+
+                moves.append(Command(
                     easing: .sineInOut, startTime: start, endTime: end,
                     payload: .move(
-                        startX: sprite.defaultX + position.x,
-                        startY: sprite.defaultY + position.y,
-                        endX: sprite.defaultX + settled.x,
-                        endY: sprite.defaultY + settled.y,
+                        startX: from.x + position.x,
+                        startY: from.y + position.y,
+                        endX: to.x + settled.x,
+                        endY: to.y + settled.y,
                     ),
                 ))
             }
@@ -145,7 +158,50 @@ public struct WiggleFilter: SpriteFilter {
             position = settled
         }
 
+        // The shaken path replaces the original, rather than joining it.
+        //
+        // The steps already cover the sprite's whole life and carry its own
+        // movement inside them — leaving the originals in place would put two
+        // descriptions of the same property on top of each other, which is the
+        // collision this exists to avoid.
+        if !moves.isEmpty {
+            result.commands.removeAll {
+                $0.kind == .move || $0.kind == .moveX || $0.kind == .moveY
+            }
+            result.commands += moves
+        }
+
         return result
+    }
+
+    /// Where a sprite's own commands put it at a given time.
+    ///
+    /// A wobble is an offset from wherever the subject is, and the subject may
+    /// be moving: read from its resting place instead, the shake becomes an
+    /// absolute position that overwrites whatever moved it.
+    private func placement(of sprite: StoryboardSprite, at time: Double) -> (x: Double, y: Double) {
+        var x = sprite.defaultX
+        var y = sprite.defaultY
+
+        for command in sprite.commands {
+            guard command.startTime <= time else { continue }
+            let span = command.endTime - command.startTime
+            let progress = span > 0 ? min(1, (time - command.startTime) / span) : 1
+
+            switch command.payload {
+            case let .move(startX, startY, endX, endY):
+                x = startX + (endX - startX) * progress
+                y = startY + (endY - startY) * progress
+            case let .moveX(start, end):
+                x = start + (end - start) * progress
+            case let .moveY(start, end):
+                y = start + (end - start) * progress
+            default:
+                continue
+            }
+        }
+
+        return (x, y)
     }
 
     private static let maximumSteps = 60
