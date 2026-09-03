@@ -1258,11 +1258,21 @@ struct TrackRowView: View {
                     SpanThumbnail(tint: track.tint, height: height - 16)
                 }
             } badge: {
-                // A badge per filter, so a clip's look is legible from the
-                // timeline. Without them a filter applied is only visible after
-                // selecting the clip — and one you cannot see is one you forget
-                // you applied.
-                if width > 140 {
+                // Catching up, said on the clip itself.
+                //
+                // Evaluation runs off the main thread, so the canvas keeps
+                // showing the last good sprites while a new pass runs. Without
+                // saying so, an effect that takes a moment — anything reading
+                // the song does — looks like an edit that did not take.
+                //
+                // On the clip rather than as a window-wide spinner: "the app is
+                // busy" is not the question. What someone wants to know is
+                // whether the thing they just edited has caught up.
+                if shell.evaluatingNodes.contains(node.id) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(.trailing, Theme.Spacing.hair)
+                } else if width > 140 {
                     HStack(spacing: Theme.Spacing.hair) {
                         ForEach(Array(filterIcons(node).enumerated()), id: \.offset) { _, icon in
                             BlockBadge(systemImage: icon)

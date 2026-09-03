@@ -271,8 +271,33 @@ public final class EditorShellModel {
     }
 
     /// Every placed effect evaluated into sprites.
+    ///
+    /// The last completed pass. A caller that needs the sprites for the
+    /// *document as it stands right now* — an export, a test — awaits
+    /// ``awaitEvaluation()`` first; one that wants something to draw takes what
+    /// is here, because the last good frame is exactly right for a canvas.
     public func evaluateEffects() -> [StoryboardSprite] {
         evaluated
+    }
+
+    /// Called whenever a new pass lands, so the canvas can take the sprites
+    /// rather than asking for them.
+    ///
+    /// Pushed rather than pulled because the result no longer arrives when the
+    /// edit does: reading a revision counter would tell a view that something
+    /// changed at the moment the work *started*, which is a frame of emptiness
+    /// before the sprites exist.
+    @ObservationIgnored public var onSpritesChanged: (([StoryboardSprite]) -> Void)?
+
+    /// The sprites for the document as it stands, waiting for any pass in
+    /// flight.
+    ///
+    /// What a caller wants when the sprites are the *answer* rather than the
+    /// picture — an export, a test. The canvas deliberately does not use this:
+    /// there, the last good frame is right.
+    public func settledSprites() async -> [StoryboardSprite] {
+        await awaitEvaluation()
+        return evaluated
     }
 
     /// Presets available for the effects in the library.
@@ -602,6 +627,7 @@ public final class EditorShellModel {
     }
 
     public func exportVideo(to url: URL) {
+        // The same reason: a video is the output, not the preview.
         guard let videoExportHandler, videoProgress == nil else { return }
         videoProgress = 0
         videoError = nil
@@ -620,7 +646,15 @@ public final class EditorShellModel {
     }
 
     @discardableResult
-    public func exportStoryboard() -> Bool {
+    public func exportStoryboard() async -> Bool {
+        // Wait for any pending pass, because here the sprites are the output
+        // rather than the picture: mid-pass this would write what was on screen
+        // a moment ago.
+        await awaitEvaluation()
+        return exportStoryboardNow()
+    }
+
+    private func exportStoryboardNow() -> Bool {
         guard let projectFolder, let exportHandler else { return false }
         do {
             // The same sprites the canvas is drawing, not a fresh evaluation:
@@ -1438,11 +1472,69 @@ public final class EditorShellModel {
     private func effectsChanged() {
         effectsRevision &+= 1
         hasUnsavedChanges = true
-        // One pass over the document: the sprites feed the canvas, and the
-        // counts the UI shows come from the same evaluation. Counting
-        // separately ran every emitter a second time for a number the first
-        // pass already knew.
-        evaluated = evaluator.evaluate(effects)
+        reevaluate()
+    }
+
+    /// Rebuilds the sprites off the main thread.
+    ///
+    /// Evaluation used to run inline here, which is fine while it is fast and a
+    /// frozen window the moment it is not: an emitter under a grid takes tens of
+    /// milliseconds, and anything that reads the song takes far longer — a
+    /// measured 1,176ms just to seek into an MP3. Every one of those was a
+    /// stall someone felt as the app hanging.
+    ///
+    /// Last one wins. A slider dragged across its range starts an evaluation
+    /// per step, and without cancelling the one for value 5 can land after the
+    /// one for value 7 — the canvas would settle on a value the document no
+    /// longer holds.
+    ///
+    /// The canvas keeps showing the last good sprites while a new pass runs,
+    /// rather than emptying: a clip that blinks out while its numbers are being
+    /// adjusted is worse than one a moment out of date, and `evaluatingNodes`
+    /// says which clips are still catching up.
+    private func reevaluate() {
+        evaluationTask?.cancel()
+
+        let document = effects
+        let evaluator = evaluator
+        let revision = effectsRevision
+
+        evaluatingNodes = Set(document.nodes.map(\.id))
+
+        evaluationTask = Task { [weak self] in
+            let sprites = await Task.detached(priority: .userInitiated) {
+                evaluator.evaluate(document)
+            }.value
+
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                guard let self, self.effectsRevision == revision else { return }
+                self.evaluated = sprites
+                self.evaluatingNodes = []
+                self.onSpritesChanged?(sprites)
+            }
+        }
+    }
+
+    /// Which clips are being rebuilt right now.
+    ///
+    /// Shown on the clip rather than as a window-wide spinner: a bar across the
+    /// top says the app is busy, which is not the question — what someone wants
+    /// to know is whether the thing they just edited has caught up.
+    public private(set) var evaluatingNodes: Set<EffectNode.ID> = []
+
+    @ObservationIgnored private var evaluationTask: Task<Void, Never>?
+
+    /// Waits for any pending evaluation to land.
+    ///
+    /// Needed wherever the sprites are the *output* rather than the picture:
+    /// exporting mid-pass would write what was on screen a moment ago, which
+    /// was impossible while evaluation was inline and is a real window now.
+    /// The canvas does not wait — showing the last good frame is exactly right
+    /// there.
+    public func awaitEvaluation() async {
+        await evaluationTask?.value
     }
 
     /// Sprite count of the storyboard the current tracks were built from.

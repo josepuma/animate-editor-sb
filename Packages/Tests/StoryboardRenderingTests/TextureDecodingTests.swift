@@ -217,6 +217,22 @@ struct BuiltInTextureTests {
         #expect(StageSnap.Stage.maxX == Double(OsuCanvas.width) - Double(OsuCanvas.xOffset))
     }
 
+    /// A bar is a shape, so the number it converts against has to be the size
+    /// of the image it actually names.
+    ///
+    /// Pointed at the particle square — 64px, and drawn to fade at its rim — a
+    /// bar asked for at 28px came out about two, and the row read as hairlines.
+    /// The same silent mismatch `ShapeEffect` guards against, one effect along.
+    @Test("audio bars know how large their image is")
+    func audioBarSourceSizeMatches() throws {
+        let data = try #require(BuiltInTextures.data(for: BuiltInSprite.fill))
+        let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+
+        #expect(Double(image.width) == AudioBarsEffect.sourceSize)
+        #expect(Double(image.height) == AudioBarsEffect.sourceSize)
+    }
+
     @Test("built-in paths are unique")
     func pathsAreUnique() {
         #expect(Set(BuiltInTextures.allPaths).count == BuiltInTextures.allPaths.count)

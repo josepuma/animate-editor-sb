@@ -197,21 +197,21 @@ struct EffectTrackTests {
     }
 
     @Test("a filter reaches the clip's output")
-    func filterReachesOutput() {
+    func filterReachesOutput() async {
         let shell = model()
         let node = shell.addEffect(descriptor, at: 0, duration: 2000)
         shell.setValue(.integer(4), for: EmitterEffect.Param.count, on: node.id)
 
-        #expect(shell.evaluateEffects().count == 4)
+        #expect(await shell.settledSprites().count == 4)
 
         shell.addFilter(GlowFilter.descriptor, to: node.id)
-        #expect(shell.evaluateEffects().count > 4)
+        #expect(await shell.settledSprites().count > 4)
         #expect(shell.spriteMultiplier(for: node.id) > 1)
     }
 
     /// One clip's filter leaves its neighbours alone.
     @Test("a filter on one clip does not touch another")
-    func filtersAreIsolated() {
+    func filtersAreIsolated() async {
         let shell = model()
         let first = shell.addEffect(descriptor, at: 0, duration: 2000)
         let second = shell.addEffect(descriptor, at: 3000, duration: 2000)
@@ -221,11 +221,11 @@ struct EffectTrackTests {
         shell.addFilter(GlowFilter.descriptor, to: first.id)
 
         // Three become six on the filtered clip; the other keeps its three.
-        #expect(shell.evaluateEffects().count == 9)
+        #expect(await shell.settledSprites().count == 9)
     }
 
     @Test("removing a filter puts the output back")
-    func removingAFilter() {
+    func removingAFilter() async {
         let shell = model()
         let node = shell.addEffect(descriptor, at: 0, duration: 2000)
         shell.setValue(.integer(4), for: EmitterEffect.Param.count, on: node.id)
@@ -233,22 +233,22 @@ struct EffectTrackTests {
         let filter = shell.addFilter(GlowFilter.descriptor, to: node.id)!
         shell.removeFilter(filter.id, from: node.id)
 
-        #expect(shell.evaluateEffects().count == 4)
+        #expect(await shell.settledSprites().count == 4)
         #expect(shell.spriteMultiplier(for: node.id) == 1)
     }
 
     // ─── Editing ─
 
     @Test("changing a parameter re-evaluates the output")
-    func parameterChangeUpdatesOutput() {
+    func parameterChangeUpdatesOutput() async {
         let shell = model()
         let node = shell.addEffect(descriptor, at: 0, duration: 2000)
 
         shell.setValue(.integer(8), for: EmitterEffect.Param.count, on: node.id)
-        #expect(shell.evaluateEffects().count == 8)
+        #expect(await shell.settledSprites().count == 8)
 
         shell.setValue(.integer(30), for: EmitterEffect.Param.count, on: node.id)
-        #expect(shell.evaluateEffects().count == 30)
+        #expect(await shell.settledSprites().count == 30)
     }
 
     @Test("moving an effect keeps its length")
@@ -275,20 +275,20 @@ struct EffectTrackTests {
     /// Hiding a lane hides what is on it — the only reading of the control that
     /// makes sense.
     @Test("hiding a track removes its effects from the output")
-    func hidingATrack() {
+    func hidingATrack() async {
         let shell = model()
         let node = shell.addEffect(descriptor, at: 0, duration: 2000)
         shell.setValue(.integer(10), for: EmitterEffect.Param.count, on: node.id)
         let trackID = shell.effects.tracks[0].id
 
-        #expect(shell.evaluateEffects().count == 10)
+        #expect(await shell.settledSprites().count == 10)
 
         shell.toggleVisibility(of: trackID)
-        #expect(shell.evaluateEffects().isEmpty)
+        #expect(await shell.settledSprites().isEmpty)
     }
 
     @Test("removing a track removes what was on it")
-    func removingATrack() {
+    func removingATrack() async {
         let shell = model()
         shell.addEffect(descriptor, at: 0, duration: 1000)
         let trackID = shell.effects.tracks[0].id
@@ -296,23 +296,23 @@ struct EffectTrackTests {
         shell.removeTrack(trackID)
 
         #expect(shell.effects.tracks.isEmpty)
-        #expect(shell.evaluateEffects().isEmpty)
+        #expect(await shell.settledSprites().isEmpty)
         #expect(shell.selectedNodeID == nil)
     }
 
     // ─── Draw order ──────────────────────────────────────────────────────────
 
     @Test("raising a track reorders the evaluated sprites")
-    func reorderingReachesTheCanvas() {
+    func reorderingReachesTheCanvas() async {
         let shell = model()
         let first = shell.addEffect(descriptor, at: 0, duration: 2000)
         shell.addTrack()
         shell.addEffect(descriptor, at: 0, duration: 2000)
 
-        #expect(shell.evaluateEffects().first?.id.hasPrefix(first.id) == true)
+        #expect(await shell.settledSprites().first?.id.hasPrefix(first.id) == true)
 
         shell.raiseTrack(shell.effects.tracks[0].id)
-        #expect(shell.evaluateEffects().last?.id.hasPrefix(first.id) == true)
+        #expect(await shell.settledSprites().last?.id.hasPrefix(first.id) == true)
     }
 
     /// The bug this pins: the renderer keeps its own copy of the sprites on the
@@ -344,14 +344,14 @@ struct EffectTrackTests {
     /// The property the timeline drag relies on: moving a clip shifts the same
     /// particles rather than drawing new ones.
     @Test("dragging a clip shifts its sprites without changing them")
-    func draggingShiftsOutput() {
+    func draggingShiftsOutput() async {
         let shell = model()
         let node = shell.addEffect(descriptor, at: 0, duration: 2000)
         shell.setValue(.integer(6), for: EmitterEffect.Param.count, on: node.id)
 
-        let before = shell.evaluateEffects()
+        let before = await shell.settledSprites()
         shell.moveEffect(node.id, to: 3000)
-        let after = shell.evaluateEffects()
+        let after = await shell.settledSprites()
 
         #expect(before.count == after.count)
         for (original, moved) in zip(before, after) {

@@ -89,48 +89,69 @@ public enum SpectrumExtractor {
 
         let edges = bandEdges(count: bands, sampleRate: sampleRate)
 
-        var extracted: [[Float]] = []
         let frameCount = max(1, Int((range.upperBound - range.lowerBound) / interval))
+
+        // Read the whole stretch once, in order.
+        //
+        // Seeking per frame is the obvious shape and it is ruinous: setting
+        // `framePosition` makes the decoder reposition, and a compressed file
+        // has no index to seek by — measured on a real map, 160 seeks over an
+        // MP3 cost 1,176ms on the main thread, which is a frozen window. Read
+        // straight through, the same stretch costs a fraction of that, and the
+        // windows are cut out of memory afterwards.
+        let firstFrame = AVAudioFramePosition(range.lowerBound / 1000 * sampleRate)
+        let lastFrame = AVAudioFramePosition(range.upperBound / 1000 * sampleRate) + AVAudioFramePosition(windowFrames)
+        let wanted = AVAudioFrameCount(max(0, min(lastFrame, file.length) - max(0, firstFrame)))
+
+        guard wanted > 0 else {
+            return Spectrum(
+                frames: Array(repeating: [Float](repeating: 0, count: bands), count: frameCount),
+                interval: interval,
+                start: range.lowerBound,
+            )
+        }
+
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: wanted) else {
+            throw WaveformError.allocationFailed
+        }
+
+        file.framePosition = max(0, firstFrame)
+        guard (try? file.read(into: buffer, frameCount: wanted)) != nil, buffer.frameLength > 0,
+              let channels = buffer.floatChannelData
+        else { throw WaveformError.emptyFile(url.lastPathComponent) }
+
+        // Mixed to mono up front: a spectrum is about what is playing, not
+        // about where it sits in the stereo field, and mixing once beats mixing
+        // per window.
+        let length = Int(buffer.frameLength)
+        let channelCount = Int(format.channelCount)
+        var mono = [Float](repeating: 0, count: length)
+        for frame in 0 ..< length {
+            var sum: Float = 0
+            for channel in 0 ..< channelCount { sum += channels[channel][frame] }
+            mono[frame] = sum / Float(channelCount)
+        }
+
+        var extracted: [[Float]] = []
         extracted.reserveCapacity(frameCount)
 
-        guard let buffer = AVAudioPCMBuffer(
-            pcmFormat: format,
-            frameCapacity: AVAudioFrameCount(windowFrames),
-        ) else { throw WaveformError.allocationFailed }
-
-        var samples = [Float](repeating: 0, count: windowFrames)
+        let silent = [Float](repeating: 0, count: bands)
+        var window = [Float](repeating: 0, count: windowFrames)
 
         for index in 0 ..< frameCount {
-            let at = range.lowerBound + Double(index) * interval
-            let position = AVAudioFramePosition(at / 1000 * sampleRate)
-            guard position >= 0, position < file.length else {
-                extracted.append([Float](repeating: 0, count: bands))
+            let offset = Int(Double(index) * interval / 1000 * sampleRate)
+            guard offset < length else {
+                extracted.append(silent)
                 continue
             }
 
-            file.framePosition = position
-            let wanted = AVAudioFrameCount(min(windowFrames, Int(file.length - position)))
-            guard wanted > 0, (try? file.read(into: buffer, frameCount: wanted)) != nil,
-                  buffer.frameLength > 0, let channels = buffer.floatChannelData
-            else {
-                extracted.append([Float](repeating: 0, count: bands))
-                continue
+            let available = min(windowFrames, length - offset)
+            for frame in 0 ..< available { window[frame] = mono[offset + frame] }
+            if available < windowFrames {
+                for frame in available ..< windowFrames { window[frame] = 0 }
             }
 
-            // Mixed to mono: a spectrum is about what is playing, not about
-            // where it sits in the stereo field.
-            let length = Int(buffer.frameLength)
-            let channelCount = Int(format.channelCount)
-            for frame in 0 ..< length {
-                var sum: Float = 0
-                for channel in 0 ..< channelCount { sum += channels[channel][frame] }
-                samples[frame] = sum / Float(channelCount)
-            }
-            if length < windowFrames {
-                for frame in length ..< windowFrames { samples[frame] = 0 }
-            }
-
-            extracted.append(levels(of: samples, edges: edges, sampleRate: sampleRate))
+            extracted.append(levels(of: window, edges: edges, sampleRate: sampleRate))
         }
 
         return Spectrum(frames: extracted, interval: interval, start: range.lowerBound)

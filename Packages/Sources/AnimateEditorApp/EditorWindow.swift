@@ -88,8 +88,16 @@ struct EditorWindow: View {
         // One integer rather than the document itself: an effect's parameters
         // change on every frame of a drag, and diffing thousands of evaluated
         // sprites to notice would cost more than the evaluation.
+        // Taken when a pass lands rather than when an edit starts: evaluation
+        // runs off the main thread now, so a revision fires before the sprites
+        // exist.
         .onChange(of: revision, initial: true) { _, _ in
             playback.effectsChanged(to: shell.evaluateEffects())
+        }
+        .task {
+            shell.onSpritesChanged = { sprites in
+                playback.effectsChanged(to: sprites)
+            }
         }
         // Editing one clip's keyframes, playback belongs to that clip: past its
         // end the ruler no longer reaches, and every property reads as whatever

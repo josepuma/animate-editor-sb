@@ -143,9 +143,21 @@ public struct AudioBarsEffect: Effect {
         }
     }
 
-    /// The source image is 64px square, which is what the built-in shapes are
-    /// drawn at.
-    public static let sourceSize: Double = 512
+    /// How large the default image is.
+    ///
+    /// A bar is a **shape**, not a particle, so it draws with `fill` — hard
+    /// edged and 512 across — rather than with `square`, which is a particle
+    /// that fades at its rim. Pointed at the particle, a bar asked for at 28px
+    /// came out about two: the number here and the image it describes have to
+    /// be the same one.
+    ///
+    /// This is the lesson `ShapeEffect` already learned, made again one effect
+    /// along: what a shape needs is a texture that says where it *ends*.
+    ///
+    /// Sixty-four, not 512: only the round shapes are drawn large, because a
+    /// magnified curve becomes a staircase while a straight edge survives it. A
+    /// bar is four straight edges.
+    public static let sourceSize: Double = 64
 
     public static let descriptor = EffectDescriptor(
         type: "audioBars",
@@ -246,7 +258,7 @@ public struct AudioBarsEffect: Effect {
                 name: "Sprite",
                 group: "Look",
                 // A plain path, because that is what it becomes on export.
-                defaultValue: .text(BuiltInSprite.square),
+                defaultValue: .text(BuiltInSprite.fill),
             ),
             EffectParameter(
                 id: Param.color,

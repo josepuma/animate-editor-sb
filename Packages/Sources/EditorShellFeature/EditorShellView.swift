@@ -226,7 +226,7 @@ public struct EditorShellView<Canvas: View>: View {
             Button("Save") { shell.saveProject() }
                 .keyboardShortcut("s", modifiers: .command)
 
-            Button("Export") { shell.exportStoryboard() }
+            Button("Export") { Task { await shell.exportStoryboard() } }
                 .keyboardShortcut("e", modifiers: .command)
 
             // Handed to the field editor while one is being edited, for the
@@ -362,7 +362,7 @@ public struct EditorShellView<Canvas: View>: View {
                 // of the editor, and a command no one can see is one no one
                 // finds.
                 Button("Export", systemImage: "square.and.arrow.up") {
-                    shell.exportStoryboard()
+                    Task { await shell.exportStoryboard() }
                 }
                 .buttonStyle(.themed(.secondary, size: .small, capsule: true))
                 .help(exportHelp)
