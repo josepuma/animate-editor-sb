@@ -181,10 +181,9 @@ struct EditorWindow: View {
             // asks only for the stretch it covers.
             AudioSpectrum.analyse = { [weak playback] range, bands, interval in
                 guard let url = playback?.trackURL else { return nil }
-                guard let spectrum = try? SpectrumExtractor.extract(
+                return SpectrumCache.levels(
                     from: url, range: range, bands: bands, interval: interval,
-                ) else { return nil }
-                return AudioSpectrum.Frames(levels: spectrum.frames, interval: spectrum.interval)
+                )
             }
 
             // Where the selected clip's pixels are, which the canvas measures
