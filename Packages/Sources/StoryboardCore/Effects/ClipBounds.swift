@@ -100,7 +100,12 @@ public struct ClipBounds: Sendable, Equatable {
     /// node whose id is a prefix of another's would claim its neighbour's
     /// particles.
     public static func sprite(_ spriteID: String, belongsTo nodeID: String) -> Bool {
-        spriteID == nodeID || spriteID.hasPrefix(nodeID + "/")
+        // Compared without building a joined string, because this runs once per
+        // sprite per frame while a clip is selected — and allocating there is
+        // paid for by every sprite in the storyboard, not just the clip's.
+        guard spriteID.hasPrefix(nodeID) else { return false }
+        let rest = spriteID.dropFirst(nodeID.count)
+        return rest.isEmpty || rest.first == "/"
     }
 
     public func union(_ other: ClipBounds) -> ClipBounds {

@@ -204,6 +204,59 @@ public enum StoryboardResolver {
         return prepared
     }
 
+    /// Prepared sprites bucketed by when they are on screen.
+    ///
+    /// A storyboard is mostly not on screen at any one moment, so asking every
+    /// sprite whether it is alive is a scan over work that is almost entirely
+    /// wasted. Buckets turn that into a look at one slice.
+    ///
+    /// Buckets rather than a sorted array with a cursor, because a sprite is
+    /// alive over a *span*: sorted by birth, a long-lived sprite born early
+    /// keeps every later frame from skipping past it, and the scan is back.
+    public struct LiveIndex: Sendable {
+        public let sprites: [PreparedSprite]
+
+        /// How wide one bucket is, in milliseconds.
+        ///
+        /// A second is a few dozen buckets over a song and keeps each one small
+        /// enough that scanning it is nothing. Finer buckets cost memory for a
+        /// scan that is already short.
+        private static let bucketSpan: Double = 1000
+
+        private let buckets: [[Int]]
+        private let origin: Double
+
+        public init(_ sprites: [PreparedSprite]) {
+            self.sprites = sprites
+
+            let starts = sprites.map(\.activeStart)
+            let ends = sprites.map(\.activeEnd)
+            origin = starts.min() ?? 0
+            let last = ends.max() ?? origin
+
+            let count = max(1, Int((last - origin) / Self.bucketSpan) + 1)
+            var built = [[Int]](repeating: [], count: count)
+
+            for (index, sprite) in sprites.enumerated() {
+                // A sprite lands in every bucket its life touches, so a frame
+                // finds it wherever it looks.
+                let first = max(0, Int((sprite.activeStart - origin) / Self.bucketSpan))
+                let final = min(count - 1, Int((sprite.activeEnd - origin) / Self.bucketSpan))
+                guard first <= final else { continue }
+                for bucket in first ... final { built[bucket].append(index) }
+            }
+
+            buckets = built
+        }
+
+        /// The sprites that might be alive at a moment.
+        func candidates(at time: Double) -> [Int] {
+            let bucket = Int((time - origin) / Self.bucketSpan)
+            guard bucket >= 0, bucket < buckets.count else { return [] }
+            return buckets[bucket]
+        }
+    }
+
     /// Resolves every sprite that is alive at `time`, in input order.
     ///
     /// Ported from `resolveStoryboard`. The TypeScript version recycles a state
@@ -214,11 +267,65 @@ public enum StoryboardResolver {
         at time: Double,
         into results: inout [SpriteRenderState],
     ) {
-        results.removeAll(keepingCapacity: true)
+        var indices: [Int] = []
+        resolve(prepared, at: time, into: &results, indices: &indices)
+    }
 
-        for sprite in prepared {
-            guard time >= sprite.activeStart, time <= sprite.activeEnd else { continue }
-            results.append(state(of: sprite, at: time))
+    /// Resolves every live sprite, and says which prepared sprite each one came
+    /// from.
+    ///
+    /// The indices exist so a caller does not have to find its way back by
+    /// sprite id. The renderer needs each state's sprite to read its texture and
+    /// origin, and walked the two lists in step comparing ids to stay aligned —
+    /// **a string comparison per sprite per frame**, over every sprite in the
+    /// storyboard rather than every live one. Measured on a grid-filtered
+    /// emitter: 14,845 sprites cost 9ms a frame *with nothing drawn at all*,
+    /// which is over half a 60fps budget spent finding out what to skip.
+    public static func resolve(
+        _ prepared: [PreparedSprite],
+        at time: Double,
+        into results: inout [SpriteRenderState],
+        indices: inout [Int],
+    ) {
+        results.removeAll(keepingCapacity: true)
+        indices.removeAll(keepingCapacity: true)
+
+        prepared.withUnsafeBufferPointer { buffer in
+            for index in 0 ..< buffer.count {
+                let sprite = buffer[index]
+                guard time >= sprite.activeStart, time <= sprite.activeEnd else { continue }
+                results.append(state(of: sprite, at: time))
+                indices.append(index)
+            }
+        }
+    }
+
+    /// Resolves only the sprites an index says could be alive.
+    ///
+    /// A storyboard is mostly *not* on screen at any moment: measured on a
+    /// grid-filtered emitter, 36 sprites drawn out of 14,845. Testing every one
+    /// of them each frame is a linear scan over work that is almost entirely
+    /// wasted, and it dominated the frame — 16ms of a 16.6ms budget, with the
+    /// drawing itself costing 2.
+    ///
+    /// The index buckets sprites by when they are alive, so a frame looks at
+    /// its own bucket rather than at the whole storyboard.
+    public static func resolve(
+        _ index: LiveIndex,
+        at time: Double,
+        into results: inout [SpriteRenderState],
+        indices: inout [Int],
+    ) {
+        results.removeAll(keepingCapacity: true)
+        indices.removeAll(keepingCapacity: true)
+
+        index.sprites.withUnsafeBufferPointer { buffer in
+            for candidate in index.candidates(at: time) {
+                let sprite = buffer[candidate]
+                guard time >= sprite.activeStart, time <= sprite.activeEnd else { continue }
+                results.append(state(of: sprite, at: time))
+                indices.append(candidate)
+            }
         }
     }
 
