@@ -1,9 +1,12 @@
+import AppKit
 import EditorShellFeature
+import ImageIO
 import PlaybackFeature
 import StoryboardCore
 import StoryboardPersistence
 import StoryboardRendering
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Places playback inside the editor layout.
 ///
@@ -187,14 +190,25 @@ struct EditorWindow: View {
             // seconds of audio decoding on the main thread on every value
             // typed, even though the evaluation itself was detached: the whole
             // point of moving the work off was undone by one property read.
-            let trackURL = playback.trackURL
+            // Held in a box the analyser reads, not captured as a value.
+            //
+            // This block runs when the folder opens, and the audio loads
+            // *after* that — so capturing `playback.trackURL` here captured
+            // `nil`, once and forever. Every analysis then returned nothing and
+            // the bars fell back to their placeholder wave, which looks like
+            // music badly enough that it took a while to notice.
+            //
+            // A box rather than reading the model again: `PlaybackModel` is
+            // `@MainActor`, so a closure touching it hops to the main thread —
+            // and the audio decoding that follows would run there too.
+            let audioURL = AudioTrackBox()
             // Dropped with the project it belongs to: the cache is keyed by
             // path, so nothing would be wrongly reused — but holding a previous
             // song's analysis costs memory for audio nobody will ask about
             // again.
             SpectrumCache.clear()
             AudioSpectrum.analyse = { range, bands, interval in
-                guard let trackURL else { return nil }
+                guard let trackURL = audioURL.url else { return nil }
                 return SpectrumCache.levels(
                     from: trackURL, range: range, bands: bands, interval: interval,
                 )
@@ -204,6 +218,105 @@ struct EditorWindow: View {
             // and the shell cannot see. Read on demand rather than observed:
             // the box changes with every frame the GPU draws.
             shell.selectionBounds = { playback.selectionBounds }
+
+            // Thumbnails for the assets panel.
+            //
+            // Downsampled while decoding rather than after: a beatmap
+            // background is thousands of pixels wide, and a grid of them
+            // decoded at full size is tens of megabytes held to draw squares a
+            // hundred points across.
+            // What the folder holds, which is what an assets panel is asked.
+            //
+            // The list used to come from the sprites being drawn — a different
+            // question, and the wrong one: a file sitting in the folder waiting
+            // to be placed never showed up, and the app's own built-in
+            // particles did.
+            let folderAssets = try? BeatmapFolder(url: folder)
+            if let folderAssets {
+                shell.loadFolderAssets(
+                    folderAssets.files(withExtensions: ["png", "jpg", "jpeg"]),
+                )
+            }
+
+            // Bringing an image into the project.
+            //
+            // Copied rather than referenced, because osu! reads only what sits
+            // in the beatmap folder: an asset linked from elsewhere works in
+            // the editor and arrives broken in the game — which looks finished
+            // right up until it ships.
+            //
+            // Into `sb/`, where a storyboard's images live by convention. The
+            // folder's root holds the beatmap itself — the `.osu` files, the
+            // audio, the background — and dropping art beside them mixes what
+            // the map is with what the storyboard draws.
+            shell.importAssets = { destination in
+                let panel = NSOpenPanel()
+                panel.canChooseFiles = true
+                panel.canChooseDirectories = false
+                panel.allowsMultipleSelection = true
+                panel.allowedContentTypes = [.png, .jpeg]
+                panel.prompt = "Import"
+                panel.message = "Choose images to copy into \(destination.title)"
+
+                guard panel.runModal() == .OK else { return [] }
+
+                // The destination the author chose, made if it is not there.
+                let subfolder = destination.relativeFolder
+                let target = subfolder.isEmpty
+                    ? folder
+                    : folder.appendingPathComponent(subfolder, isDirectory: true)
+                try? FileManager.default.createDirectory(
+                    at: target, withIntermediateDirectories: true,
+                )
+
+                var imported: [String] = []
+                for source in panel.urls {
+                    let name = source.lastPathComponent
+                    let copy = target.appendingPathComponent(name)
+
+                    // An existing file is left alone.
+                    //
+                    // Overwriting is the one outcome nobody can undo here, and
+                    // the same name is far more often the same picture than a
+                    // deliberate replacement. Already-there counts as imported:
+                    // the author asked for that file to be usable, and it is.
+                    if !FileManager.default.fileExists(atPath: copy.path) {
+                        guard (try? FileManager.default.copyItem(at: source, to: copy)) != nil
+                        else { continue }
+                    }
+                    imported.append(subfolder.isEmpty ? name : "\(subfolder)/\(name)")
+                }
+                return imported
+            }
+
+            // Filled once the track has loaded, which is after this runs.
+            // The audio arrives after the project opens, so whatever already
+            // evaluated without it has to be asked again.
+            //
+            // The URL alone was not enough: Audio Bars had run once, on an
+            // empty analyser, and its placeholder wave was cached like any
+            // other result. Touching any parameter fixed it — which is how the
+            // bug read as "the effect is broken until you poke it".
+            playback.onTrackLoaded = { [weak shell] url in
+                audioURL.url = url
+                shell?.beat = playback.timing.map { BeatGrid(timing: $0) }
+                shell?.inputsChanged()
+            }
+            audioURL.url = playback.trackURL
+
+            shell.assetThumbnail = { path in
+                // Resolved through the folder's own index, not by joining the
+                // path onto the URL. The index is case-insensitive and knows
+                // about Windows separators — a beatmap written on Windows names
+                // `SB\Particle.PNG`, and a hand-built URL misses it.
+                guard let url = folderAssets?.fileURL(forRelativePath: path) else { return nil }
+                guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+                return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 256,
+                ] as CFDictionary)
+            }
 
             shell.previewImage = { subject in
                 switch subject {
@@ -251,5 +364,22 @@ struct EditorWindow: View {
         if seekingIntoClip, !range.contains(playback.currentTime) {
             playback.seek(to: range.lowerBound)
         }
+    }
+}
+
+
+/// Holds the audio track's URL for the spectrum analyser.
+///
+/// The analyser is installed when a folder opens and the audio arrives later,
+/// so the URL cannot be captured by value. A box rather than reading
+/// `PlaybackModel` on demand: that type is `@MainActor`, and a closure touching
+/// it hops to the main thread — taking a second of audio decoding with it.
+final class AudioTrackBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: URL?
+
+    var url: URL? {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
     }
 }

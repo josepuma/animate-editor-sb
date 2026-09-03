@@ -22,6 +22,13 @@ public final class PlaybackModel {
     /// The audio file behind the beatmap, for an export to take its sound from.
     @ObservationIgnored public private(set) var trackURL: URL?
 
+    /// Told when the audio has loaded and `trackURL` is real.
+    ///
+    /// A callback because the track arrives *after* whoever wants it has been
+    /// wired up: the folder opens first and the audio loads asynchronously, so
+    /// anything that captured this URL at wiring time captured `nil`.
+    @ObservationIgnored public var onTrackLoaded: ((URL) -> Void)?
+
     /// Renders the storyboard to a video file.
     ///
     /// Installed by the canvas, which owns the renderer. Held here so the app
@@ -255,6 +262,7 @@ public final class PlaybackModel {
         do {
             try audio.load(url: audioURL)
             trackURL = audioURL
+            onTrackLoaded?(audioURL)
             hasAudio = true
             audioWarning = nil
             loadWaveform(from: audioURL)

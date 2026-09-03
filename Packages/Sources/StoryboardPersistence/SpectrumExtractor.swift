@@ -44,6 +44,28 @@ public struct Spectrum: Sendable {
 /// grouped back down. The bands are spaced logarithmically, because pitch is:
 /// linear bands put almost everything in the first column and leave the rest
 /// nearly empty.
+/// A stretch of a track decoded to mono samples.
+///
+/// Kept apart from the analysis because the two cost wildly different amounts:
+/// decoding is nearly all of it — a seek into an MP3 alone was measured at over
+/// a second — while running a filter bank over samples already in memory is
+/// arithmetic. Cached together, changing the **number of bands** threw the
+/// decode away with the analysis and re-read the file to answer a question the
+/// samples could already answer.
+public struct DecodedAudio: Sendable {
+    /// Mono samples, mixed from every channel.
+    public let samples: [Float]
+    public let sampleRate: Double
+    /// Where in the track the first sample sits, in milliseconds.
+    public let start: Double
+
+    public init(samples: [Float], sampleRate: Double, start: Double) {
+        self.samples = samples
+        self.sampleRate = sampleRate
+        self.start = start
+    }
+}
+
 public enum SpectrumExtractor {
     /// The range worth showing.
     ///
@@ -59,6 +81,114 @@ public enum SpectrumExtractor {
     ///   - range: the stretch of the track to analyse, in milliseconds.
     ///   - bands: how many frequency columns to produce.
     ///   - interval: milliseconds between frames.
+    /// Decodes a stretch of a track to mono samples.
+    ///
+    /// Separate from the analysis so the expensive half can be cached on its
+    /// own: the number of bands changes what is *computed* from these samples,
+    /// never the samples themselves.
+    ///
+    /// - Parameter padding: extra audio to read past the range, so the last
+    ///   analysis window has something to look at.
+    public static func decode(
+        from url: URL,
+        range: ClosedRange<Double>,
+        padding: Double = 0.05,
+    ) throws -> DecodedAudio {
+        let file: AVAudioFile
+        do {
+            file = try AVAudioFile(forReading: url)
+        } catch {
+            throw WaveformError.couldNotOpen(url.lastPathComponent, String(describing: error))
+        }
+
+        let format = file.processingFormat
+        let sampleRate = format.sampleRate
+        guard file.length > 0 else { throw WaveformError.emptyFile(url.lastPathComponent) }
+
+        let firstFrame = AVAudioFramePosition(range.lowerBound / 1000 * sampleRate)
+        let lastFrame = AVAudioFramePosition((range.upperBound / 1000 + padding) * sampleRate)
+        let wanted = AVAudioFrameCount(max(0, min(lastFrame, file.length) - max(0, firstFrame)))
+
+        guard wanted > 0 else {
+            return DecodedAudio(samples: [], sampleRate: sampleRate, start: range.lowerBound)
+        }
+
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: wanted) else {
+            throw WaveformError.allocationFailed
+        }
+
+        file.framePosition = max(0, firstFrame)
+        guard (try? file.read(into: buffer, frameCount: wanted)) != nil, buffer.frameLength > 0,
+              let channels = buffer.floatChannelData
+        else { throw WaveformError.emptyFile(url.lastPathComponent) }
+
+        // Mixed to mono up front: a spectrum is about what is playing, not
+        // about where it sits in the stereo field, and mixing once beats mixing
+        // per window.
+        let length = Int(buffer.frameLength)
+        let channelCount = Int(format.channelCount)
+        var mono = [Float](repeating: 0, count: length)
+        for frame in 0 ..< length {
+            var sum: Float = 0
+            for channel in 0 ..< channelCount { sum += channels[channel][frame] }
+            mono[frame] = sum / Float(channelCount)
+        }
+
+        return DecodedAudio(samples: mono, sampleRate: sampleRate, start: range.lowerBound)
+    }
+
+
+    /// Runs the filter bank over samples already decoded.
+    ///
+    /// The cheap half. Changing the number of bands re-runs only this.
+    public static func analyse(
+        _ audio: DecodedAudio,
+        range: ClosedRange<Double>,
+        bands: Int,
+        interval: Double,
+    ) -> Spectrum {
+        let frameCount = max(1, Int((range.upperBound - range.lowerBound) / interval))
+        let silent = [Float](repeating: 0, count: bands)
+
+        guard bands > 0, interval > 0, !audio.samples.isEmpty else {
+            return Spectrum(
+                frames: Array(repeating: silent, count: frameCount),
+                interval: interval,
+                start: range.lowerBound,
+            )
+        }
+
+        let sampleRate = audio.sampleRate
+        let windowSeconds = max(interval / 1000 * 2, 0.046)
+        let windowFrames = Int(windowSeconds * sampleRate)
+        let edges = bandEdges(count: bands, sampleRate: sampleRate)
+
+        // Where in the decoded stretch this range begins.
+        let offsetFrames = Int((range.lowerBound - audio.start) / 1000 * sampleRate)
+
+        var extracted: [[Float]] = []
+        extracted.reserveCapacity(frameCount)
+        var window = [Float](repeating: 0, count: windowFrames)
+
+        for index in 0 ..< frameCount {
+            let offset = offsetFrames + Int(Double(index) * interval / 1000 * sampleRate)
+            guard offset >= 0, offset < audio.samples.count else {
+                extracted.append(silent)
+                continue
+            }
+
+            let available = min(windowFrames, audio.samples.count - offset)
+            for frame in 0 ..< available { window[frame] = audio.samples[offset + frame] }
+            if available < windowFrames {
+                for frame in available ..< windowFrames { window[frame] = 0 }
+            }
+
+            extracted.append(levels(of: window, edges: edges, sampleRate: sampleRate))
+        }
+
+        return Spectrum(frames: extracted, interval: interval, start: range.lowerBound)
+    }
+
     public static func extract(
         from url: URL,
         range: ClosedRange<Double>,
@@ -188,7 +318,21 @@ public enum SpectrumExtractor {
             // the midpoint of 100Hz and 200Hz is an octave's middle at 141Hz,
             // not at 150.
             let centre = (edge.low * edge.high).squareRoot()
-            let energy = goertzel(samples, frequency: centre, sampleRate: sampleRate)
+            // Only as many samples as this band needs.
+            //
+            // Goertzel walks whatever it is handed, and the window is sized for
+            // the *lowest* band — so the 16kHz band was reading 4,410 samples to
+            // measure something that resolves in eleven. Measured, the bank was
+            // 1,001ms of a 1,146ms spectrum while decoding the file was 137.
+            //
+            // Four cycles: enough that a partial period cannot swing the
+            // reading, few enough that a high band costs almost nothing. The
+            // low bands still take the whole window, which is right — they are
+            // the ones that need it, and they are also the fewest.
+            let needed = min(samples.count, Int(4 * sampleRate / centre))
+            let energy = goertzel(
+                samples, count: needed, frequency: centre, sampleRate: sampleRate,
+            )
 
             // Compressed, because loudness is logarithmic and a linear scale
             // leaves every bar but the loudest flat on the floor — the same
@@ -206,23 +350,25 @@ public enum SpectrumExtractor {
     /// only a couple of dozen bins are wanted.
     private static func goertzel(
         _ samples: [Float],
+        count: Int,
         frequency: Double,
         sampleRate: Double,
     ) -> Double {
-        guard !samples.isEmpty else { return 0 }
+        let count = min(count, samples.count)
+        guard count > 0 else { return 0 }
 
         let omega = 2 * Double.pi * frequency / sampleRate
         let coefficient = 2 * cos(omega)
 
         var s1 = 0.0
         var s2 = 0.0
-        for sample in samples {
-            let s0 = Double(sample) + coefficient * s1 - s2
+        for index in 0 ..< count {
+            let s0 = Double(samples[index]) + coefficient * s1 - s2
             s2 = s1
             s1 = s0
         }
 
         let power = s1 * s1 + s2 * s2 - coefficient * s1 * s2
-        return (power.squareRoot() * 2) / Double(samples.count)
+        return (power.squareRoot() * 2) / Double(count)
     }
 }
