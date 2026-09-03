@@ -174,15 +174,23 @@ public struct SliderField: View {
         value: Binding<Double>,
         range: ClosedRange<Double> = 0...1,
         format: String = "%.2f",
+        onEditingChanged: @escaping (Bool) -> Void = { _ in },
     ) {
         _value = value
         self.range = range
         self.format = format
+        self.onEditingChanged = onEditingChanged
     }
+
+    /// Told when the handle is grabbed and released.
+    ///
+    /// A drag is one gesture, so whatever it edits should be one undo step and
+    /// one commit — not one per pixel travelled.
+    private let onEditingChanged: (Bool) -> Void
 
     public var body: some View {
         HStack(spacing: Theme.Spacing.snug) {
-            Slider(value: $value, in: range)
+            Slider(value: $value, in: range, onEditingChanged: onEditingChanged)
                 .controlSize(.mini)
 
             Text(String(format: format, value))

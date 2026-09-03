@@ -98,6 +98,9 @@ struct InspectorView: View {
                         remove: { shell.removeFilter(filter.id, from: node.id) },
                         isDrawingPath: shell.isDrawingPath,
                         onToggleDrawing: { shell.isDrawingPath.toggle() },
+                        onEditingChanged: { isEditing in
+                            isEditing ? shell.beginGesture() : shell.endGesture()
+                        },
                         onChange: { parameter, value in
                             shell.setFilterValue(
                                 value, for: parameter, on: filter.id, in: node.id,
@@ -184,6 +187,9 @@ struct InspectorView: View {
                         parameter: parameter,
                         value: node.values[parameter.id] ?? parameter.defaultValue,
                         onChange: { shell.setValue($0, for: parameter.id, on: node.id) },
+                        onEditingChanged: { isEditing in
+                            isEditing ? shell.beginGesture() : shell.endGesture()
+                        },
                     )
                 }
             }
@@ -731,6 +737,8 @@ private struct FilterCard: View {
     /// know about it.
     var isDrawingPath = false
     var onToggleDrawing: () -> Void = {}
+    /// Passed down so a filter's sliders coalesce like an effect's.
+    var onEditingChanged: (Bool) -> Void = { _ in }
     let onChange: (String, EffectValue) -> Void
 
     @State private var isExpanded = true
@@ -781,6 +789,7 @@ private struct FilterCard: View {
                         parameter: parameter,
                         value: filter.values[parameter.id] ?? parameter.defaultValue,
                         onChange: { onChange(parameter.id, $0) },
+                        onEditingChanged: onEditingChanged,
                         isDrawingPath: isDrawingPath,
                         onToggleDrawing: onToggleDrawing,
                     )
@@ -809,6 +818,9 @@ private struct ParameterControl: View {
     let parameter: EffectParameter
     let value: EffectValue
     let onChange: (EffectValue) -> Void
+    /// Told when a continuous gesture starts and ends, so the edits it makes
+    /// fold into one undo step instead of one per pixel travelled.
+    var onEditingChanged: (Bool) -> Void = { _ in }
     /// Only a `.path` row uses these, so they are defaulted rather than
     /// threaded through every other call site.
     var isDrawingPath = false
@@ -842,6 +854,7 @@ private struct ParameterControl: View {
                 SliderField(
                     value: Binding(get: { number }, set: { onChange(.number($0)) }),
                     range: range,
+                    onEditingChanged: onEditingChanged,
                 )
             } else {
                 NumberField(

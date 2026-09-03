@@ -180,8 +180,38 @@ public final class EditorShellModel {
         // somewhere the author never was.
         willSet {
             guard isRecordingUndo else { return }
+            // One entry per gesture, not per step.
+            //
+            // A slider dragged across its range writes on every step, and each
+            // write copies the whole document — measured at 300KB for a busy
+            // project, that is megabytes a second of copying on the main
+            // thread, and it is what made a drag stutter as it went.
+            //
+            // It is also what every editor does: undoing a drag returns to
+            // where the drag started, not one pixel back. Fifty undo steps to
+            // escape one gesture is a stack nobody can use.
+            guard !isCoalescingUndo else { return }
             history.record(effects)
         }
+    }
+
+    /// Whether edits are being folded into one undo entry.
+    @ObservationIgnored private var isCoalescingUndo = false
+
+    /// Folds every edit until ``endGesture()`` into a single undo step.
+    ///
+    /// Called when a continuous gesture starts — a slider grabbed, a field
+    /// focused, a clip picked up. The first write still records, so the entry
+    /// holds the document as it was *before* the gesture.
+    public func beginGesture() {
+        guard !isCoalescingUndo else { return }
+        history.record(effects)
+        isCoalescingUndo = true
+    }
+
+    /// Ends a coalesced gesture, so the next edit records again.
+    public func endGesture() {
+        isCoalescingUndo = false
     }
 
     /// Turned off while undo itself is writing, so stepping back does not
@@ -790,7 +820,7 @@ public final class EditorShellModel {
 
     public func setValue(_ value: EffectValue, for parameterID: String, on nodeID: EffectNode.ID) {
         effects.setValue(value, for: parameterID, on: nodeID)
-        effectsChanged()
+        effectsChanged(node: nodeID)
     }
 
     /// Sets a parameter on one layer of a compound effect.
@@ -821,7 +851,7 @@ public final class EditorShellModel {
 
     public func resizeEffect(_ nodeID: EffectNode.ID, startTime: Double, duration: Double) {
         effects.resize(nodeID, startTime: startTime, duration: duration)
-        effectsChanged()
+        effectsChanged(node: nodeID)
     }
 
     // ─── Keyframes ───────────────────────────────────────────────────────────
@@ -893,7 +923,7 @@ public final class EditorShellModel {
         on nodeID: EffectNode.ID,
     ) {
         effects.setTransformValue(value, for: property, on: nodeID)
-        effectsChanged()
+        effectsChanged(node: nodeID)
     }
 
     /// The transform values a canvas drag started from.
@@ -1203,7 +1233,7 @@ public final class EditorShellModel {
         in nodeID: EffectNode.ID,
     ) {
         effects.setFilterValue(value, for: parameterID, on: filterID, in: nodeID)
-        effectsChanged()
+        effectsChanged(node: nodeID)
     }
 
     /// How many sprites one effect produces.
@@ -1360,9 +1390,31 @@ public final class EditorShellModel {
     private func invalidateCachesIfNeeded() {
         guard cacheRevision != effectsRevision else { return }
         cacheRevision = effectsRevision
-        spriteCounts.removeAll(keepingCapacity: true)
-        seamSeverities.removeAll(keepingCapacity: true)
-        playbackEnds.removeAll(keepingCapacity: true)
+
+        // Only the clip that changed, when the edit named one.
+        //
+        // These answers cost a full evaluation each, and the timeline asks for
+        // one per clip on every rebuild — so clearing all of them meant a
+        // keystroke re-evaluated every effect in the project *synchronously*,
+        // on the main thread. Twenty clips is twenty emitters run over again to
+        // redraw a row that did not change.
+        //
+        // The same bug this file already documents for `spriteCount`, made
+        // again a level along: what is expensive here is not the caching, it is
+        // deciding that everything is stale when one thing is.
+        guard let edited = lastEditedNode else {
+            spriteCounts.removeAll(keepingCapacity: true)
+            seamSeverities.removeAll(keepingCapacity: true)
+            playbackEnds.removeAll(keepingCapacity: true)
+            return
+        }
+
+        spriteCounts[edited] = nil
+        seamSeverities[edited] = nil
+        playbackEnds[edited] = nil
+        // The tail is cached under its own key, because it asks a different
+        // question of the same id.
+        playbackEnds[edited + "#unlooped"] = nil
     }
 
     private func cached<Value>(
@@ -1469,9 +1521,14 @@ public final class EditorShellModel {
     }
 
     /// Signals that something about the effects changed and re-evaluates.
-    private func effectsChanged() {
+    /// - Parameter node: which clip the edit touched, when it was only one.
+    ///   Used so the "catching up" mark lands on that clip rather than on every
+    ///   clip in the project — twenty spinners for one edit is both a lie and
+    ///   twenty rows rebuilt to tell it.
+    private func effectsChanged(node: EffectNode.ID? = nil) {
         effectsRevision &+= 1
         hasUnsavedChanges = true
+        lastEditedNode = node
         reevaluate()
     }
 
@@ -1499,7 +1556,15 @@ public final class EditorShellModel {
         let evaluator = evaluator
         let revision = effectsRevision
 
-        evaluatingNodes = Set(document.nodes.map(\.id))
+        // Only when it actually changes: writing the same value to observed
+        // state still invalidates every view reading it, and during a drag that
+        // is the whole timeline rebuilt per step for no visible difference.
+        //
+        // And only the clip that was edited, not every clip in the project.
+        // Marking all of them puts a spinner on twenty blocks when one changed
+        // — which is both a lie and twenty rows rebuilt to tell it.
+        let pending = lastEditedNode.map { Set([$0]) } ?? Set(document.nodes.map(\.id))
+        if evaluatingNodes != pending { evaluatingNodes = pending }
 
         evaluationTask = Task { [weak self] in
             let sprites = await Task.detached(priority: .userInitiated) {
@@ -1511,11 +1576,14 @@ public final class EditorShellModel {
             await MainActor.run {
                 guard let self, self.effectsRevision == revision else { return }
                 self.evaluated = sprites
-                self.evaluatingNodes = []
+                if !self.evaluatingNodes.isEmpty { self.evaluatingNodes = [] }
                 self.onSpritesChanged?(sprites)
             }
         }
     }
+
+    /// The clip the last edit touched, so only it shows as catching up.
+    @ObservationIgnored private var lastEditedNode: EffectNode.ID?
 
     /// Which clips are being rebuilt right now.
     ///

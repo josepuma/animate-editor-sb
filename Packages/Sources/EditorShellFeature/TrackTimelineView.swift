@@ -59,6 +59,13 @@ struct TrackTimelineView: View {
     /// When the view was last moved by hand, so the clock does not fight it.
     @State private var lastManualPan: Date = .distantPast
 
+    /// Label widths by character count, so Core Text lays one out per length
+    /// rather than one per tick on every frame.
+    ///
+    /// Static because a `Canvas` closure cannot mutate the view, and the answer
+    /// depends only on the font — which does not change while the app runs.
+    nonisolated(unsafe) private static var labelWidths: [Int: CGFloat] = [:]
+
     /// Whether someone is moving the timeline right now.
     ///
     /// A moment's grace after the last scroll rather than only during a drag: a
@@ -448,7 +455,10 @@ struct TrackTimelineView: View {
     /// One pass rather than two, because the dots have to know where the labels
     /// land in order to leave gaps for them — a dark plate behind each label
     /// would read as a pill sitting on the ruler.
+
     private func drawRuler(in context: GraphicsContext, size: CGSize, growth: Double) {
+        var widthCache = Self.labelWidths
+        defer { Self.labelWidths = widthCache }
         let scale = TimelineScale(range: visibleRange, width: size.width)
         let interval = Self.labelInterval(duration: scale.duration, width: size.width)
         guard interval > 0 else { return }
@@ -472,12 +482,27 @@ struct TrackTimelineView: View {
             // ruler into overlapping text.
             guard time >= visibleRange.lowerBound else { continue }
 
+            let text = Self.timeLabel(time)
             let resolved = context.resolve(
-                Text(Self.timeLabel(time))
+                Text(text)
                     .font(Theme.Typography.micro)
                     .foregroundStyle(Theme.Palette.secondary),
             )
-            let width = resolved.measure(in: size).width
+
+            // Measured once per label *length*, not once per label.
+            //
+            // `measure` runs Core Text layout, and the ruler redraws on every
+            // frame of a scroll — measured at 5ms a frame with twenty clips,
+            // which is 120ms a second spent laying out text that says the same
+            // thing each time. Every label here is a timestamp in one font, so
+            // its width follows from how many characters it has.
+            let width: CGFloat
+            if let known = widthCache[text.count] {
+                width = known
+            } else {
+                width = resolved.measure(in: size).width
+                widthCache[text.count] = width
+            }
             let ideal = scale.x(of: time)
             // Nudge the ends inwards: centred on its own timestamp, the first
             // label would hang off the left edge and read as clipped.
@@ -525,9 +550,42 @@ struct TrackTimelineView: View {
         let inset = Theme.Spacing.compact
         var x = inset
 
+        // The occupied spans are in order, so a cursor walks them alongside the
+        // dots instead of scanning all of them for each one — the loop runs the
+        // width of the ruler and used to search every label span at every step.
+        let spans = occupied.sorted { $0.lowerBound < $1.lowerBound }
+        var spanIndex = 0
+
+        // The glow is gathered and blurred once at the end.
+        //
+        // Blurring each mark on its own creates a filtered context per dot, and
+        // a filtered context is a render pass: measured on a full-width ruler,
+        // about a hundred and seventy of them per frame at **31ms a frame** —
+        // two frames' budget spent on the ruler alone, which is what dropped
+        // scrolling to thirty. Grouped by opacity so marks still brighten as
+        // the playhead reaches them.
+        var glowBuckets: [Int: Path] = [:]
+        /// The marks themselves, grouped the same way.
+        var markBuckets: [Int: Path] = [:]
+
+        // Once for the whole row, not once per mark.
+        //
+        // From the *observed* clock, so the marks brighten as the playhead
+        // reaches them: `currentTime` reads the ignored copy, which notifies
+        // nobody — right for a menu that samples it at click time, and wrong
+        // here, where the whole point is that the row repaints as the track
+        // plays. Read once, so the ramp costs one scale rather than one per
+        // mark.
+        let playheadX = Double(
+            TimelineScale(range: visibleRange, width: size.width)
+                .x(of: shell.observedPlayheadTime),
+        )
+
         while x < size.width - inset {
             defer { x += spacing }
-            guard !occupied.contains(where: { $0.contains(x) }) else { continue }
+
+            while spanIndex < spans.count, spans[spanIndex].upperBound < x { spanIndex += 1 }
+            if spanIndex < spans.count, spans[spanIndex].contains(x) { continue }
 
             // Without a waveform every mark stays a dot, which is the ruler's
             // appearance on its own.
@@ -561,23 +619,37 @@ struct TrackTimelineView: View {
             // doubles as the progress bar rather than needing one of its own.
             // The transition is a short ramp rather than a hard edge, so marks
             // brighten as the playhead reaches them instead of flicking on.
-            let playedRatio = Self.playedRatio(
-                atX: x,
-                width: size.width,
-                currentTime: currentTime,
-                range: visibleRange,
-            )
+            let playedRatio = Self.playedRatio(atX: x, playheadX: playheadX)
 
             if playedRatio > 0 {
-                var glow = context
-                glow.addFilter(.blur(radius: 2))
-                glow.fill(shape, with: .color(.white.opacity(0.2 * playedRatio)))
+                // Quantised to twenty steps: the ramp still reads as a ramp,
+                // and twenty passes is nothing beside one per mark.
+                let bucket = Int(playedRatio * 20)
+                glowBuckets[bucket, default: Path()].addPath(shape)
             }
 
-            context.fill(
-                shape,
-                with: .color(.white.opacity(0.18 + 0.6 * playedRatio)),
-            )
+            // Gathered, not filled here.
+            //
+            // A `fill` per mark is a draw call per mark, and the ruler carries
+            // about a hundred and seventy of them: measured, 26ms a frame in
+            // `drawDots` alone against a 16.6ms budget — the ruler cost more
+            // than everything else in the window put together. Marks that share
+            // an opacity share a path, so the row costs a handful of fills
+            // rather than one each.
+            let bucket = Int(playedRatio * 20)
+            markBuckets[bucket, default: Path()].addPath(shape)
+        }
+
+        for (bucket, path) in markBuckets {
+            let ratio = Double(bucket) / 20
+            context.fill(path, with: .color(.white.opacity(0.18 + 0.6 * ratio)))
+        }
+
+        guard !glowBuckets.isEmpty else { return }
+        var glow = context
+        glow.addFilter(.blur(radius: 2))
+        for (bucket, path) in glowBuckets {
+            glow.fill(path, with: .color(.white.opacity(0.2 * Double(bucket) / 20)))
         }
     }
 
@@ -610,8 +682,19 @@ struct TrackTimelineView: View {
         guard width > 0, range.upperBound > range.lowerBound else { return 0 }
 
         let playheadX = Double(TimelineScale(range: range, width: width).x(of: currentTime))
-        let fade: Double = 24
+        return playedRatio(atX: x, playheadX: playheadX)
+    }
 
+    /// The same ramp, given the playhead's position rather than working it out.
+    ///
+    /// The position is identical for every mark on the ruler — it depends on
+    /// the clock and the window, neither of which changes inside the loop — so
+    /// building a `TimelineScale` per mark is a hundred and sixty-one scales
+    /// per frame to answer one question. Measured, that single line was **503
+    /// of the 505ms** the ruler spent drawing: not the fills, not the blur, not
+    /// the text, but a value computed over and over.
+    static func playedRatio(atX x: CGFloat, playheadX: Double) -> Double {
+        let fade: Double = 24
         if Double(x) <= playheadX - fade { return 1 }
         if Double(x) >= playheadX { return 0 }
         return (playheadX - Double(x)) / fade
@@ -812,14 +895,21 @@ struct TrackTimelineView: View {
                         if let node = shell.keyframeNode {
                             keyframeEditor(node, contentWidth: contentWidth)
                         } else {
-                            // Keyed on the revision as well as the id.
+                            // Identified by id alone, not by id plus revision.
                             //
-                            // `EffectTrack` is a value, and the row holds a
-                            // copy of it. Identified by id alone, SwiftUI reuses
-                            // the view when a clip's duration changes — the id
-                            // is the same — and the row goes on drawing the
-                            // span it was built with. The clip in the timeline
-                            // then disagrees with the inspector beside it.
+                            // Keying on the revision gives every row a fresh
+                            // identity on every edit, so SwiftUI tears all of
+                            // them down and builds them again — twenty rows and
+                            // every block in them, for one clip that moved.
+                            // Measured, that is what made scrolling with twenty
+                            // clips run at twenty frames a second.
+                            //
+                            // It was there because a resized clip went on
+                            // drawing its old span. The real fix is that
+                            // `EffectTrack` is `Equatable` and passed by value:
+                            // SwiftUI compares it and rebuilds the row whose
+                            // track actually changed, which is what identity
+                            // was being used to force.
                             // Front to back, the way a layer list reads
                             // everywhere — and the way the layers panel already
                             // showed them. Drawing document order here put the
@@ -827,7 +917,6 @@ struct TrackTimelineView: View {
                             // of the other.
                             ForEach(shell.effects.tracks.reversed()) { track in
                                 row(track, contentWidth: contentWidth)
-                                    .id("\(track.id)-\(shell.effectsRevision)")
                             }
                         }
                     }
