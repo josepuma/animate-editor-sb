@@ -207,11 +207,17 @@ public final class EditorShellModel {
         guard !isCoalescingUndo else { return }
         history.record(effects)
         isCoalescingUndo = true
+        isGestureActive = true
     }
 
     /// Ends a coalesced gesture, so the next edit records again.
     public func endGesture() {
         isCoalescingUndo = false
+        isGestureActive = false
+        // Straight away on release: the pause is for while a hand is moving,
+        // and waiting after it stops is a delay nobody asked for.
+        pendingEvaluation?.cancel()
+        evaluateNow()
     }
 
     /// Turned off while undo itself is writing, so stepping back does not
@@ -1549,7 +1555,32 @@ public final class EditorShellModel {
     /// rather than emptying: a clip that blinks out while its numbers are being
     /// adjusted is worse than one a moment out of date, and `evaluatingNodes`
     /// says which clips are still catching up.
+    /// Whether a continuous gesture is in flight, so evaluation can wait for a
+    /// pause rather than chasing every step.
+    @ObservationIgnored private var isGestureActive = false
+    @ObservationIgnored private var pendingEvaluation: Task<Void, Never>?
+
     private func reevaluate() {
+        // During a gesture, wait for the hand to settle.
+        //
+        // A slider dragged across its range fires dozens of times a second, and
+        // each one starts an evaluation that the next cancels — measured, eight
+        // a second at 66ms each, which is half the frame budget spent on work
+        // thrown away. Nobody can read a value that changes forty times a
+        // second anyway: what a hand wants is the picture where it stopped.
+        if isGestureActive {
+            pendingEvaluation?.cancel()
+            pendingEvaluation = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(90))
+                guard !Task.isCancelled else { return }
+                await MainActor.run { self?.evaluateNow() }
+            }
+            return
+        }
+        evaluateNow()
+    }
+
+    private func evaluateNow() {
         evaluationTask?.cancel()
 
         let document = effects

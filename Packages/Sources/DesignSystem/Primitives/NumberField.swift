@@ -188,12 +188,39 @@ public struct SliderField: View {
     /// one commit — not one per pixel travelled.
     private let onEditingChanged: (Bool) -> Void
 
+    /// Where the handle is while a hand is on it.
+    ///
+    /// The binding is written through on every step, and writing it rebuilds
+    /// whatever observes the value — for the inspector that means instantiating
+    /// its menus and colour wells again, measured at 83 to 207ms. With the
+    /// panel rebuilding under the pointer, the slider was receiving eight
+    /// events a second where a drag produces sixty: not saturated, starved.
+    ///
+    /// Held locally, the handle answers the hand at once and the model hears
+    /// about it when the drag ends — the same draft-then-commit the timeline
+    /// already uses for dragging clips.
+    @State private var draft: Double?
+
     public var body: some View {
         HStack(spacing: Theme.Spacing.snug) {
-            Slider(value: $value, in: range, onEditingChanged: onEditingChanged)
-                .controlSize(.mini)
+            Slider(
+                value: Binding(
+                    get: { draft ?? value },
+                    set: { draft = $0 },
+                ),
+                in: range,
+                onEditingChanged: { isEditing in
+                    if !isEditing {
+                        // Written once, on release.
+                        if let draft { value = draft }
+                        draft = nil
+                    }
+                    onEditingChanged(isEditing)
+                },
+            )
+            .controlSize(.mini)
 
-            Text(String(format: format, value))
+            Text(String(format: format, draft ?? value))
                 .font(Theme.Typography.readout)
                 .foregroundStyle(Theme.Palette.secondary)
                 // Fixed width so the slider does not jump as digits change.

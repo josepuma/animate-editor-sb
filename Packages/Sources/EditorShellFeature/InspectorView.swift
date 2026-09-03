@@ -1,3 +1,4 @@
+import Foundation
 import DesignSystem
 import StoryboardCore
 import SwiftUI
@@ -1182,3 +1183,4 @@ private struct PathControl: View {
         }
     }
 }
+
