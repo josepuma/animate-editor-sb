@@ -62,11 +62,19 @@ public enum AudioSpectrum {
             let time = Double(frame) * interval / 1000
             levels.append((0 ..< bands).map { band in
                 let position = Double(band) / Double(max(1, bands - 1))
-                // Falling towards the treble, the way most music sits, with a
-                // wave running along it so the bars move against each other.
-                let tilt = 1 - position * 0.55
+
+                // Every band uses its whole range.
+                //
+                // The first version multiplied each band by a tilt falling
+                // towards the treble, which is how music usually sits — and it
+                // gave every bar a *different ceiling and a different floor*.
+                // The row read as bars floating at various heights rather than
+                // as a row standing on one base, because that is what it was:
+                // with a rest height of 6px the shortest bar still never fell
+                // below 30. A stand-in has to reach the floor, or it says the
+                // effect cannot.
                 let wave = 0.5 + 0.5 * sin(time * 6 - position * 5)
-                return Float(min(1, max(0, tilt * (0.35 + wave * 0.65))))
+                return Float(min(1, max(0, wave)))
             })
         }
 

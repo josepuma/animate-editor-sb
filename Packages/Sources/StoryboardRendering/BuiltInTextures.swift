@@ -423,6 +423,12 @@ public enum BuiltInTextures {
     /// for, so every transparent pixel is a pixel of the bar somebody wanted.
     private static func drawFill(in context: CGContext, extent: CGFloat) {
         context.setFillColor(white(1))
+        // Edge to edge, deliberately.
+        //
+        // Insetting is right for a particle, which spins and would clip its own
+        // corners — and wrong here for the same reason it is right there: a
+        // stretched bar stretches its margin too, so the ends come out faded
+        // and the bar measures short. A test pins this.
         context.fill(CGRect(x: 0, y: 0, width: extent, height: extent))
     }
 

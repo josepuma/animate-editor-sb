@@ -172,6 +172,28 @@ struct AudioBarsTests {
         #expect(Set(moved.map { Int($0) }).count > 3, "the placeholder did not move")
     }
 
+    /// A stand-in has to reach the floor, or it says the effect cannot.
+    ///
+    /// The first version tilted each band down towards the treble — how music
+    /// usually sits, and it gave every bar a different ceiling *and a different
+    /// floor*. With a rest height of 6px the shortest bar never fell below 30,
+    /// so the row read as bars floating at various heights rather than as a row
+    /// standing on one base.
+    @Test("every bar reaches the floor and the ceiling")
+    func placeholderUsesTheWholeRange() {
+        var document = document()
+        let trackID = clip(in: document)
+        document.setValue(.integer(8), for: AudioBarsEffect.Param.bands, on: trackID)
+        document.setValue(.number(6), for: AudioBarsEffect.Param.floorHeight, on: trackID)
+        document.setValue(.number(160), for: AudioBarsEffect.Param.height, on: trackID)
+
+        for sprite in evaluator.evaluate(document) {
+            let range = heights(of: sprite)
+            #expect(range.min()! < 12, "a bar bottomed out at \(range.min()!), not near its rest")
+            #expect(range.max()! > 150, "a bar topped out at \(range.max()!), not near its peak")
+        }
+    }
+
     /// The same every time, so a preview does not shimmer.
     @Test("the placeholder is deterministic")
     func placeholderIsStable() {
