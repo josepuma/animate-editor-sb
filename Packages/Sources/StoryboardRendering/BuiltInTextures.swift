@@ -43,6 +43,22 @@ public enum BuiltInTextures {
         case streak
         /// A hollow ring, for shockwaves and bubbles.
         case ring
+        /// A hard-edged rectangle filling its whole canvas.
+        ///
+        /// Separate from `square`, which insets its ink so a spinning particle
+        /// keeps its corners: stretched to a bar, that transparent margin
+        /// stretches too — the edges come out blurred and the bar measures a
+        /// third narrower than it was asked for.
+        case fill
+        /// A hard-edged disc.
+        ///
+        /// Distinct from `soft`, which fades to nothing at its rim: that is a
+        /// particle, and a shape asked for a circle wants an edge.
+        case disc
+        /// A hard-edged outline.
+        /// Drawn on demand at a given thickness, so it is **not** one of the
+        /// fixed shapes: see ``hoopPath(thickness:)``.
+        case hoop
 
         /// The path an effect stores for this shape.
         public var path: String { "\(prefix)\(rawValue).png" }
@@ -57,6 +73,9 @@ public enum BuiltInTextures {
             case .square: "Square"
             case .streak: "Streak"
             case .ring: "Ring"
+            case .fill: "Fill"
+            case .disc: "Disc"
+            case .hoop: "Hoop"
             }
         }
 
@@ -155,7 +174,7 @@ public enum BuiltInTextures {
     /// Callers do not distinguish the two: both are images the app supplies and
     /// the beatmap does not have.
     public static var allPaths: [String] {
-        Shape.allCases.map(\.path) + Texture.allCases.map(\.path)
+        Shape.allCases.filter { $0 != .hoop }.map(\.path) + Texture.allCases.map(\.path)
     }
 
     /// The emitter's default particle.
@@ -172,6 +191,14 @@ public enum BuiltInTextures {
         if filePath == "\(prefix)particle.png" {
             return cached(filePath) { encode(draw(.soft, size: size(for: .soft))) }
         }
+        // A hoop carries its thickness in its path, so each weight is its own
+        // texture: the ring is drawn into the image, and there is no command in
+        // the format that could thin it afterwards.
+        if let thickness = hoopThickness(in: filePath) {
+            return cached(filePath) {
+                encode(draw(.hoop, size: size(for: .hoop), thickness: thickness))
+            }
+        }
         if let shape = Shape(path: filePath) {
             return cached(filePath) { encode(draw(shape, size: size(for: shape))) }
         }
@@ -179,6 +206,23 @@ public enum BuiltInTextures {
             return cached(filePath) { bundled(texture) }
         }
         return nil
+    }
+
+    /// The path for a hoop of a given thickness, as a fraction of its size.
+    ///
+    /// Quantised to whole percent for the same reason a derived blur is: a
+    /// continuous slider would mint a texture at every value it passes
+    /// through, and the atlas has a fixed size.
+    public static func hoopPath(thickness: Double) -> String {
+        let percent = Int((min(max(thickness, 0.01), 0.5) * 100).rounded())
+        return "\(prefix)hoop\(percent).png"
+    }
+
+    private static func hoopThickness(in path: String) -> CGFloat? {
+        guard path.hasPrefix("\(prefix)hoop"), path.hasSuffix(".png") else { return nil }
+        let body = path.dropFirst("\(prefix)hoop".count).dropLast(".png".count)
+        guard let percent = Int(body) else { return nil }
+        return CGFloat(percent) / 100
     }
 
     /// Reads a shipped texture out of the module bundle.
@@ -196,6 +240,17 @@ public enum BuiltInTextures {
     private static func size(for shape: Shape) -> Int {
         switch shape {
         case .streak: 128
+        // The drawn shapes are large, because they are drawn *large*.
+        //
+        // A particle is a few dozen pixels on screen, so 64 is already more
+        // detail than reaches the eye. A shape is a backdrop or a bar: asked
+        // for at 400 across, a 64px circle is magnified six times and its curve
+        // becomes a visible staircase. A straight edge survives that — a curve
+        // does not, which is why only the round ones need it.
+        //
+        // `fill` stays small on purpose: it is a flat rectangle, and there is
+        // nothing in it that magnification can spoil.
+        case .disc, .hoop: 512
         default: 64
         }
     }
@@ -219,7 +274,7 @@ public enum BuiltInTextures {
 
     // ─── Drawing ─────────────────────────────────────────────────────────────
 
-    private static func draw(_ shape: Shape, size: Int) -> CGImage? {
+    private static func draw(_ shape: Shape, size: Int, thickness: CGFloat = 0.12) -> CGImage? {
         guard let context = makeContext(size: size) else { return nil }
         let extent = CGFloat(size)
 
@@ -231,6 +286,9 @@ public enum BuiltInTextures {
         case .square: drawSquare(in: context, extent: extent)
         case .streak: drawStreak(in: context, extent: extent)
         case .ring: drawRing(in: context, extent: extent)
+        case .fill: drawFill(in: context, extent: extent)
+        case .disc: drawDisc(in: context, extent: extent)
+        case .hoop: drawHoop(in: context, extent: extent, thickness: thickness)
         }
 
         return context.makeImage()
@@ -359,6 +417,52 @@ public enum BuiltInTextures {
 
     /// Soft-edged rather than a hard rectangle: a crisp square shows every
     /// rotation step as jagged edges once it is scaled down.
+    /// The whole canvas, edge to edge.
+    ///
+    /// No inset and no feather: a shape is measured by the size it is asked
+    /// for, so every transparent pixel is a pixel of the bar somebody wanted.
+    private static func drawFill(in context: CGContext, extent: CGFloat) {
+        context.setFillColor(white(1))
+        context.fill(CGRect(x: 0, y: 0, width: extent, height: extent))
+    }
+
+    /// A filled circle with a crisp edge.
+    ///
+    /// One texel of feather and no more: enough that the rim is not a staircase
+    /// of pixels, little enough that it still reads as an edge. A shape is
+    /// judged by where it stops, so a soft falloff is the wrong answer here
+    /// however right it is for a particle.
+    private static func drawDisc(in context: CGContext, extent: CGFloat) {
+        context.setFillColor(white(1))
+        // Inset by a texel, for the same reason the hoop is: filled to the very
+        // edge, the antialiased pixel at the widest points has nowhere to go
+        // and the circle comes out with two flat sides.
+        context.fillEllipse(in: CGRect(x: 1, y: 1, width: extent - 2, height: extent - 2))
+    }
+
+    /// A ring with crisp edges, drawn as an outline rather than a glow.
+    private static func drawHoop(
+        in context: CGContext,
+        extent: CGFloat,
+        thickness fraction: CGFloat,
+    ) {
+        let thickness = extent * fraction
+        // A texel of margin beyond the stroke's own half-width.
+        //
+        // A stroke is centred on the path, so half of it sits outside — and
+        // even inset by exactly that half, the pixel antialiasing adds falls
+        // off the canvas and the ring comes out flat on its left and right,
+        // where the curve runs parallel to the edge.
+        let inset = thickness / 2 + 1
+
+        context.setStrokeColor(white(1))
+        context.setLineWidth(thickness)
+        context.strokeEllipse(in: CGRect(
+            x: inset, y: inset,
+            width: extent - inset * 2, height: extent - inset * 2,
+        ))
+    }
+
     private static func drawSquare(in context: CGContext, extent: CGFloat) {
         let inset = extent * 0.18
         let rect = CGRect(x: inset, y: inset, width: extent - inset * 2, height: extent - inset * 2)

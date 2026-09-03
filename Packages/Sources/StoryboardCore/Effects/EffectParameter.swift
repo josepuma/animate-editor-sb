@@ -145,6 +145,38 @@ public struct EffectParameter: Sendable, Equatable {
     public var options: [String]
     public var presentation: Presentation
 
+    /// What has to be true elsewhere for this control to be worth showing.
+    ///
+    /// A ring's thickness means nothing on a square, and a slider that does
+    /// nothing is a control that lies. Declared here rather than decided by the
+    /// inspector so the descriptor stays the only thing the UI reads — an
+    /// effect that adds a conditional parameter still needs no UI work, which
+    /// is the property that makes the whole system worth having.
+    public var shownWhen: Condition?
+
+    /// One parameter having one of a set of values.
+    public struct Condition: Sendable, Equatable {
+        public let parameter: String
+        public let values: [String]
+
+        public init(parameter: String, isAnyOf values: [String]) {
+            self.parameter = parameter
+            self.values = values
+        }
+
+        /// Whether the condition holds for a given set of values.
+        public func holds(in values: [String: EffectValue]) -> Bool {
+            switch values[parameter] {
+            case let .choice(option): self.values.contains(option)
+            // A toggle reads as its own name: `shownWhen: .init(parameter:
+            // "radial", isAnyOf: ["true"])`.
+            case let .toggle(on): self.values.contains(on ? "true" : "false")
+            case .none: true
+            default: false
+            }
+        }
+    }
+
     public init(
         id: String,
         name: String,
@@ -155,6 +187,7 @@ public struct EffectParameter: Sendable, Equatable {
         unit: String? = nil,
         options: [String] = [],
         presentation: Presentation = .field,
+        shownWhen: Condition? = nil,
     ) {
         self.id = id
         self.name = name
@@ -165,6 +198,7 @@ public struct EffectParameter: Sendable, Equatable {
         self.unit = unit
         self.options = options
         self.presentation = presentation
+        self.shownWhen = shownWhen
     }
 
     public var kind: Kind { defaultValue.kind }

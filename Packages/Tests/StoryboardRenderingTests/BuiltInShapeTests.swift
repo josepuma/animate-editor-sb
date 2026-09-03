@@ -38,9 +38,17 @@ struct BuiltInShapeTests {
     /// Every shape but the square fades out before its own edge. A particle
     /// that reaches its bounds draws its bounding box, and a hundred of those
     /// overlapping is a pile of rectangles.
+    /// `square` and `fill` are exempt, and honest about it: one is a hard shape
+    /// by name, the other exists precisely to reach its own edges — a bar drawn
+    /// with a margin is a bar that comes out narrower than it was asked for,
+    /// with blurred ends.
     @Test(
         "a shape fades out before its edge",
-        arguments: BuiltInTextures.Shape.allCases.filter { $0 != .square },
+        // `disc` and `hoop` join them: a drawn shape is measured by where it
+        // stops, so it has to reach the size it was asked for.
+        arguments: BuiltInTextures.Shape.allCases.filter {
+            $0 != .square && $0 != .fill && $0 != .disc && $0 != .hoop
+        },
     )
     func shapesFadeAtTheirEdge(shape: BuiltInTextures.Shape) throws {
         let (alpha, size) = try pixels(shape)
@@ -94,5 +102,22 @@ struct BuiltInShapeTests {
         #expect(waist > 2, "the streak has no body")
         #expect(width(atRow: size / 8) < waist)
         #expect(width(atRow: size - size / 8) < waist)
+    }
+
+    /// The fill reaches its own edges, which is the whole reason it exists.
+    ///
+    /// `square` insets its ink by 18% so a spinning particle keeps its corners.
+    /// Stretched into a bar that margin stretches too: the ends come out
+    /// blurred and the bar measures a third narrower than it was asked for —
+    /// a shape is judged by its size, so every transparent pixel is a pixel of
+    /// the bar somebody wanted.
+    @Test("the fill covers its whole canvas")
+    func fillReachesTheEdges() throws {
+        let (alpha, size) = try pixels(.fill)
+
+        // Opaque in all four corners, which is what "no margin" means.
+        for (x, y) in [(0, 0), (size - 1, 0), (0, size - 1), (size - 1, size - 1)] {
+            #expect(alpha(x, y) > 0.95, "the fill is transparent at (\(x), \(y))")
+        }
     }
 }
