@@ -58,6 +58,50 @@ public final class ProjectBrowserModel {
     ///
     /// Validating here means a bad folder surfaces an error in the browser
     /// rather than a blank canvas in the player.
+    /// Builds a project folder around an audio file and opens it.
+    ///
+    /// A storyboard needs a folder because that is what osu! reads, and the
+    /// audio is the one thing it cannot do without: everything else — the
+    /// difficulty, the `.osb`, the art — is either written here or added later.
+    /// Requiring a beatmap up front meant a storyboard could only be started
+    /// from someone else's map, and this editor exports video too.
+    ///
+    /// - Parameters:
+    ///   - audio: the track to copy in. Copied rather than referenced, for the
+    ///     same reason imported art is: osu! reads the folder, not your disk.
+    ///   - parent: where the folder is created.
+    public func createProject(withAudio audio: URL, in parent: URL) {
+        guard openingURL == nil else { return }
+
+        // Named after the track, which is what anyone would call it.
+        let name = audio.deletingPathExtension().lastPathComponent
+        var folder = parent.appendingPathComponent(name, isDirectory: true)
+
+        // A second project from the same song gets its own folder rather than
+        // landing in the first: opening what you thought was new and finding
+        // last week's work is worse than an ugly name.
+        var attempt = 2
+        while FileManager.default.fileExists(atPath: folder.path) {
+            folder = parent.appendingPathComponent("\(name) \(attempt)", isDirectory: true)
+            attempt += 1
+        }
+
+        do {
+            try FileManager.default.createDirectory(
+                at: folder, withIntermediateDirectories: true,
+            )
+            try FileManager.default.copyItem(
+                at: audio,
+                to: folder.appendingPathComponent(audio.lastPathComponent),
+            )
+        } catch {
+            errorMessage = "Could not create the project: \(error.localizedDescription)"
+            return
+        }
+
+        open(url: folder)
+    }
+
     public func open(url: URL) {
         guard openingURL == nil else { return }
         openingURL = url

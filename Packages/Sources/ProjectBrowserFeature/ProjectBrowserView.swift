@@ -19,12 +19,27 @@ public struct ProjectBrowserView: View {
     }
 
     public var body: some View {
+        // The reader wraps the scroll view rather than sitting inside it: a
+        // scroll view offers its child whatever height the content asks for, so
+        // an empty state inside one can never learn how tall the window is —
+        // and it ends up a band across the top instead of a page.
+        GeometryReader { window in
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Spacing.loose) {
                 header
 
                 if model.recents.isEmpty {
+                    // Given the window's height less what the header took, so
+                    // it fills the page rather than floating in a strip.
                     emptyState
+                        .frame(
+                            minHeight: max(
+                                240,
+                                window.size.height
+                                    - Theme.Spacing.section * 2
+                                    - Self.headerHeight,
+                            ),
+                        )
                 } else {
                     recentsGrid
                 }
@@ -47,6 +62,7 @@ public struct ProjectBrowserView: View {
         .onDrop(of: [.fileURL], isTargeted: $isTargetedForDrop, perform: handleDrop)
         .overlay {
             if isTargetedForDrop { dropHighlight }
+        }
         }
         .animation(Theme.Motion.quick, value: isTargetedForDrop)
         .alert(
@@ -143,23 +159,75 @@ public struct ProjectBrowserView: View {
         }
     }
 
+    /// Roughly what the header occupies, so the empty state can claim the rest.
+    ///
+    /// A constant rather than a measurement: the two would have to be measured
+    /// and published back, and being a few points out changes nothing — the
+    /// empty state is centred in whatever it gets.
+    private static let headerHeight: CGFloat = 96
+
     private var emptyState: some View {
         VStack(spacing: Theme.Spacing.compact) {
-            Image(systemName: "folder.badge.plus")
-                .font(Theme.Typography.emptyStateIcon)
-                .foregroundStyle(Theme.Palette.tertiary)
-
-            Text("No beatmaps yet")
+            Text("No projects yet")
                 .font(Theme.Typography.cardTitle)
-                .foregroundStyle(Theme.Palette.secondary)
+                .foregroundStyle(Theme.Palette.primary)
 
-            Text("Drop a folder anywhere, or use Open Folder")
+            Text("Start from an audio file, or open a beatmap folder")
                 .font(Theme.Typography.micro)
                 .foregroundStyle(Theme.Palette.tertiary)
+
+            // The action inside the empty state, not only in the header.
+            //
+            // An empty screen is the one moment somebody has nothing to look at
+            // and no idea what to do — so the thing to do goes where they are
+            // already looking, rather than in a corner they have to find.
+            Button("New Project", systemImage: "plus", action: createProject)
+                .buttonStyle(.themed(.primary, size: .regular, capsule: true))
+                .padding(.top, Theme.Spacing.tight)
         }
-        .frame(maxWidth: .infinity)
+        // Centred in whatever height it is given, both ways: a message pinned
+        // to the top of a tall panel reads as content that failed to fill it.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.vertical, Theme.Spacing.page)
+        // Placeholder cards behind the message, the way a real grid would look.
+        //
+        // An empty panel says "nothing here"; a ghost of the layout says "your
+        // projects will look like this", which is the difference between a dead
+        // end and a starting point.
+        .background {
+            PlaceholderGrid()
+                .padding(Theme.Spacing.compact)
+        }
         .surface(.panel, radius: Theme.Radius.stage)
+    }
+
+    /// Ghosted cards behind the empty message.
+    ///
+    /// Hatched rather than solid: a filled card reads as content that failed to
+    /// load, and the point is to show the *shape* of what goes here.
+    private struct PlaceholderGrid: View {
+        var body: some View {
+            VStack(spacing: Theme.Spacing.compact) {
+                ForEach(0 ..< 3, id: \.self) { _ in
+                    HStack(spacing: Theme.Spacing.compact) {
+                        ForEach(0 ..< 3, id: \.self) { _ in
+                            RoundedRectangle(
+                                cornerRadius: Theme.Radius.control,
+                                style: .continuous,
+                            )
+                            .strokeBorder(Theme.Border.card, lineWidth: 1)
+                        }
+                    }
+                    // Shared out rather than fixed, so the ghosts fill the
+                    // panel however tall it is — a short band of cards behind a
+                    // tall page looks like the grid failed to load.
+                    .frame(maxHeight: .infinity)
+                }
+            }
+            .opacity(0.5)
+            // Never in the way of the message or the button above it.
+            .allowsHitTesting(false)
+        }
     }
 
     /// Shown while a folder is held over the window.
@@ -177,6 +245,35 @@ public struct ProjectBrowserView: View {
     }
 
     // ─── Actions ─────────────────────────────────────────────────────────────
+
+    /// Picks a track, then where the project should live.
+    ///
+    /// Two panels rather than one: the audio is what a storyboard cannot do
+    /// without, and where the folder goes is a separate decision — asking both
+    /// at once would need a form, and this is two clicks.
+    private func createProject() {
+        let audioPanel = NSOpenPanel()
+        audioPanel.canChooseFiles = true
+        audioPanel.canChooseDirectories = false
+        audioPanel.allowsMultipleSelection = false
+        audioPanel.allowedContentTypes = [.mp3, .wav, .audio]
+        audioPanel.prompt = "Choose"
+        audioPanel.message = "Choose the song this storyboard runs over"
+
+        guard audioPanel.runModal() == .OK, let audio = audioPanel.url else { return }
+
+        let folderPanel = NSOpenPanel()
+        folderPanel.canChooseFiles = false
+        folderPanel.canChooseDirectories = true
+        folderPanel.canCreateDirectories = true
+        folderPanel.allowsMultipleSelection = false
+        folderPanel.prompt = "Create"
+        folderPanel.message = "Where should the project folder go?"
+
+        guard folderPanel.runModal() == .OK, let parent = folderPanel.url else { return }
+
+        model.createProject(withAudio: audio, in: parent)
+    }
 
     private func chooseFolder() {
         let panel = NSOpenPanel()

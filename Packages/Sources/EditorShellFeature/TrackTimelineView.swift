@@ -133,7 +133,13 @@ struct TrackTimelineView: View {
     static let headerWidth: CGFloat = 132
     private static let rulerHeight: CGFloat = 32
     /// Tall enough for a clip pill to carry a thumbnail and a label.
-    private static let trackHeight: CGFloat = 52
+    /// How tall one lane is.
+    ///
+    /// Forty rather than fifty-two: a clip needs room for its name and its
+    /// filter badges and no more, and every point above that is one fewer lane
+    /// on screen. A timeline is read by comparing lanes against each other, so
+    /// how many fit at once is most of how usable it is.
+    private static let trackHeight: CGFloat = 40
 
     /// What the ruler and every track row span, given the width inside the
     /// panel's padding.
@@ -196,7 +202,13 @@ struct TrackTimelineView: View {
     /// Roughly five rows. Without a ceiling the timeline grows with every
     /// effect placed and eventually squeezes the canvas — which is the thing
     /// the editor is for — off the window.
-    private static let maximumRowsHeight: CGFloat = (trackHeight + Theme.Spacing.tight) * 5
+    /// The tallest the lanes get before they scroll.
+    ///
+    /// Six now rather than five: shorter lanes mean one more fits in nearly the
+    /// same space, and the point of shortening them was to see more at once.
+    /// Still a ceiling — a project with twenty lanes cannot be allowed to push
+    /// the canvas, which is the thing the editor exists for, off the window.
+    private static let maximumRowsHeight: CGFloat = (trackHeight + Theme.Spacing.tight) * 6
 
     var body: some View {
         // The padding goes outside the reader, so `proxy.size` is the space the
@@ -801,7 +813,7 @@ struct TrackTimelineView: View {
             paste: { shell.pasteEffect(at: currentTime, on: track.id) },
             canPaste: shell.copiedNode != nil,
             moveNodeToTrack: { shell.moveEffect($0, toTrack: $1) },
-            removeTrack: { shell.removeTrack(track.id) },
+            removeTrack: { shell.requestRemoveTrack(track.id) },
             rename: { shell.renameTrack(track.id, to: $0) },
             applyFilter: { nodeID, type in
                 guard let descriptor = shell.filters.descriptor(for: type) else { return }
@@ -822,6 +834,12 @@ struct TrackTimelineView: View {
             },
             raise: { shell.raiseTrack(track.id) },
             lower: { shell.lowerTrack(track.id) },
+            moveToFront: { shell.moveTrackToFront(track.id) },
+            moveToBack: { shell.moveTrackToBack(track.id) },
+            moveToIndex: { shell.moveTrack(track.id, toIndex: $0) },
+            documentIndex: index,
+            trackCount: shell.effects.tracks.count,
+            addTrack: { shell.addTrack(at: index + 1) },
             canRaise: shell.effects.canRaiseTrack(track.id),
             canLower: shell.effects.canLowerTrack(track.id),
             otherTracks: shell.effects.tracks.filter { $0.id != track.id },
@@ -1080,6 +1098,15 @@ struct TrackRowView: View {
     @State private var isAssetTargeted = false
     /// How many rows this lane has already been moved during a reorder drag.
     @State private var reorderedRows = 0
+
+    /// Where the lane sat when the drag began.
+    ///
+    /// Measured from a fixed origin rather than from wherever the lane is now:
+    /// the translation is reported from where the gesture started, so reading
+    /// the current index would compound each move onto the last and the lane
+    /// would run away from the pointer. The same reason the stage camera pans
+    /// from a fixed origin.
+    @State private var reorderOrigin: Int?
     /// The lane a drag has crossed into, applied when it ends.
     @State private var pendingTrackID: EffectTrack.ID?
     /// The name as it is being typed, committed on return or on leaving.
@@ -1758,20 +1785,27 @@ struct TrackRowView: View {
     private var reorderGesture: some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
+                let origin = reorderOrigin ?? actions.documentIndex
+                if reorderOrigin == nil { reorderOrigin = origin }
+
                 let rows = rowsCrossed(value.translation.height)
                 guard rows != reorderedRows else { return }
 
-                // Only the step just taken, since earlier ones are already
-                // applied — the translation is measured from where the drag
-                // began, not from the last event.
-                let step = rows - reorderedRows
-                for _ in 0..<abs(step) {
-                    // Down the screen is earlier in the document.
-                    if step > 0 { actions.lower() } else { actions.raise() }
-                }
+                // One move to where the pointer is, not a swap per row crossed.
+                //
+                // The loop this replaces called `lower()` once per row, and
+                // every call is an edit the rest of the app answers — so a drag
+                // across five lanes re-evaluated the document five times to
+                // reach one arrangement nobody wanted to stop at.
+                //
+                // Down the screen is earlier in the document, so the sign flips.
+                actions.moveToIndex(origin - rows)
                 reorderedRows = rows
             }
-            .onEnded { _ in reorderedRows = 0 }
+            .onEnded { _ in
+                reorderedRows = 0
+                reorderOrigin = nil
+            }
     }
 
     /// Whether this clip is being dragged onto a different lane.
@@ -1874,17 +1908,38 @@ struct TrackRowView: View {
     /// Right-click on the lane itself.
     @ViewBuilder
     private var rowMenu: some View {
-        Button("Bring Forward", systemImage: "square.3.layers.3d.top.filled", action: actions.raise)
+        // Both ends before the single steps.
+        //
+        // "Put this on top" is one thought, and reaching it with five presses
+        // of Bring Forward is that thought spelled out five times. The steps
+        // stay for the nudge — moving past exactly one neighbour.
+        Button("Bring to Front", systemImage: "square.3.layers.3d.top.filled", action: actions.moveToFront)
             .disabled(!actions.canRaise)
-        Button("Send Backward", systemImage: "square.3.layers.3d.bottom.filled", action: actions.lower)
+        Button("Send to Back", systemImage: "square.3.layers.3d.bottom.filled", action: actions.moveToBack)
             .disabled(!actions.canLower)
+
+        Divider()
+
+        Button("Bring Forward", systemImage: "chevron.up", action: actions.raise)
+            .disabled(!actions.canRaise)
+        Button("Send Backward", systemImage: "chevron.down", action: actions.lower)
+            .disabled(!actions.canLower)
+
+        Divider()
+
+        // A new lane, right above this one.
+        //
+        // Adding a track was only reachable from the toolbar, which is the
+        // wrong place when the thought arrives: it arrives while looking at the
+        // lane you want the new one next to. And asking from a row is asking
+        // for a lane *there* — one that appears at the far end ignores the
+        // gesture that summoned it.
+        Button("Add Track Above", systemImage: "plus", action: actions.addTrack)
 
         Divider()
 
         Button(track.isVisible ? "Hide" : "Show", action: toggleVisibility)
         Button(track.isLocked ? "Unlock" : "Lock", action: toggleLock)
-
-        Divider()
 
         Divider()
 
@@ -1960,6 +2015,18 @@ struct TrackActions {
     let openKeyframes: (EffectNode.ID) -> Void
     let raise: () -> Void
     let lower: () -> Void
+    /// Sends the lane to either end of the stack in one edit.
+    let moveToFront: () -> Void
+    let moveToBack: () -> Void
+    /// Moves the lane to a position in **document order**, for a drag that
+    /// crosses several rows at once.
+    let moveToIndex: (Int) -> Void
+    /// Where this lane sits in the document, so a drag can work out where it
+    /// is heading rather than counting steps.
+    let documentIndex: Int
+    let trackCount: Int
+    /// Adds a lane, so a new one can be made from the menu of an existing one.
+    let addTrack: () -> Void
     let canRaise: Bool
     let canLower: Bool
     /// The lanes a clip could be moved to — every track but this one.
