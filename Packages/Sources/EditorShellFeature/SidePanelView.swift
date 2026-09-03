@@ -9,7 +9,12 @@ struct SidePanelView: View {
 
     @Bindable var shell: EditorShellModel
     /// Where a newly added effect is placed.
-    var playheadTime: Double = 0
+    /// Read when something is placed, not when the panel is built.
+    ///
+    /// Taken as a value, the panel holds whatever the clock said at build time
+    /// — stale by the time anyone clicks — and the read ties the panel to
+    /// whoever supplies it. The same closure the keyframe row already uses.
+    var playheadNow: () -> Double = { 0 }
 
     /// Which effect's presets are open, if any.
     ///
@@ -70,7 +75,7 @@ struct SidePanelView: View {
                     LazyVStack(spacing: Theme.Spacing.tight) {
                         ForEach(shell.visibleAssets) { asset in
                             AssetRow(asset: asset) {
-                                shell.addImage(at: asset.path, time: playheadTime)
+                                shell.addImage(at: asset.path, time: playheadNow())
                             }
                         }
                     }
@@ -100,7 +105,7 @@ struct SidePanelView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Theme.Spacing.hair) {
                     ForEach(visiblePresets, id: \.id) { preset in
-                        PresetRow(preset: preset) { shell.addPreset(preset, at: playheadTime) }
+                        PresetRow(preset: preset) { shell.addPreset(preset, at: playheadNow()) }
                             .previewOnHover(title: preset.name, summary: preset.summary) {
                                 shell.previewImage?(.preset(preset)) ?? []
                             }
@@ -156,7 +161,7 @@ struct SidePanelView: View {
                     size: Theme.Size.controlSmall,
                     help: "Add \(descriptor.name)",
                 ) {
-                    shell.addEffect(descriptor, at: playheadTime)
+                    shell.addEffect(descriptor, at: playheadNow())
                 }
                 .previewOnHover(title: descriptor.name) {
                     shell.previewImage?(.effect(descriptor)) ?? []
@@ -1117,3 +1122,5 @@ private enum PresetFilter: Hashable {
     case effect(String)
     case pack(String)
 }
+
+

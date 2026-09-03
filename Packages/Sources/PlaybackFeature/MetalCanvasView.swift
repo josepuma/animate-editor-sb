@@ -27,6 +27,38 @@ struct MetalCanvasView: NSViewRepresentable {
         // every partly transparent sprite.
         view.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         view.preferredFramesPerSecond = 60
+
+        // Dropped while a scroll is running, and back to 60 when it settles.
+        //
+        // A scroll anywhere in the window makes AppKit recompose it, and with a
+        // Metal layer inside that costs the canvas twelve times what a quiet
+        // frame does — measured, 6ms against 0.5ms. Neither number is over
+        // budget on its own; together with the scroll they are, and the panel
+        // stutters.
+        //
+        // Verified by pausing the canvas outright: the scroll went smooth at
+        // once, which is what a minute of switching something off answers and
+        // five rounds of instrumenting did not.
+        //
+        // Half rate for as long as a hand is on the wheel, which is what every
+        // video editor does while you navigate. Half rather than a third:
+        // thirty still reads as motion, and twenty is visibly a slideshow —
+        // the point is to take pressure off the scroll, not to make the preview
+        // look broken while it does.
+        NotificationCenter.default.addObserver(
+            forName: NSScrollView.willStartLiveScrollNotification,
+            object: nil,
+            queue: .main,
+        ) { [weak view] _ in
+            MainActor.assumeIsolated { view?.preferredFramesPerSecond = 30 }
+        }
+        NotificationCenter.default.addObserver(
+            forName: NSScrollView.didEndLiveScrollNotification,
+            object: nil,
+            queue: .main,
+        ) { [weak view] _ in
+            MainActor.assumeIsolated { view?.preferredFramesPerSecond = 60 }
+        }
         view.delegate = context.coordinator
         context.coordinator.configure(view: view)
 
@@ -189,3 +221,4 @@ struct MetalCanvasView: NSViewRepresentable {
         }
     }
 }
+

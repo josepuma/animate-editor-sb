@@ -182,7 +182,7 @@ public struct EditorShellView<Canvas: View>: View {
                 .surface(.bar, radius: Theme.Radius.control)
 
                 if shell.isSidePanelVisible {
-                    SidePanelView(shell: shell, playheadTime: shell.playheadTime)
+                    SidePanelView(shell: shell, playheadNow: { shell.playheadTime })
                         .transition(.move(edge: .leading).combined(with: .opacity))
                         .animation(Theme.Motion.standard, value: shell.isSidePanelVisible)
                 }
