@@ -1247,8 +1247,19 @@ public final class EditorShellModel {
     /// Evaluated rather than guessed: an emitter's count is a parameter, but a
     /// preset can cap it and a hidden node produces none.
     public func spriteCount(of node: EffectNode) -> Int {
-        invalidateCachesIfNeeded()
-        return cached(node.id, in: &spriteCounts) { evaluator.evaluate(node).count }
+        // Counted off the last completed pass, never evaluated here.
+        //
+        // The inspector reads this in its `body` to show what a clip costs, and
+        // the cache is cleared by the edit that prompted the rebuild — so the
+        // read landed on a miss and ran the whole effect *synchronously*.
+        // Measured on an Audio Bars clip, that was **1,101 to 1,317ms of
+        // frozen window** on every value typed into a field, and the freeze
+        // came from a number shown as a hint.
+        //
+        // The async pass already produces these sprites. A count taken from it
+        // is a moment out of date at worst, which is the right trade for a
+        // readout that exists to warn about file size.
+        evaluated.count { ClipBounds.sprite($0.id, belongsTo: node.id) }
     }
 
     /// When a clip actually stops playing, tail and loops included.
@@ -1352,8 +1363,18 @@ public final class EditorShellModel {
     }
 
     public func tail(of nodeID: EffectNode.ID) -> Double {
-        guard let node = effects[nodeID] else { return 0 }
-        return rawTail(of: node)
+        // Read from the last completed pass, never computed here.
+        //
+        // The timeline asks for this per clip on every rebuild, and the edit
+        // that prompts the rebuild invalidates it — so the read landed on a
+        // miss and evaluated the whole effect *synchronously*. Measured on an
+        // Audio Bars clip, **1,285ms of frozen window** on every value typed.
+        //
+        // The same bug as `spriteCount`, and the third time this pattern has
+        // shown up: a cached answer whose cache is cleared by the very edit
+        // that asks for it again is not a cache, it is a synchronous
+        // evaluation with extra steps.
+        tails[nodeID] ?? 0
     }
 
     /// How far one pass runs past the clip's own length.
@@ -1385,6 +1406,9 @@ public final class EditorShellModel {
     /// says when the answers changed.
     @ObservationIgnored private var spriteCounts: [EffectNode.ID: Int] = [:]
     @ObservationIgnored private var seamSeverities: [EffectNode.ID: Double] = [:]
+
+    /// How far each clip plays past its own length, from the last pass.
+    @ObservationIgnored private var tails: [EffectNode.ID: Double] = [:]
     @ObservationIgnored private var playbackEnds: [EffectNode.ID: Double] = [:]
     @ObservationIgnored private var cacheRevision = -1
 
@@ -1609,8 +1633,35 @@ public final class EditorShellModel {
 
             guard !Task.isCancelled else { return }
 
+            // Worked out here, off the main thread, because the timeline reads
+            // them on every rebuild.
+            var measured: [EffectNode.ID: Double] = [:]
+            for node in document.nodes {
+                var unlooped = node
+                unlooped.filters = node.filters.filter { $0.type != "loop" }
+
+                // The same reckoning `playbackEnd` did, moved off the main
+                // thread: the last moment anything is still drawn, measured on
+                // one pass before a loop multiplies it.
+                var last = unlooped.endTime
+                for sprite in evaluator.evaluate(unlooped) {
+                    for command in sprite.commands {
+                        last = max(last, command.endTime)
+                    }
+                    // A loop keeps its commands in the body, so the group's own
+                    // span is what plays.
+                    for loop in sprite.loops {
+                        let body = loop.commands.map(\.endTime).max() ?? 0
+                        last = max(last, loop.startTime + body * Double(loop.loopCount))
+                    }
+                }
+
+                measured[node.id] = max(0, (last - node.startTime) - unlooped.duration)
+            }
+
             await MainActor.run {
                 guard let self, self.effectsRevision == revision else { return }
+                self.tails = measured
                 self.evaluated = sprites
                 if !self.evaluatingNodes.isEmpty { self.evaluatingNodes = [] }
                 self.onSpritesChanged?(sprites)
@@ -1722,3 +1773,4 @@ public enum PreviewSubject: Sendable {
     case filter(FilterDescriptor)
     case preset(EffectPreset)
 }
+

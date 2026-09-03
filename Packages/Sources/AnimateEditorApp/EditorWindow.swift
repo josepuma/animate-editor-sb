@@ -179,10 +179,24 @@ struct EditorWindow: View {
             // and that arrives with the project. Read on demand: analysing five
             // minutes to animate eight seconds is work nobody sees, so the clip
             // asks only for the stretch it covers.
-            AudioSpectrum.analyse = { [weak playback] range, bands, interval in
-                guard let url = playback?.trackURL else { return nil }
+            // The URL is captured, not read through the model.
+            //
+            // `PlaybackModel` is `@MainActor`, so a closure reading
+            // `playback.trackURL` hops to the main thread to do it — and the
+            // analysis that follows runs there too. Measured, that put 1.5
+            // seconds of audio decoding on the main thread on every value
+            // typed, even though the evaluation itself was detached: the whole
+            // point of moving the work off was undone by one property read.
+            let trackURL = playback.trackURL
+            // Dropped with the project it belongs to: the cache is keyed by
+            // path, so nothing would be wrongly reused — but holding a previous
+            // song's analysis costs memory for audio nobody will ask about
+            // again.
+            SpectrumCache.clear()
+            AudioSpectrum.analyse = { range, bands, interval in
+                guard let trackURL else { return nil }
                 return SpectrumCache.levels(
-                    from: url, range: range, bands: bands, interval: interval,
+                    from: trackURL, range: range, bands: bands, interval: interval,
                 )
             }
 
