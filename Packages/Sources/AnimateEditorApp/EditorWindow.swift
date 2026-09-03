@@ -157,6 +157,16 @@ struct EditorWindow: View {
                 // Only where something is drawn, falling back to the track.
                 try await write(url, shell.videoRange ?? playback.timelineRange, progress)
             }
+            // Previews come from the renderer, which the shell deliberately
+            // cannot see — the same seam the export sits on.
+            shell.previewImage = { subject in
+                switch subject {
+                case let .effect(descriptor): EffectThumbnails.frames(for: descriptor)
+                case let .filter(descriptor): EffectThumbnails.frames(for: descriptor)
+                case let .preset(preset): EffectThumbnails.frames(for: preset)
+                }
+            }
+
             shell.exportHandler = { sprites, projectFolder in
                 let prepared = StoryboardExport.prepareUsingAppImages(sprites) { path in
                     // Read straight off the folder being edited. A sprite path

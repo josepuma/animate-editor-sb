@@ -101,6 +101,9 @@ struct SidePanelView: View {
                 LazyVStack(alignment: .leading, spacing: Theme.Spacing.hair) {
                     ForEach(visiblePresets, id: \.id) { preset in
                         PresetRow(preset: preset) { shell.addPreset(preset, at: playheadTime) }
+                            .previewOnHover(title: preset.name, summary: preset.summary) {
+                                shell.previewImage?(.preset(preset)) ?? []
+                            }
                     }
 
                     if visiblePresets.isEmpty {
@@ -111,6 +114,20 @@ struct SidePanelView: View {
                     }
                 }
             }
+            // A new scroll view per filter, rather than scrolling the old one
+            // back.
+            //
+            // A scroll view keeps its offset and the next list is usually
+            // shorter, so switching tabs while scrolled down left the panel
+            // parked past the end of the new one, showing nothing until it was
+            // dragged back by hand.
+            //
+            // `scrollTo` cannot fix it: the anchor lives in a `LazyVStack`,
+            // which does not build what is off screen — scrolled to the bottom
+            // there is no top view to scroll to. Changing the identity throws
+            // the offset away with the view, and a fresh one starts at the top
+            // by definition.
+            .id("presets-\(selectedPack ?? "all")-\(query)")
         }
     }
 
@@ -140,6 +157,9 @@ struct SidePanelView: View {
                     help: "Add \(descriptor.name)",
                 ) {
                     shell.addEffect(descriptor, at: playheadTime)
+                }
+                .previewOnHover(title: descriptor.name) {
+                    shell.previewImage?(.effect(descriptor)) ?? []
                 }
             }
         }
@@ -303,6 +323,9 @@ struct SidePanelView: View {
                                         shell.addFilter(descriptor, to: node.id)
                                     },
                                 )
+                                .previewOnHover(title: descriptor.name) {
+                                    shell.previewImage?(.filter(descriptor)) ?? []
+                                }
                             }
                             }
                         }
@@ -919,5 +942,106 @@ private struct TrackRow: View {
     private var fill: Color {
         if isSelected { return Theme.Fill.selected }
         return isHovered ? Theme.Fill.hover : .clear
+    }
+}
+
+/// A picture of what something does, shown on hover.
+///
+/// A library of names alone is one you have to place things out of to find out
+/// what they are. The image answers "what is this?" in the time it takes to
+/// look, which is the question someone browsing has — and it is rendered by the
+/// same engine that draws the canvas, so it cannot drift from what the thing
+/// actually produces.
+private struct PreviewPopover: View {
+    let title: String
+    let summary: String?
+    let frames: [CGImage]
+
+    /// Which frame is showing.
+    @State private var index = 0
+
+    /// Twelve frames over a second and a half, looping.
+    ///
+    /// A still could not tell two text presets apart: the difference between a
+    /// typewriter and a fade is **when** each letter arrives, and every frame
+    /// after the entrance shows the same settled word. Motion is the answer to
+    /// a question a picture cannot be asked.
+    private let interval = 0.125
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
+            if !frames.isEmpty {
+                Image(decorative: frames[min(index, frames.count - 1)], scale: 1)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 240, height: 135)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                    .task {
+                        // Driven while the popover is up and cancelled with it,
+                        // so a closed preview costs nothing.
+                        while !Task.isCancelled {
+                            try? await Task.sleep(for: .seconds(interval))
+                            index = (index + 1) % frames.count
+                        }
+                    }
+            }
+
+            Text(title)
+                .font(Theme.Typography.label)
+                .foregroundStyle(Theme.Palette.primary)
+
+            if let summary, !summary.isEmpty {
+                Text(summary)
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.tertiary)
+                    .frame(width: 240, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(Theme.Spacing.compact)
+    }
+}
+
+/// Shows a preview beside a row after the pointer has settled on it.
+///
+/// Delayed, because a preview that appears the instant the pointer crosses a
+/// row flashes open and shut all the way down a list — the same reason a
+/// tooltip waits. Long enough to mean "I stopped here", short enough not to
+/// feel like waiting.
+private struct PreviewOnHover: ViewModifier {
+    let title: String
+    let summary: String?
+    let frames: () -> [CGImage]
+
+    @State private var isShowing = false
+    @State private var task: Task<Void, Never>?
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { inside in
+                task?.cancel()
+                guard inside else {
+                    isShowing = false
+                    return
+                }
+                task = Task {
+                    try? await Task.sleep(for: .milliseconds(450))
+                    guard !Task.isCancelled else { return }
+                    isShowing = true
+                }
+            }
+            .popover(isPresented: $isShowing, arrowEdge: .trailing) {
+                PreviewPopover(title: title, summary: summary, frames: frames())
+            }
+    }
+}
+
+private extension View {
+    func previewOnHover(
+        title: String,
+        summary: String? = nil,
+        frames: @escaping () -> [CGImage],
+    ) -> some View {
+        modifier(PreviewOnHover(title: title, summary: summary, frames: frames))
     }
 }

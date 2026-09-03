@@ -132,9 +132,21 @@ struct EmitterPresetTests {
         #expect(worst < ceiling, "\(preset.id) covers \(String(format: "%.1f", worst))× the frame")
     }
 
+    /// Across the whole library, not one effect's share of it.
+    ///
+    /// The panel keys its list on the id, so a repeat is silently dropped: the
+    /// list came out a row short with a gap where the second should have been.
+    /// A text preset and an emitter preset had both been called "shockwave",
+    /// and checking each effect's presets separately could never have seen it.
     @Test("preset ids are unique")
     func idsAreUnique() {
-        #expect(Set(EmitterEffect.presets.map(\.id)).count == EmitterEffect.presets.count)
+        let all = TextEffect.presets + EmitterEffect.presets + EmitterEffect.compoundPresets
+        let repeated = Dictionary(grouping: all.map(\.id), by: { $0 })
+            .filter { $0.value.count > 1 }
+            .keys
+            .sorted()
+
+        #expect(repeated.isEmpty, "shared ids: \(repeated)")
     }
 
     // ─── What makes each one itself ──────────────────────────────────────────
@@ -194,4 +206,5 @@ struct EmitterPresetTests {
         #expect(scale(EmitterEffect.fire, EmitterEffect.Param.scaleEnd)
             < scale(EmitterEffect.fire, EmitterEffect.Param.scaleStart))
     }
+
 }

@@ -114,7 +114,7 @@ public extension TextEffect {
 
     /// Everything at once, large and settling — a title, not a caption.
     static let shockwave = preset(
-        "shockwave", "Shockwave", "The whole line lands at once", duration: 2500, [
+        "text-shockwave", "Shockwave", "The whole line lands at once", duration: 2500, [
             Param.stagger: .number(0),
             Param.fadeIn: .number(250),
             Param.fadeOut: .number(400),

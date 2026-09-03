@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import StoryboardCore
 
@@ -511,6 +512,14 @@ public final class EditorShellModel {
     /// Takes the evaluated sprites and the folder, and returns where it wrote
     /// to, or throws.
     @ObservationIgnored
+    /// Renders what something does, as frames, if the app supplies them.
+    ///
+    /// Provided from outside for the same reason the export is: drawing needs
+    /// the renderer, and this feature is layout rather than behaviour. Optional
+    /// so the shell runs without it — a panel with no pictures is a panel, a
+    /// panel that cannot be built is not.
+    public var previewImage: ((PreviewSubject) -> [CGImage])?
+
     public var exportHandler: ((_ sprites: [StoryboardSprite], _ folder: URL) throws -> URL)?
 
     /// Where the last export landed, so the UI can offer to reveal it.
@@ -1443,4 +1452,14 @@ enum TrackRanges {
         merged.append(current)
         return merged
     }
+}
+
+/// What a library preview is wanted for.
+///
+/// Outside the model because `@Observable` cannot carry a nested enum — its
+/// macro tries to give every member an accessor.
+public enum PreviewSubject: Sendable {
+    case effect(EffectDescriptor)
+    case filter(FilterDescriptor)
+    case preset(EffectPreset)
 }
