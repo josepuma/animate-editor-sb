@@ -108,6 +108,66 @@ public enum StageSnap {
         )
     }
 
+    // ─── Aligning ────────────────────────────────────────────────────────────
+
+    /// Where a clip can be sent on the stage.
+    ///
+    /// The same landmarks a drag snaps to, reached by asking rather than by
+    /// aiming. Snapping helps once a hand is already close; this is for "put it
+    /// in the middle", which is a thing to state rather than to approximate.
+    public enum Alignment: String, CaseIterable, Sendable {
+        case left = "Left"
+        case centreHorizontally = "Centre"
+        case right = "Right"
+        case top = "Top"
+        case middle = "Middle"
+        case bottom = "Bottom"
+
+        public var isHorizontal: Bool {
+            switch self {
+            case .left, .centreHorizontally, .right: true
+            case .top, .middle, .bottom: false
+            }
+        }
+
+        public var systemImage: String {
+            switch self {
+            case .left: "align.horizontal.left"
+            case .centreHorizontally: "align.horizontal.center"
+            case .right: "align.horizontal.right"
+            case .top: "align.vertical.top"
+            case .middle: "align.vertical.center"
+            case .bottom: "align.vertical.bottom"
+            }
+        }
+    }
+
+    /// How far to move a clip so it lands on a stage landmark.
+    ///
+    /// Returned as a nudge rather than a position, because a clip's transform
+    /// holds where its *pivot* is and the box measures where its pixels are —
+    /// which for anything but a centred sprite are two different numbers. A
+    /// caller adds this to whatever the clip's position already is.
+    public static func offset(
+        toAlign box: (minX: Double, minY: Double, maxX: Double, maxY: Double),
+        _ alignment: Alignment,
+    ) -> (dx: Double, dy: Double) {
+        switch alignment {
+        case .left:
+            (dx: Stage.minX - box.minX, dy: 0)
+        case .centreHorizontally:
+            (dx: Stage.centreX - (box.minX + box.maxX) / 2, dy: 0)
+        case .right:
+            (dx: Stage.maxX - box.maxX, dy: 0)
+        case .top:
+            (dx: 0, dy: Stage.minY - box.minY)
+        case .middle:
+            (dx: 0, dy: Stage.centreY - (box.minY + box.maxY) / 2)
+        case .bottom:
+            (dx: 0, dy: Stage.maxY - box.maxY)
+        }
+    }
+
     /// The closest landmark any of the clip's edges is near, and how far to
     /// nudge it.
     ///

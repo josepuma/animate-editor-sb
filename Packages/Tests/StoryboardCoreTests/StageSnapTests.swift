@@ -96,6 +96,75 @@ struct StageSnapTests {
         #expect(StageSnap.Stage.maxX - StageSnap.Stage.minX == StageSnap.Stage.width)
     }
 
+    // ─── Aligning ────────────────────────────────────────────────────────────
+
+    /// Snapping helps once a hand is already close; aligning is for "put it in
+    /// the middle", which is a thing to state rather than to approximate.
+    @Test("centring puts the clip's middle on the stage's")
+    func centresHorizontally() {
+        let offset = StageSnap.offset(toAlign: box(at: 100, 240), .centreHorizontally)
+
+        #expect(abs(offset.dx - 220) < 0.001)
+        #expect(offset.dy == 0, "a horizontal alignment must not move y")
+    }
+
+    @Test("aligning left puts the clip's edge on the stage's")
+    func alignsLeft() {
+        let offset = StageSnap.offset(toAlign: box(at: 300, 240), .left)
+        let landed = 250 + offset.dx
+
+        #expect(abs(landed - StageSnap.Stage.minX) < 0.001, "left edge landed at \(landed)")
+    }
+
+    @Test("aligning bottom puts the clip's edge on the stage's")
+    func alignsBottom() {
+        let offset = StageSnap.offset(toAlign: box(at: 320, 100), .bottom)
+        let landed = 150 + offset.dy
+
+        #expect(abs(landed - StageSnap.Stage.maxY) < 0.001, "bottom edge landed at \(landed)")
+    }
+
+    /// One axis at a time, so aligning left does not also recentre vertically:
+    /// an alignment that moves what it was not asked about is one nobody can
+    /// combine with another.
+    @Test("each alignment moves one axis", arguments: StageSnap.Alignment.allCases)
+    func movesOneAxis(alignment: StageSnap.Alignment) {
+        let offset = StageSnap.offset(toAlign: box(at: 200, 150), alignment)
+
+        if alignment.isHorizontal {
+            #expect(offset.dy == 0, "\(alignment.rawValue) moved y")
+        } else {
+            #expect(offset.dx == 0, "\(alignment.rawValue) moved x")
+        }
+    }
+
+    /// A clip already on its landmark must not jump.
+    @Test("aligning an aligned clip is a no-op")
+    func alreadyAlignedIsInert() {
+        let centred = box(at: StageSnap.Stage.centreX, StageSnap.Stage.centreY)
+
+        #expect(StageSnap.offset(toAlign: centred, .centreHorizontally).dx == 0)
+        #expect(StageSnap.offset(toAlign: centred, .middle).dy == 0)
+    }
+
+    /// Every alignment lands on a line a drag can also snap to, so asking for
+    /// one and aiming for it agree.
+    @Test("alignments land on the lines a drag snaps to", arguments: StageSnap.Alignment.allCases)
+    func alignmentsMatchSnapLines(alignment: StageSnap.Alignment) {
+        let start = box(at: 200, 150)
+        let offset = StageSnap.offset(toAlign: start, alignment)
+
+        let lines = alignment.isHorizontal ? StageSnap.verticalLines : StageSnap.horizontalLines
+        let edges = alignment.isHorizontal
+            ? [start.minX + offset.dx, (start.minX + start.maxX) / 2 + offset.dx, start.maxX + offset.dx]
+            : [start.minY + offset.dy, (start.minY + start.maxY) / 2 + offset.dy, start.maxY + offset.dy]
+
+        #expect(
+            edges.contains { edge in lines.contains { abs($0 - edge) < 0.001 } },
+            "\(alignment.rawValue) landed on no snap line",
+        )
+    }
+
     /// The centre has to be the centre.
     @Test("the centre sits midway between the edges")
     func centreIsCentred() {

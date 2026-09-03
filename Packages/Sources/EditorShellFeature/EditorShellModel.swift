@@ -536,6 +536,15 @@ public final class EditorShellModel {
 
     public var exportHandler: ((_ sprites: [StoryboardSprite], _ folder: URL) throws -> URL)?
 
+    /// Where the selected clip's pixels are, as the canvas last measured them.
+    ///
+    /// Supplied by the app rather than worked out here, for the same reason the
+    /// preview and the export are: the box comes from the renderer, and a
+    /// feature cannot import another. Measured rather than computed because a
+    /// clip's transform holds where its *pivot* is, and for anything but a
+    /// centred sprite that is a different number from where its pixels land.
+    public var selectionBounds: (() -> ClipBounds?)?
+
     /// Where the last export landed, so the UI can offer to reveal it.
     public private(set) var lastExport: URL?
 
@@ -884,6 +893,46 @@ public final class EditorShellModel {
     /// Deltas are measured against the values the gesture started from, never
     /// the current ones: reading back what the last frame wrote compounds every
     /// step.
+    /// Sends the selected clip to a stage landmark.
+    ///
+    /// The same landmarks a drag snaps to, reached by asking rather than by
+    /// aiming: snapping helps once a hand is already close, and this is for
+    /// "put it in the middle", which is a thing to state.
+    ///
+    /// Written as a nudge on top of the clip's current position, because the
+    /// transform holds where the pivot is while the box says where the pixels
+    /// are — assigning the landmark straight to the position would centre the
+    /// pivot instead of the picture.
+    public func align(_ alignment: StageSnap.Alignment) {
+        guard let nodeID = selectedNodeID,
+              let node = effects[nodeID],
+              !isLocked(nodeID),
+              let box = selectionBounds?()
+        else { return }
+
+        let offset = StageSnap.offset(
+            toAlign: (minX: box.minX, minY: box.minY, maxX: box.maxX, maxY: box.maxY),
+            alignment,
+        )
+
+        if alignment.isHorizontal {
+            effects.setTransformValue(
+                node.transform[value: .x] + offset.dx, for: .x, on: nodeID,
+            )
+        } else {
+            effects.setTransformValue(
+                node.transform[value: .y] + offset.dy, for: .y, on: nodeID,
+            )
+        }
+        effectsChanged()
+    }
+
+    /// Whether there is a clip to align, and a measurement to align it by.
+    public var canAlign: Bool {
+        guard let nodeID = selectedNodeID, !isLocked(nodeID) else { return false }
+        return selectionBounds?() != nil
+    }
+
     public func applyCanvasDrag(
         dx: Double,
         dy: Double,

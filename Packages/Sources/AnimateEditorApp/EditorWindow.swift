@@ -163,6 +163,11 @@ struct EditorWindow: View {
             // its tempo.
             shell.beat = playback.timing.map { BeatGrid(timing: $0) }
 
+            // Where the selected clip's pixels are, which the canvas measures
+            // and the shell cannot see. Read on demand rather than observed:
+            // the box changes with every frame the GPU draws.
+            shell.selectionBounds = { playback.selectionBounds }
+
             shell.previewImage = { subject in
                 switch subject {
                 case let .effect(descriptor): EffectThumbnails.frames(for: descriptor)

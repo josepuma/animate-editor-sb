@@ -307,6 +307,7 @@ struct InspectorView: View {
             // worth knowing here, where it can still be turned down, rather
             // than when the file will not open.
             transformCost(node)
+            alignRow
             ForEach(TransformProperty.allCases, id: \.self) { property in
                 // The three channels are one property to anyone using them, so
                 // green and blue are not rows of their own: red carries the
@@ -396,6 +397,46 @@ struct InspectorView: View {
                 shell.clearKeyframes(for: property, on: node.id, keeping: time)
             },
         )
+    }
+
+    /// Sends the clip to a stage landmark.
+    ///
+    /// Beside the position fields rather than in a toolbar, because that is
+    /// what it edits: aligning is a way of setting x and y, and putting it
+    /// where those live means it is found by anyone already adjusting them.
+    ///
+    /// Snapping covers this once a hand is already close; these are for "put it
+    /// in the middle", which is a thing to state rather than to approximate.
+    /// Its own full-width row rather than a `PropertyRow`.
+    ///
+    /// A property row is the width of one control, and six buttons in it spill
+    /// out of the panel — the same overflow a three-control row already caused
+    /// once. Given the whole width they space out evenly, which is how every
+    /// editor draws this strip.
+    @ViewBuilder
+    private var alignRow: some View {
+        HStack(spacing: Theme.Spacing.snug) {
+            // The same label column the property rows use, so the strip lines
+            // up with the fields under it rather than starting at the panel
+            // edge on its own.
+            Text("Align")
+                .font(Theme.Typography.micro)
+                .foregroundStyle(Theme.Palette.tertiary)
+                .frame(width: Theme.Size.propertyLabel, alignment: .leading)
+
+            HStack(spacing: 0) {
+                ForEach(StageSnap.Alignment.allCases, id: \.self) { alignment in
+                    IconButton(
+                        systemImage: alignment.systemImage,
+                        size: Theme.Size.controlTiny,
+                        help: alignment.rawValue,
+                    ) {
+                        shell.align(alignment)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+        }
     }
 
     /// A line saying what an animated transform adds, when it adds enough to
