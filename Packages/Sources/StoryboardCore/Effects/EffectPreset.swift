@@ -90,8 +90,26 @@ public enum BuiltInSprite {
     public static let square = "__builtin__/square.png"
     public static let streak = "__builtin__/streak.png"
     public static let ring = "__builtin__/ring.png"
+    /// A hard-edged rectangle filling its whole canvas, for drawn shapes.
+    public static let fill = "__builtin__/fill.png"
+    /// A hard-edged disc, for drawn shapes rather than particles.
+    public static let disc = "__builtin__/disc.png"
+    /// A hard-edged outline.
+    /// A hoop of a given thickness, as a fraction of its diameter.
+    ///
+    /// The weight is drawn **into** the image — the format has no command that
+    /// could thin a ring afterwards — so each one is its own texture, keyed by
+    /// its path. Quantised to whole percent for the reason a derived blur is:
+    /// a continuous slider would mint a texture at every value it passes
+    /// through, and the atlas has a fixed size.
+    ///
+    /// A test checks this against the renderer that reads it back.
+    public static func hoop(thickness: Double) -> String {
+        let percent = Int((min(max(thickness, 0.01), 0.5) * 100).rounded())
+        return "__builtin__/hoop\(percent).png"
+    }
 
-    public static let shapes = [soft, glow, smoke, star, square, streak, ring]
+    public static let shapes = [soft, glow, smoke, star, square, streak, ring, fill, disc]
 
     /// Textures shipped as files, for the shapes code cannot draw — a branching
     /// bolt, a flame with a real silhouette, a directional flash.

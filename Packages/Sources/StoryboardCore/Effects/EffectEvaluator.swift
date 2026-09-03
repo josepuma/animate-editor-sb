@@ -37,7 +37,7 @@ public struct EffectLibrary: Sendable {
     }
 
     /// The built-in library.
-    public static let standard = EffectLibrary(effects: [ImageEffect(), TextEffect(), EmitterEffect()])
+    public static let standard = EffectLibrary(effects: [ImageEffect(), ShapeEffect(), TextEffect(), EmitterEffect()])
 }
 
 /// Turns placed effect nodes into the sprites the renderer and the exporter
@@ -52,9 +52,21 @@ public struct EffectEvaluator: Sendable {
     public let library: EffectLibrary
     public let filters: FilterLibrary
 
-    public init(library: EffectLibrary = .standard, filters: FilterLibrary = .standard) {
+    /// The song's beat, for the effects that listen to it.
+    ///
+    /// Held by the evaluator rather than by each node: tempo belongs to the
+    /// map, not to a clip placed on it, and storing a copy per effect would let
+    /// them disagree with the song and with each other.
+    public var beat: BeatGrid?
+
+    public init(
+        library: EffectLibrary = .standard,
+        filters: FilterLibrary = .standard,
+        beat: BeatGrid? = nil,
+    ) {
         self.library = library
         self.filters = filters
+        self.beat = beat
     }
 
     /// Evaluates one node into sprites positioned on the project timeline.
@@ -63,7 +75,7 @@ public struct EffectEvaluator: Sendable {
         guard let effect = library.effect(for: node.type) else { return [] }
 
         let descriptor = Swift.type(of: effect).descriptor
-        let context = EffectContext(descriptor: descriptor, node: node)
+        let context = EffectContext(descriptor: descriptor, node: node, beat: beat)
         var rng = EffectRandom(seed: node.seed)
 
         var produced = effect.evaluate(in: context, rng: &rng)
@@ -102,7 +114,12 @@ public struct EffectEvaluator: Sendable {
             let descriptor = Swift.type(of: filter).descriptor
             placed = filter.apply(
                 to: placed,
-                in: FilterContext(descriptor: descriptor, node: filterNode),
+                in: FilterContext(
+                    descriptor: descriptor,
+                    node: filterNode,
+                    beat: beat,
+                    transform: node.transform,
+                ),
             )
         }
 
@@ -153,7 +170,7 @@ public struct EffectEvaluator: Sendable {
                 let descriptor = Swift.type(of: filter).descriptor
                 return filter.duration(
                     of: running,
-                    in: FilterContext(descriptor: descriptor, node: filterNode),
+                    in: FilterContext(descriptor: descriptor, node: filterNode, beat: beat),
                 )
             }
     }
@@ -170,7 +187,7 @@ public struct EffectEvaluator: Sendable {
                 guard let filter = filters.filter(for: filterNode.type) else { return total }
                 let descriptor = Swift.type(of: filter).descriptor
                 return total * filter.estimatedMultiplier(
-                    in: FilterContext(descriptor: descriptor, node: filterNode),
+                    in: FilterContext(descriptor: descriptor, node: filterNode, beat: beat),
                 )
             }
     }

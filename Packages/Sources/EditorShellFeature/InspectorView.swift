@@ -110,6 +110,23 @@ struct InspectorView: View {
             // A loop's pass starts from an empty screen, so a continuous
             // emitter visibly thins at every seam. Said here rather than left
             // for someone to wonder why their fire flickers.
+            // Two mirrors on the same axis cancel out.
+            //
+            // The second reflects everything the first produced, and a
+            // reflection of a reflection lands back on the original — so four
+            // sprites occupy two positions and the picture is unchanged while
+            // the file has doubled. It reads as the filter having been lost,
+            // which is what makes it worth saying rather than leaving someone
+            // to work out.
+            if let cancelling = cancellingMirrors(node) {
+                Text("Two mirrors on the \(cancelling) axis undo each other — "
+                    + "the reflections land back on the originals, doubling the "
+                    + "file for no visible change.")
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             let seam = shell.loopSeamSeverity(for: node.id)
             if seam > 0.25 {
                 Text("Most particles are still alive when the loop restarts — "
@@ -132,6 +149,19 @@ struct InspectorView: View {
         }
     }
 
+    /// Which axis has two enabled mirrors on it, if any.
+    private func cancellingMirrors(_ node: EffectNode) -> String? {
+        let axes = node.filters
+            .filter { $0.isEnabled && $0.type == MirrorFilter.descriptor.type }
+            .map { filter -> String in
+                if case let .choice(axis) = filter.values[MirrorFilter.Param.axis] { return axis }
+                return MirrorFilter.Axis.horizontal.rawValue
+            }
+
+        let repeated = Dictionary(grouping: axes, by: { $0 }).first { $0.value.count > 1 }
+        return repeated?.key.lowercased()
+    }
+
     /// The selected effect's declared parameters, grouped as it declared them.
     @ViewBuilder
     private func effectParameters(descriptor: EffectDescriptor, node: EffectNode) -> some View {
@@ -141,7 +171,15 @@ struct InspectorView: View {
 
         ForEach(descriptor.groups, id: \.self) { group in
             FieldGroup(group) {
-                ForEach(descriptor.parameters.filter { $0.group == group }, id: \.id) { parameter in
+                // Conditional parameters drop out when their condition does
+                // not hold: a ring's thickness on a square is a control that
+                // does nothing, and a control that does nothing lies.
+                ForEach(
+                    descriptor.parameters.filter {
+                        $0.group == group && ($0.shownWhen?.holds(in: node.values) ?? true)
+                    },
+                    id: \.id,
+                ) { parameter in
                     ParameterControl(
                         parameter: parameter,
                         value: node.values[parameter.id] ?? parameter.defaultValue,
@@ -694,7 +732,10 @@ private struct FilterCard: View {
             .onTapGesture { isExpanded.toggle() }
 
             if isExpanded {
-                ForEach(descriptor.parameters, id: \.id) { parameter in
+                ForEach(
+                    descriptor.parameters.filter { $0.shownWhen?.holds(in: filter.values) ?? true },
+                    id: \.id,
+                ) { parameter in
                     ParameterControl(
                         parameter: parameter,
                         value: filter.values[parameter.id] ?? parameter.defaultValue,
@@ -1005,7 +1046,10 @@ private struct LayerSection: View {
                 header
 
                 if isExpanded {
-                    ForEach(descriptor.parameters, id: \.id) { parameter in
+                    ForEach(
+                        descriptor.parameters.filter { $0.shownWhen?.holds(in: layer.values) ?? true },
+                        id: \.id,
+                    ) { parameter in
                         ParameterControl(
                             parameter: parameter,
                             value: layer.values[parameter.id] ?? parameter.defaultValue,

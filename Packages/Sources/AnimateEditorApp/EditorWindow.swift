@@ -159,6 +159,10 @@ struct EditorWindow: View {
             }
             // Previews come from the renderer, which the shell deliberately
             // cannot see — the same seam the export sits on.
+            // The song's beat, so a pulse follows the map without being told
+            // its tempo.
+            shell.beat = playback.timing.map { BeatGrid(timing: $0) }
+
             shell.previewImage = { subject in
                 switch subject {
                 case let .effect(descriptor): EffectThumbnails.frames(for: descriptor)

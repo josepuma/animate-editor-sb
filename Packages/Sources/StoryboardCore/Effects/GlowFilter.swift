@@ -45,7 +45,11 @@ public struct GlowFilter: SpriteFilter {
                 id: Param.size,
                 name: "Size",
                 group: "Glow",
-                defaultValue: .number(1.6),
+                // The subject's own size by default: the softness alone is
+                // what reads as a glow, and a copy grown before it is blurred
+                // is a second, fatter version of the sprite showing past its
+                // edges.
+                defaultValue: .number(1),
                 range: 1...6,
                 step: 0.1,
                 unit: "×",

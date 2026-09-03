@@ -218,7 +218,9 @@ public final class EditorShellModel {
     }
     public let library: EffectLibrary
     public let filters: FilterLibrary
-    private let evaluator: EffectEvaluator
+    // A `var` because the beat is set after the map opens: tempo comes off
+    // the beatmap, and this feature never opens one.
+    private var evaluator: EffectEvaluator
 
     /// Bumped whenever an effect changes, so views that re-evaluate can watch
     /// one value instead of diffing the whole document.
@@ -278,7 +280,7 @@ public final class EditorShellModel {
         // Every effect's presets, filtered to what the library can actually
         // run. The panel groups them by `effectType`, so a new effect's presets
         // appear under it without any UI work.
-        (TextEffect.presets + EmitterEffect.presets + EmitterEffect.compoundPresets)
+        (TextEffect.presets + ShapeEffect.presets + EmitterEffect.presets + EmitterEffect.compoundPresets)
             .filter { library.descriptor(for: $0.effectType) != nil }
     }
 
@@ -518,6 +520,18 @@ public final class EditorShellModel {
     /// the renderer, and this feature is layout rather than behaviour. Optional
     /// so the shell runs without it — a panel with no pictures is a panel, a
     /// panel that cannot be built is not.
+    /// The song's beat, for effects that follow it.
+    ///
+    /// Set by whoever owns playback, because the timing comes off the beatmap
+    /// and this feature never opens one. An effect asks the evaluator, which
+    /// asks this — so a pulse needs no BPM typed into it.
+    public var beat: BeatGrid? {
+        didSet {
+            evaluator.beat = beat
+            effectsChanged()
+        }
+    }
+
     public var previewImage: ((PreviewSubject) -> [CGImage])?
 
     public var exportHandler: ((_ sprites: [StoryboardSprite], _ folder: URL) throws -> URL)?

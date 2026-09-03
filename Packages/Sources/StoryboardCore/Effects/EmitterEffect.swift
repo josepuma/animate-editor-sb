@@ -374,6 +374,7 @@ public struct EmitterEffect: Effect {
                 step: 1,
                 unit: "°",
                 presentation: .slider,
+                shownWhen: .init(parameter: Param.radial, isAnyOf: ["true"]),
             ),
             // Zero by default: a flat ring is the honest reading of the
             // extents, and perspective is something asked for.
@@ -630,6 +631,7 @@ public struct EmitterEffect: Effect {
                 name: "Colour Mid",
                 group: "Appearance",
                 defaultValue: .color(.white),
+                shownWhen: .init(parameter: Param.usesColorMid, isAnyOf: ["true"]),
             ),
             // How far each particle's colour strays from the ramp.
             //

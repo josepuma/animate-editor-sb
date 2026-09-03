@@ -1054,6 +1054,48 @@ private struct PreviewOnHover: ViewModifier {
                     isShowing = true
                 }
             }
+            // Dismissed on the way down, before the click lands.
+            //
+            // A popover takes every click over its own area and opens across
+            // the row that summoned it, so the button underneath stopped
+            // answering the moment a preview appeared — adding an effect took
+            // several tries. Closing it as the mouse goes down hands the click
+            // straight back to the row.
+            //
+            // An overlay would sidestep the problem and bring a worse one: the
+            // panel clips its contents, so a preview wide enough to be useful
+            // would be cut off at the edge.
+            // Shown only while the pointer is still, and gone the moment it
+            // moves again.
+            //
+            // A popover takes every click over its own area and opens across
+            // the row that summoned it, so the button underneath stopped
+            // answering as soon as a preview appeared — adding an effect took
+            // several tries. Dismissing on the click was the obvious patch and
+            // the wrong one: it costs a click to close and another to act.
+            //
+            // Tying it to stillness fixes the cause instead. Nobody clicks
+            // without moving to what they are clicking, so by the time the
+            // press lands the preview is already out of the way — and a preview
+            // that answers "what is this?" is wanted while looking, not while
+            // reaching.
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    guard !isShowing else { break }
+                    task?.cancel()
+                    task = Task {
+                        try? await Task.sleep(for: .milliseconds(500))
+                        guard !Task.isCancelled else { return }
+                        isShowing = true
+                    }
+                case .ended:
+                    task?.cancel()
+                    isShowing = false
+                @unknown default:
+                    break
+                }
+            }
             .popover(isPresented: $isShowing, arrowEdge: .trailing) {
                 PreviewPopover(title: title, summary: summary, frames: frames())
             }

@@ -34,6 +34,13 @@ public struct KeyframeTrack: Sendable, Equatable, Codable {
     /// Sorted by time. Kept sorted on every edit rather than at read time,
     /// because reading happens once per sprite and editing once per drag.
     public private(set) var keyframes: [Keyframe]
+
+    /// Scales every value, keeping the times and curves.
+    mutating func multiplyValues(by factor: Double) {
+        keyframes = keyframes.map {
+            Keyframe(id: $0.id, time: $0.time, value: $0.value * factor, easing: $0.easing)
+        }
+    }
     /// Whether the keys are in effect.
     ///
     /// Switching animation off keeps them. Deleting a stopwatch's worth of work
@@ -158,6 +165,20 @@ public struct KeyframeTrack: Sendable, Equatable, Codable {
         Array(zip(keyframes, keyframes.dropFirst()))
     }
 }
+public extension KeyframeTrack {
+    /// The same animation with every value multiplied.
+    ///
+    /// For folding a base into an animation rather than replacing it: an effect
+    /// that draws at a size states it as a scale, and a transform animating
+    /// that property has to multiply what is there instead of overwriting it.
+    func scaled(by factor: Double) -> KeyframeTrack {
+        guard factor != 1 else { return self }
+        var copy = self
+        copy.multiplyValues(by: factor)
+        return copy
+    }
+}
+
 
 /// The transform properties every visual effect animates.
 ///
@@ -229,7 +250,12 @@ public enum TransformProperty: String, CaseIterable, Sendable {
         switch self {
         case .x: -400...1100
         case .y: -300...800
-        case .scaleX, .scaleY: 0...20
+        // Wide, because scale is a multiplier on whatever the sprite happens
+        // to be: a one-pixel image needs ×854 to cross the stage, so a ceiling
+        // of twenty said "you may only enlarge things that were already large".
+        // The limit exists to keep a slider usable and a stray keystroke from
+        // writing an absurd file, not to say how big a thing may get.
+        case .scaleX, .scaleY: 0...1000
         case .red, .green, .blue: 0...255
         case .rotation: -1080...1080
         case .opacity: 0...1

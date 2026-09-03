@@ -146,11 +146,35 @@ public struct FilterContext: Sendable {
     /// produce colliding ids.
     public let idPrefix: String
 
+    /// The song's beat, when there is one.
+    ///
+    /// A filter that listens to the music reads it from here rather than from
+    /// its own parameters: tempo belongs to the map, so a copied clip beats
+    /// with the song it was dropped on instead of the one it was written for.
+    public let beat: BeatGrid?
+
+    /// The clip's own transform, for a filter that needs to know how the group
+    /// is being moved rather than how each sprite is.
+    ///
+    /// A filter runs after the transform, so by then a rotation exists only as
+    /// `_R` commands — and those are indistinguishable from a sprite's *own*
+    /// tilt. An emitter gives every particle a random one, so a filter reading
+    /// the commands sees a clip spinning wildly when nothing is animated at
+    /// all. The group's motion has to be handed over, not inferred.
+    public let transform: Transform
+
     private let values: [String: EffectValue]
 
-    public init(descriptor: FilterDescriptor, node: FilterNode) {
+    public init(
+        descriptor: FilterDescriptor,
+        node: FilterNode,
+        beat: BeatGrid? = nil,
+        transform: Transform = Transform(),
+    ) {
         self.descriptor = descriptor
         self.node = node
+        self.beat = beat
+        self.transform = transform
         idPrefix = node.id
 
         // Read through the declaration, so a node saved before a parameter
@@ -242,6 +266,6 @@ public struct FilterLibrary: Sendable {
         GlowFilter(), ShadowFilter(), BlurFilter(), TintFilter(),
         EchoFilter(), WiggleFilter(), LoopFilter(),
         TimeFilter(), EaseFilter(), RadialFilter(),
-        MirrorFilter(), ChromaticFilter(), PathFilter(),
+        MirrorFilter(), ChromaticFilter(), PathFilter(), PulseFilter(), GridFilter(),
     ])
 }

@@ -635,7 +635,30 @@ struct TrackTimelineView: View {
             // negative local time, which drew every key against a moment the
             // clip does not contain. Clamped at the source, no frame can see
             // one.
-            localTime: min(max(0, currentTime - node.startTime), node.duration),
+            // The **observed** playhead, so the diamond fills and empties as the
+            // clock moves past a key.
+            //
+            // `currentTime` reads the ignored copy, which is right for anything
+            // that must not redraw with the clock — and wrong here: the diamond
+            // is a readout of where the playhead *is*, so a value frozen at the
+            // last redraw left it stuck on whatever it said when the row was
+            // drawn. The observed copy exists for exactly this.
+            localTime: min(
+                max(0, shell.observedPlayheadTime - node.startTime),
+                node.duration,
+            ),
+            // Read when the click happens, not when the row was drawn.
+            //
+            // `localTime` below is computed in the body from `playheadTime`,
+            // which is deliberately unobserved so the clock does not rebuild
+            // the timeline sixty times a second. The cost is that the value
+            // baked into the row is whatever it was at the last redraw — so a
+            // key planted from a button landed wherever the playhead had been,
+            // usually at zero. The same trap the paste shortcut hit.
+            playheadNow: {
+                min(max(0, shell.playheadTime - node.startTime), node.duration)
+            },
+
             isPlaying: isPlaying,
             addKeyframe: { property, time in
                 shell.beginAnimating(property, on: node.id, at: time)

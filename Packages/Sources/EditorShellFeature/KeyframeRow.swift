@@ -15,6 +15,8 @@ struct KeyframeRows: View {
     let headerWidth: CGFloat
     /// Where the playhead is inside the clip, for placing a new key.
     let localTime: Double
+    /// The playhead read at the moment of a click, not at the last redraw.
+    let playheadNow: () -> Double
     let isPlaying: Bool
     let addKeyframe: (TransformProperty, Double) -> Void
     let moveKeyframe: (TransformProperty, Keyframe.ID, Double) -> Void
@@ -48,6 +50,7 @@ struct KeyframeRows: View {
                     scale: scale,
                     headerWidth: headerWidth,
                     localTime: localTime,
+                    playheadNow: playheadNow,
                     isPlaying: isPlaying,
                     addKeyframe: { addKeyframe(property, $0) },
                     moveKeyframe: { moveKeyframe(property, $0, $1) },
@@ -72,6 +75,8 @@ private struct KeyframeRow: View {
     let scale: TimelineScale
     let headerWidth: CGFloat
     let localTime: Double
+    /// The playhead read at the moment of a click, not at the last redraw.
+    let playheadNow: () -> Double
     /// Whether the clock is running, which is when a key cannot be placed
     /// meaningfully.
     let isPlaying: Bool
@@ -118,7 +123,7 @@ private struct KeyframeRow: View {
                 ) {
                     if track.isEmpty {
                         guard !isPlaying else { return }
-                        addKeyframe(localTime)
+                        addKeyframe(playheadNow())
                     } else {
                         setEnabled(!isAnimating)
                     }
@@ -149,7 +154,7 @@ private struct KeyframeRow: View {
                         ? "Pause to add a keyframe"
                         : (isOnAKey ? "On a keyframe" : "Add a keyframe here"),
                 ) {
-                    addKeyframe(localTime)
+                    addKeyframe(playheadNow())
                 }
                 .disabled(isPlaying)
             }
