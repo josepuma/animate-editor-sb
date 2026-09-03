@@ -37,7 +37,7 @@ public struct EffectLibrary: Sendable {
     }
 
     /// The built-in library.
-    public static let standard = EffectLibrary(effects: [ImageEffect(), ShapeEffect(), TextEffect(), EmitterEffect()])
+    public static let standard = EffectLibrary(effects: [ImageEffect(), ShapeEffect(), TextEffect(), EmitterEffect(), AudioBarsEffect()])
 }
 
 /// Turns placed effect nodes into the sprites the renderer and the exporter

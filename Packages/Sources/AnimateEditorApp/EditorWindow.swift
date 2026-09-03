@@ -1,6 +1,7 @@
 import EditorShellFeature
 import PlaybackFeature
 import StoryboardCore
+import StoryboardPersistence
 import StoryboardRendering
 import SwiftUI
 
@@ -162,6 +163,21 @@ struct EditorWindow: View {
             // The song's beat, so a pulse follows the map without being told
             // its tempo.
             shell.beat = playback.timing.map { BeatGrid(timing: $0) }
+
+            // The map's own audio, so a bank of bars asks for nothing: no file
+            // to pick, no offset to line up by ear.
+            //
+            // Installed here rather than at launch because it needs the track,
+            // and that arrives with the project. Read on demand: analysing five
+            // minutes to animate eight seconds is work nobody sees, so the clip
+            // asks only for the stretch it covers.
+            AudioSpectrum.analyse = { [weak playback] range, bands, interval in
+                guard let url = playback?.trackURL else { return nil }
+                guard let spectrum = try? SpectrumExtractor.extract(
+                    from: url, range: range, bands: bands, interval: interval,
+                ) else { return nil }
+                return AudioSpectrum.Frames(levels: spectrum.frames, interval: spectrum.interval)
+            }
 
             // Where the selected clip's pixels are, which the canvas measures
             // and the shell cannot see. Read on demand rather than observed:
