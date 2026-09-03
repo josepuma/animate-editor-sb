@@ -112,6 +112,27 @@ public struct EditorShellView<Canvas: View>: View {
             minWidth: ShellLayout.minimumWidth,
             minHeight: ShellLayout.minimumHeight,
         )
+        // Deleting a lane with work on it asks first.
+        //
+        // There is no undo for this, and both the menu and the Delete key reach
+        // it — the second being the one hit by accident. An empty lane goes
+        // without a word: confirming a delete that destroys nothing teaches
+        // people to dismiss the dialog, and then they dismiss the one that
+        // mattered too.
+        .alert(
+            "Delete \(shell.trackPendingDeletion?.name ?? "Track")?",
+            isPresented: Binding(
+                get: { shell.trackPendingDeletion != nil },
+                set: { if !$0 { shell.cancelRemoveTrack() } },
+            ),
+        ) {
+            Button("Cancel", role: .cancel, action: shell.cancelRemoveTrack)
+            Button("Delete", role: .destructive, action: shell.confirmRemoveTrack)
+        } message: {
+            // The count, because "some clips" is not something anyone can weigh.
+            let clips = shell.clipsPendingDeletion
+            Text("\(clips) \(clips == 1 ? "clip" : "clips") will be deleted. This cannot be undone.")
+        }
         .background {
             // A click on the editor's own background clears the selection and
             // hands the keyboard back.
