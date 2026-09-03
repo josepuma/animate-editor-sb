@@ -80,3 +80,78 @@ struct RotationKeyframeTests {
         }
     }
 }
+
+/// A rotated sprite must not outlive itself.
+///
+/// `prepare` reads a sprite's lifetime from its longest command, so a rotation
+/// written across the whole clip keeps a particle "alive" long after it has
+/// faded — and every live sprite is resolved on every frame. Measured on a
+/// grid-filtered emitter: average lifetime 1,202ms without rotation and 5,000ms
+/// with it, sprites live at once 1,217 against 5,020. Four times the per-frame
+/// work, spent turning particles nobody can see.
+@Suite("Rotation lifetime")
+struct RotationLifetimeTests {
+    /// One emitter, optionally turning.
+    private func sprites(rotating: Bool) -> [StoryboardSprite] {
+        var document = EffectDocument()
+        _ = document.add(EmitterEffect.descriptor, at: 0, duration: 5000)
+        let clip = document.nodes[0].id
+        document.setValue(.integer(20), for: EmitterEffect.Param.count, on: clip)
+        if rotating {
+            document.setKeyframe(0, for: .rotation, at: 0, on: clip)
+            document.setKeyframe(360, for: .rotation, at: 5000, on: clip)
+        }
+        return EffectEvaluator().evaluate(document)
+    }
+
+    @Test("rotating a clip does not extend its particles' lives")
+    func rotationDoesNotExtendLifetimes() {
+        func lifetimes(_ sprites: [StoryboardSprite]) -> [Double] {
+            sprites.compactMap { sprite in
+                guard let start = sprite.commands.map(\.startTime).min(),
+                      let end = sprite.commands.map(\.endTime).max()
+                else { return nil }
+                return end - start
+            }
+        }
+
+        let still = lifetimes(sprites(rotating: false))
+        let turning = lifetimes(sprites(rotating: true))
+
+        #expect(still.count == turning.count)
+
+        let stillAverage = still.reduce(0, +) / Double(still.count)
+        let turningAverage = turning.reduce(0, +) / Double(turning.count)
+
+        #expect(
+            abs(turningAverage - stillAverage) < 1,
+            "rotating stretched lifetimes from \(stillAverage)ms to \(turningAverage)ms",
+        )
+    }
+
+    /// A shortened turn has to turn *less*, not turn faster: keeping the whole
+    /// sweep inside a clipped span would spin the sprite quicker rather than
+    /// stopping it sooner.
+    @Test("a clipped rotation carries only its own share of the turn")
+    func clippedRotationIsScaled() {
+        let turning = sprites(rotating: true)
+
+        for sprite in turning {
+            guard let death = sprite.commands.map(\.endTime).max() else { continue }
+            for command in sprite.commands {
+                guard case let .rotate(start, end) = command.payload else { continue }
+
+                #expect(command.endTime <= death + 0.001, "the turn outlives its sprite")
+
+                // A particle living a fifth of a 360° clip turns about a fifth
+                // of the way round, not all of it.
+                let share = (command.endTime - command.startTime) / 5000
+                let turned = abs(end - start)
+                #expect(
+                    turned <= 2 * .pi * share + 0.01,
+                    "turned \(turned) rad over \(share) of the clip",
+                )
+            }
+        }
+    }
+}

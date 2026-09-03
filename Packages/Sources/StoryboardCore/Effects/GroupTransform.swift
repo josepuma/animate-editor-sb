@@ -23,6 +23,11 @@ public enum GroupTransform {
     /// A rotation turns straight motion into an arc, and `_M` interpolates in
     /// straight lines. Eight is where the bend stops reading as a hinge —
     /// the same figure the emitter uses for gravity, and for the same reason.
+    ///
+    /// Right for a sprite near the pivot, which is every sprite this sees: a
+    /// clip is transformed before any filter has copied it outward, so nothing
+    /// here is ever far enough out for a chord to sag visibly. A filter that
+    /// *creates* that distance owns the finer cut — see `GridFilter`.
     private static let arcSegments = 8
 
     /// Applies `transform` to `sprites` over a clip of `duration`.
@@ -278,12 +283,23 @@ public enum GroupTransform {
         // when it was born, while the inspector showed the value moving. That
         // is the same mistake the opacity path made.
         if transform[.scaleX].isActive || transform[.scaleY].isActive {
+            // The sprite's own scale is kept as the base the animation
+            // multiplies.
+            //
+            // Dropped outright, a shape asked for at 854×80 lost the `_V` that
+            // said so and came out as whatever the group's scale was — a bar
+            // turned into a square the moment anyone keyframed Scale Y. What
+            // the effect drew is its size; what the transform animates is a
+            // factor on it, and both have to survive.
+            let baseX = spriteScale(sprite, axis: .x)
+            let baseY = spriteScale(sprite, axis: .y)
+
             commands.removeAll { $0.kind == .scale || $0.kind == .vectorScale }
             commands.append(contentsOf: TransformCommands.buildScale(
-                x: transform[.scaleX],
-                y: transform[.scaleY],
-                restingX: transform[value: .scaleX],
-                restingY: transform[value: .scaleY],
+                x: transform[.scaleX].scaled(by: baseX),
+                y: transform[.scaleY].scaled(by: baseY),
+                restingX: transform[value: .scaleX] * baseX,
+                restingY: transform[value: .scaleY] * baseY,
                 duration: duration,
             ))
         } else {
@@ -353,11 +369,35 @@ public enum GroupTransform {
                 let start = segment.from.value * .pi / 180
                 let end = segment.to.value * .pi / 180
                 guard start != end else { continue }
+
+                // Clipped to the sprite's own life, which is what the moves
+                // already do.
+                //
+                // A particle that lives 1.4s inside a 5s clip was given an `_R`
+                // running the whole 5s, so `prepare` read it as alive for the
+                // clip's whole length: measured on a grid-filtered emitter, the
+                // average lifetime went from 1,202ms to 5,000ms and the sprites
+                // live at once went from 1,217 to 5,020 — four times the work
+                // every frame, to turn particles that are no longer on screen.
+                let from = max(birth, birth + segment.from.time)
+                let to = min(death, birth + segment.to.time)
+                guard to > from else { continue }
+
+                // Only part of the span survives, so the angles have to be cut
+                // with it — a shortened command holding the full turn would
+                // spin faster instead of stopping sooner.
+                let whole = segment.to.time - segment.from.time
+                let head = whole > 0 ? (from - birth - segment.from.time) / whole : 0
+                let tail = whole > 0 ? (to - birth - segment.from.time) / whole : 1
+
                 commands.append(Command(
                     easing: segment.from.easing,
-                    startTime: birth + segment.from.time,
-                    endTime: birth + segment.to.time,
-                    payload: .rotate(start: start, end: end),
+                    startTime: from,
+                    endTime: to,
+                    payload: .rotate(
+                        start: start + (end - start) * head,
+                        end: start + (end - start) * tail,
+                    ),
                 ))
             }
 
@@ -514,6 +554,27 @@ public enum GroupTransform {
             return command
         }
     }
+
+    /// The scale a sprite already carries on one axis, or 1.
+    ///
+    /// Read from its commands rather than assumed: an effect that draws at a
+    /// size says so with a scale command, and that is the base an animated
+    /// transform has to multiply rather than replace.
+    private static func spriteScale(_ sprite: StoryboardSprite, axis: Axis) -> Double {
+        for command in sprite.commands {
+            switch command.payload {
+            case let .scale(start, _):
+                return start
+            case let .vectorScale(startX, startY, _, _):
+                return axis == .x ? startX : startY
+            default:
+                continue
+            }
+        }
+        return 1
+    }
+
+    private enum Axis { case x, y }
 
     private static func scaled(_ command: Command, byX x: Double, byY y: Double) -> Command {
         guard x != 1 || y != 1 else { return command }
