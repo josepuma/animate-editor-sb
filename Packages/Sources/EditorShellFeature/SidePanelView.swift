@@ -58,27 +58,87 @@ struct SidePanelView: View {
 
     private var assets: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
-            ChipPicker(
-                items: AssetItem.Kind.allCases,
-                selection: $shell.assetFilter,
-                label: \.title,
-            )
+            HStack(spacing: Theme.Spacing.tight) {
+                ChipPicker(
+                    items: AssetItem.Kind.allCases,
+                    selection: $shell.assetFilter,
+                    label: \.title,
+                )
+
+                Spacer(minLength: 0)
+
+                // Beside the filter rather than under the list: it belongs to
+                // the panel, not to whatever happens to be in it — and under
+                // the list it would sit below the fold the moment a project has
+                // a dozen assets.
+                // A menu rather than a button, because the destination is a
+                // real fork: the root is the beatmap's own art and `sb/` is the
+                // storyboard's, and a file in the wrong one is broken in a way
+                // nothing shows until export. Choosing for the author is what
+                // put a background in `sb/` and made a mess to untangle.
+                //
+                // A plus, not a download arrow: nothing is being fetched from
+                // anywhere — a file is being added to what the panel lists.
+                Menu {
+                    ForEach(AssetDestination.allCases) { destination in
+                        Button {
+                            shell.importAssetsFromDisk(into: destination)
+                        } label: {
+                            Text(destination.title)
+                            Text(destination.detail)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "plus")
+                        .font(Theme.Typography.micro)
+                        .foregroundStyle(Theme.Palette.secondary)
+                        .frame(
+                            width: Theme.Size.controlTiny,
+                            height: Theme.Size.controlTiny,
+                        )
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Import images")
+                .disabled(!shell.canImportAssets)
+            }
 
             if shell.visibleAssets.isEmpty {
                 ComingSoon(
                     title: "No assets",
-                    detail: "Images referenced by the storyboard appear here.",
+                    detail: "Images in the beatmap folder appear here. Import to add more.",
                     systemImage: "photo.on.rectangle.angled",
                 )
             } else {
                 ScrollView {
-                    LazyVStack(spacing: Theme.Spacing.tight) {
+                    // A grid of pictures, not a list of filenames.
+                    //
+                    // An asset panel exists to answer "which one is this", and
+                    // a name answers it only for whoever wrote it: `sb/1.png`
+                    // tells you nothing, and finding out means placing it and
+                    // looking. The picture *is* the label.
+                    //
+                    // Two columns rather than more: the panel is narrow, and a
+                    // thumbnail small enough to fit three is too small to
+                    // recognise — which puts the reader back to reading names.
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), spacing: Theme.Spacing.tight),
+                            GridItem(.flexible(), spacing: Theme.Spacing.tight),
+                        ],
+                        spacing: Theme.Spacing.tight,
+                    ) {
                         ForEach(shell.visibleAssets) { asset in
-                            AssetRow(asset: asset) {
+                            AssetCard(
+                                asset: asset,
+                                thumbnail: shell.thumbnail(for: asset.path),
+                            ) {
                                 shell.addImage(at: asset.path, time: playheadNow())
                             }
                         }
                     }
+                    .padding(.horizontal, Theme.Spacing.tight)
                 }
             }
         }
@@ -846,21 +906,29 @@ private struct PlacedEffectRow: View {
 
 // ─── Rows ────────────────────────────────────────────────────────────────────
 
-private struct AssetRow: View {
+/// One asset, shown as its own picture.
+///
+/// A panel that lists filenames makes you place a file to find out what it is.
+/// The thumbnail answers that at a glance, which is the whole reason an assets
+/// panel exists rather than a folder in Finder.
+private struct AssetCard: View {
     let asset: AssetItem
+    let thumbnail: CGImage?
     /// Places the asset on the timeline at the playhead.
     let place: () -> Void
 
     @State private var isHovered = false
 
+    /// How tall a thumbnail is drawn.
+    ///
+    /// Fixed rather than following each image's aspect: a grid where every cell
+    /// is a different height is a grid nobody can scan down, and scanning is
+    /// what this panel is for.
+    private static let thumbnailHeight: CGFloat = 68
+
     var body: some View {
-        HStack(spacing: Theme.Spacing.snug) {
-            Image(systemName: asset.isMissing ? "exclamationmark.triangle" : "photo")
-                .font(Theme.Typography.micro)
-                .foregroundStyle(
-                    asset.isMissing ? Theme.Palette.warning : Theme.Palette.tertiary,
-                )
-                .frame(width: Theme.Size.controlTiny)
+        VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
+            preview
 
             VStack(alignment: .leading, spacing: 0) {
                 Text(asset.name)
@@ -869,25 +937,35 @@ private struct AssetRow: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                if asset.isMissing {
-                    Text("Missing")
-                        .font(Theme.Typography.micro)
-                        .foregroundStyle(Theme.Palette.warning)
+                // The folder beside the usage, because *where* a file lives is
+                // part of what it is here: osu! reads the root for the map's
+                // own art and `sb/` for the storyboard's, so a background sat
+                // in the wrong one is broken in a way nothing else shows until
+                // export.
+                HStack(spacing: Theme.Spacing.hair) {
+                    Text(asset.folder)
+                        .foregroundStyle(Theme.Palette.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+
+                    Text("·")
+                        .foregroundStyle(Theme.Palette.tertiary)
+
+                    Text(usage)
+                        .foregroundStyle(
+                            asset.isMissing ? Theme.Palette.warning : Theme.Palette.tertiary,
+                        )
+                        .lineLimit(1)
+                        .layoutPriority(1)
                 }
-            }
-
-            Spacer(minLength: Theme.Spacing.tight)
-
-            Text("\(asset.useCount)")
                 .font(Theme.Typography.micro)
-                .foregroundStyle(Theme.Palette.tertiary)
-                .help("Used by \(asset.useCount) sprites")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.horizontal, Theme.Spacing.snug)
-        .padding(.vertical, Theme.Spacing.tight)
+        .padding(Theme.Spacing.tight)
         .background {
-            RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-                .fill(isHovered ? Theme.Fill.hover : .clear)
+            RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                .fill(isHovered ? Theme.Fill.hover : Theme.Fill.well)
         }
         .contentShape(.rect)
         .onHover { isHovered = $0 }
@@ -902,6 +980,46 @@ private struct AssetRow: View {
         }
         .onTapGesture(count: 2, perform: place)
         .help("Drag onto a track, or double-click to add at the playhead")
+    }
+
+    /// The image itself, or a plate saying why there is none.
+    @ViewBuilder
+    private var preview: some View {
+        // Concentric with the card, not the next radius down the scale: an
+        // inner corner chosen from the scale diverges from the one around it.
+        let radius = Theme.Radius.nested(in: Theme.Radius.control, inset: Theme.Spacing.tight)
+
+        ZStack {
+            // A dark plate behind every thumbnail, so a transparent PNG reads
+            // as a shape rather than as a hole in the card — which is most of
+            // what a storyboard's assets are.
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(Color.black.opacity(0.35))
+
+            if let thumbnail {
+                Image(decorative: thumbnail, scale: 1)
+                    .resizable()
+                    // Fitted, never filled: cropping an asset to a square hides
+                    // exactly the part someone is trying to identify.
+                    .scaledToFit()
+                    .padding(Theme.Spacing.hair)
+            } else {
+                Image(systemName: asset.isMissing ? "exclamationmark.triangle" : "photo")
+                    .font(Theme.Typography.label)
+                    .foregroundStyle(
+                        asset.isMissing ? Theme.Palette.warning : Theme.Palette.tertiary,
+                    )
+            }
+        }
+        .frame(height: Self.thumbnailHeight)
+        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+    }
+
+    /// What the second line says: the problem if there is one, else the count.
+    private var usage: String {
+        if asset.isMissing { return "Missing" }
+        return asset.useCount == 1 ? "1 use" : "\(asset.useCount) uses"
     }
 }
 

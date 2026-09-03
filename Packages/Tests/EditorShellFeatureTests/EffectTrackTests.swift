@@ -97,8 +97,12 @@ struct EffectTrackTests {
 
         #expect(shell.effects.tracks.count == 1)
         #expect(shell.effects.tracks[0].nodes.map(\.id) == [node.id])
-        // The assets panel still reads the storyboard, which is what it is for.
-        #expect(!shell.assets.isEmpty)
+        // And the assets panel stays empty, because loading a storyboard is not
+        // what fills it: the list is what the *folder* holds, and the sprites
+        // only say how often each file is used. A storyboard referencing the
+        // app's own built-in particles must not put them in a panel they cannot
+        // be dragged from.
+        #expect(shell.assets.isEmpty)
     }
 
     @Test("removing an effect clears it from the selection")
@@ -373,5 +377,226 @@ struct EffectTrackTests {
 
         #expect(shell.effects.timeRange?.upperBound == 35_000)
         #expect(shell.effects.timeRange?.contains(node.startTime) == true)
+    }
+}
+
+/// Deleting a lane that carries work asks first.
+///
+/// There is no undo for this, so a track with clips is somebody's afternoon —
+/// and **two** paths reach the delete: the row's menu and the Delete key. A
+/// confirmation attached to one of them leaves the other destroying work in
+/// silence, which is the path most easily hit by accident.
+@MainActor
+@Suite("Track deletion")
+struct TrackDeletionTests {
+    @Test("an empty track goes without asking")
+    func emptyTrackDeletesOutright() {
+        let shell = EditorShellModel()
+        let track = shell.addTrack()
+
+        shell.requestRemoveTrack(track.id)
+
+        #expect(shell.trackPendingDeletion == nil, "nothing to lose, nothing to ask")
+        #expect(shell.effects.track(id: track.id) == nil)
+    }
+
+    /// Confirming a delete that destroys nothing teaches people to dismiss the
+    /// dialog — and then they dismiss the one that mattered too.
+    @Test("a track with clips waits for confirmation")
+    func populatedTrackAsksFirst() {
+        let shell = EditorShellModel()
+        let node = shell.addEffect(EmitterEffect.descriptor, at: 0)
+        let trackID = shell.effects.trackID(of: node.id)!
+
+        shell.requestRemoveTrack(trackID)
+
+        #expect(shell.trackPendingDeletion?.id == trackID)
+        #expect(shell.effects.track(id: trackID) != nil, "nothing is deleted until confirmed")
+        #expect(shell.clipsPendingDeletion == 1)
+    }
+
+    @Test("confirming deletes the track")
+    func confirmingDeletes() {
+        let shell = EditorShellModel()
+        let node = shell.addEffect(EmitterEffect.descriptor, at: 0)
+        let trackID = shell.effects.trackID(of: node.id)!
+
+        shell.requestRemoveTrack(trackID)
+        shell.confirmRemoveTrack()
+
+        #expect(shell.effects.track(id: trackID) == nil)
+        #expect(shell.trackPendingDeletion == nil)
+    }
+
+    @Test("cancelling keeps the track and everything on it")
+    func cancellingKeepsIt() {
+        let shell = EditorShellModel()
+        let node = shell.addEffect(EmitterEffect.descriptor, at: 0)
+        let trackID = shell.effects.trackID(of: node.id)!
+
+        shell.requestRemoveTrack(trackID)
+        shell.cancelRemoveTrack()
+
+        #expect(shell.trackPendingDeletion == nil)
+        #expect(shell.effects.track(id: trackID) != nil)
+        #expect(shell.effects[node.id] != nil, "the clip is still there too")
+    }
+
+    /// The Delete key is the path hit by accident, so it has to ask as loudly
+    /// as the menu does.
+    @Test("the delete key asks too")
+    func deleteKeyAsks() {
+        let shell = EditorShellModel()
+        let node = shell.addEffect(EmitterEffect.descriptor, at: 0)
+        let trackID = shell.effects.trackID(of: node.id)!
+
+        // With the lane selected rather than a clip, Delete means the lane.
+        shell.selectedNodeID = nil
+        shell.selectedTrackID = trackID
+        shell.deleteSelection()
+
+        #expect(shell.trackPendingDeletion?.id == trackID)
+        #expect(shell.effects.track(id: trackID) != nil)
+    }
+
+    /// The count, because "some clips" is not something anyone can weigh.
+    @Test("the alert can say how many clips would go")
+    func reportsTheClipCount() {
+        let shell = EditorShellModel()
+        let first = shell.addEffect(EmitterEffect.descriptor, at: 0)
+        let trackID = shell.effects.trackID(of: first.id)!
+        shell.addEffect(EmitterEffect.descriptor, at: 5000, on: trackID)
+
+        shell.requestRemoveTrack(trackID)
+
+        #expect(shell.clipsPendingDeletion == 2)
+    }
+}
+
+/// The assets panel lists what the **folder holds**, not what the storyboard
+/// happens to reference.
+///
+/// Those are different questions, and the second is the wrong one for a panel
+/// called Assets: a file sitting in the folder waiting to be placed never
+/// appeared, which is the one case where looking at the panel is the point. It
+/// also filled with paths that are not the mapper's — the app's own built-in
+/// particles and the hashed glyphs a text effect mints live inside the binary,
+/// so they have no thumbnail to show and no folder to be dragged from.
+@MainActor
+@Suite("Assets panel")
+struct AssetsPanelTests {
+    @Test("an unused file in the folder still appears")
+    func unusedFilesAreListed() {
+        let shell = EditorShellModel()
+
+        shell.loadFolderAssets(["sb/unused.png", "sb/used.png"])
+
+        #expect(shell.assets.map(\.path).sorted() == ["sb/unused.png", "sb/used.png"])
+    }
+
+    /// A built-in path is the app's, not the beatmap's. It cannot be shown, and
+    /// it cannot be dragged from a folder it is not in.
+    @Test("built-in and generated paths never reach the panel")
+    func onlyFolderFilesAreListed() {
+        let shell = EditorShellModel()
+
+        // Only the folder decides. Whatever the sprites reference — built-ins,
+        // text glyphs, derived blurs — is not consulted for the list.
+        shell.loadFolderAssets(["sb/real.png"])
+
+        #expect(shell.assets.count == 1)
+        #expect(shell.assets[0].path == "sb/real.png")
+    }
+
+    /// Use count still leads, because it says which files matter to this
+    /// storyboard — a folder can hold dozens.
+    @Test("the most used file sorts first")
+    func sortsByUsage() {
+        let shell = EditorShellModel()
+        shell.loadFolderAssets(["sb/rare.png", "sb/common.png"])
+
+        shell.load(
+            sprites: [
+                prepared(path: "sb/common.png", id: "a"),
+                prepared(path: "sb/common.png", id: "b"),
+                prepared(path: "sb/rare.png", id: "c"),
+            ],
+            missingImagePaths: [],
+        )
+
+        #expect(shell.assets.map(\.path) == ["sb/common.png", "sb/rare.png"])
+        #expect(shell.assets[0].useCount == 2)
+    }
+
+    /// Every unused file has a count of zero, so without a tiebreak they come
+    /// back in whatever order the file system gave — which is no order at all
+    /// to anyone scanning the list.
+    @Test("unused files are ordered by name, not by chance")
+    func breaksTiesByName() {
+        let shell = EditorShellModel()
+
+        shell.loadFolderAssets(["sb/zebra.png", "sb/apple.png", "sb/mango.png"])
+
+        #expect(shell.assets.map(\.name) == ["apple.png", "mango.png", "zebra.png"])
+    }
+
+    /// Where a file lives is part of what it is here.
+    ///
+    /// osu! reads the root for the map's own art and `sb/` for the storyboard's,
+    /// so a background imported into the wrong one is broken in a way nothing
+    /// shows until export — which is exactly what happened when the panel kept
+    /// only the last path component and the two looked identical.
+    @Test("an asset reports which folder it sits in")
+    func reportsItsFolder() {
+        let shell = EditorShellModel()
+
+        shell.loadFolderAssets(["bg.jpg", "sb/particle.png", "sb/deep/spark.png"])
+
+        let folders = Dictionary(
+            uniqueKeysWithValues: shell.assets.map { ($0.path, $0.folder) },
+        )
+        #expect(folders["bg.jpg"] == "root")
+        #expect(folders["sb/particle.png"] == "sb")
+        #expect(folders["sb/deep/spark.png"] == "sb/deep")
+    }
+
+    /// Two files sharing a name in different folders are different files, and a
+    /// panel that shows them identically is a panel you cannot act on.
+    @Test("same name in two folders stays distinguishable")
+    func sameNameDifferentFolders() {
+        let shell = EditorShellModel()
+
+        shell.loadFolderAssets(["bg.jpg", "sb/bg.jpg"])
+
+        #expect(shell.assets.count == 2)
+        #expect(Set(shell.assets.map(\.folder)) == ["root", "sb"])
+    }
+
+    /// The destination is a real fork, so each one has to name a distinct place.
+    @Test("each destination maps to its own folder")
+    func destinationsAreDistinct() {
+        #expect(AssetDestination.root.relativeFolder == "")
+        #expect(AssetDestination.storyboard.relativeFolder == "sb")
+        #expect(AssetDestination.allCases.count == 2)
+    }
+
+    private func prepared(path: String, id: String) -> PreparedSprite {
+        StoryboardResolver.prepare([
+            StoryboardSprite(
+                id: id,
+                layer: .foreground,
+                origin: .centre,
+                filePath: path,
+                defaultX: 320,
+                defaultY: 240,
+                commands: [Command(
+                    easing: .linear,
+                    startTime: 0,
+                    endTime: 1000,
+                    payload: .fade(start: 1, end: 1),
+                )],
+                loops: [],
+            ),
+        ])[0]
     }
 }

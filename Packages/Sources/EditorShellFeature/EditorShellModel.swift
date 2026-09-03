@@ -34,6 +34,44 @@ public enum SidePanel: String, CaseIterable, Identifiable, Sendable {
 }
 
 /// An image the storyboard references.
+/// Where an imported file is copied to.
+///
+/// osu! reads the two places differently, and a file in the wrong one is broken
+/// in a way nothing shows until export: the root is the **beatmap's** own art —
+/// the background, the video — and `sb/` is the **storyboard's**. Asking is
+/// cheaper than importing wrong and untangling it later, which is exactly what
+/// happened when the button chose for you.
+public enum AssetDestination: String, CaseIterable, Identifiable, Sendable {
+    /// The beatmap folder itself: backgrounds and video.
+    case root
+    /// `sb/`, where a storyboard's images live by convention.
+    case storyboard
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .root: "Beatmap Root"
+        case .storyboard: "Storyboard (sb/)"
+        }
+    }
+
+    public var detail: String {
+        switch self {
+        case .root: "Backgrounds and video — what the map itself uses."
+        case .storyboard: "Images the storyboard draws."
+        }
+    }
+
+    /// The subfolder to copy into, relative to the beatmap folder.
+    public var relativeFolder: String {
+        switch self {
+        case .root: ""
+        case .storyboard: "sb"
+        }
+    }
+}
+
 public struct AssetItem: Identifiable, Sendable {
     public enum Kind: String, CaseIterable, Identifiable, Sendable {
         case all
@@ -53,6 +91,19 @@ public struct AssetItem: Identifiable, Sendable {
     public let id: String
     public var name: String
     public var path: String
+
+    /// Which folder the file sits in, for the panel to show.
+    ///
+    /// The panel used to keep only the last component, so `bg.jpg` at the root
+    /// and `sb/bg.jpg` looked identical — and a background imported into the
+    /// wrong place was invisible until export time, when it is a nuisance to
+    /// untangle. Where a file lives is part of what it *is* here: osu! reads
+    /// the root for the map's own art and `sb/` for the storyboard's.
+    public var folder: String {
+        let directory = (path as NSString).deletingLastPathComponent
+        return directory.isEmpty ? "root" : directory
+    }
+
     public var kind: Kind
     /// How many sprites reference this file.
     public var useCount: Int
@@ -606,6 +657,60 @@ public final class EditorShellModel {
     /// centred sprite that is a different number from where its pixels land.
     public var selectionBounds: (() -> ClipBounds?)?
 
+    /// Brings image files into the beatmap folder, returning their new
+    /// relative paths.
+    ///
+    /// Supplied by the app: copying a file is the folder's business, and a
+    /// feature cannot import another. Returns the paths rather than reloading
+    /// on its own so the panel can select what just arrived.
+    public var importAssets: ((AssetDestination) -> [String])?
+
+    /// Whether importing is possible — there has to be a folder to copy into.
+    public var canImportAssets: Bool { importAssets != nil }
+
+    /// Copies files chosen by the author into the project, and lists them.
+    ///
+    /// Copied rather than referenced, because osu! reads only what sits in the
+    /// beatmap folder: an asset linked from elsewhere works in the editor and
+    /// arrives broken in the game — the worst kind of failure, since it looks
+    /// finished right up until it ships.
+    public func importAssetsFromDisk(into destination: AssetDestination) {
+        guard let importAssets else { return }
+        let added = importAssets(destination)
+        guard !added.isEmpty else { return }
+
+        // Merged rather than replacing: the folder listing was taken when the
+        // project opened, and re-walking the whole folder to learn about two
+        // files is work for an answer already in hand.
+        let merged = Set(folderPaths).union(added)
+        folderPaths = merged.sorted()
+        rebuildAssets(missing: missingPaths)
+    }
+
+    /// A thumbnail for a file in the beatmap folder.
+    ///
+    /// Supplied by the app for the same reason the preview and the export are:
+    /// reading an image is the renderer's business, and a feature cannot import
+    /// another. A panel that lists filenames makes you open each one to find
+    /// out what it is — the picture *is* the label.
+    public var assetThumbnail: ((String) -> CGImage?)?
+
+    /// Thumbnails already loaded, by path.
+    ///
+    /// Cached because a grid asks for every visible one on every rebuild, and
+    /// decoding a PNG per row per frame is the same mistake as evaluating an
+    /// effect in a `body`. `nil` inside the dictionary is a remembered failure:
+    /// a file that could not be read must not be retried sixty times a second.
+    @ObservationIgnored private var thumbnails: [String: CGImage?] = [:]
+
+    /// The thumbnail for a path, loading it once.
+    public func thumbnail(for path: String) -> CGImage? {
+        if let cached = thumbnails[path] { return cached }
+        let image = assetThumbnail?(path)
+        thumbnails[path] = image
+        return image
+    }
+
     /// Where the last export landed, so the UI can offer to reveal it.
     public private(set) var lastExport: URL?
 
@@ -801,7 +906,7 @@ public final class EditorShellModel {
         if let nodeID = selectedNodeID {
             removeEffect(nodeID)
         } else if let trackID = selectedTrackID {
-            removeTrack(trackID)
+            requestRemoveTrack(trackID)
         }
     }
 
@@ -814,14 +919,14 @@ public final class EditorShellModel {
     public func duplicateEffect(_ nodeID: EffectNode.ID) -> EffectNode? {
         let copy = effects.duplicate(nodeID)
         if let copy { selectedNodeID = copy.id }
-        effectsChanged()
+        effectsChanged(node: nodeID)
         return copy
     }
 
     public func removeEffect(_ nodeID: EffectNode.ID) {
         effects.remove(nodeID)
         if selectedNodeID == nodeID { selectedNodeID = nil }
-        effectsChanged()
+        effectsChanged(node: nodeID)
     }
 
     public func setValue(_ value: EffectValue, for parameterID: String, on nodeID: EffectNode.ID) {
@@ -837,17 +942,17 @@ public final class EditorShellModel {
         in nodeID: EffectNode.ID,
     ) {
         effects.setValue(value, for: parameterID, onLayer: layerID, in: nodeID)
-        effectsChanged()
+        effectsChanged(node: nodeID)
     }
 
     public func toggleLayerVisibility(_ layerID: EffectNode.ID, in nodeID: EffectNode.ID) {
         effects.toggleLayerVisibility(layerID, in: nodeID)
-        effectsChanged()
+        effectsChanged(node: nodeID)
     }
 
     public func moveEffect(_ nodeID: EffectNode.ID, to startTime: Double) {
         effects.move(nodeID, to: startTime)
-        effectsChanged()
+        effectsChanged(node: nodeID)
     }
 
     public func moveEffect(_ nodeID: EffectNode.ID, toTrack trackID: EffectTrack.ID) {
@@ -870,7 +975,7 @@ public final class EditorShellModel {
         on nodeID: EffectNode.ID,
     ) {
         effects.setKeyframe(value, for: property, at: time, easing: easing, on: nodeID)
-        effectsChanged()
+        effectsChanged(node: nodeID)
     }
 
     public func removeKeyframe(
@@ -880,7 +985,7 @@ public final class EditorShellModel {
     ) {
         effects.removeKeyframe(keyframeID, from: property, on: nodeID)
         if selectedKeyframe?.keyframeID == keyframeID { selectedKeyframe = nil }
-        effectsChanged()
+        effectsChanged(node: nodeID)
     }
 
     /// Changes a selected key's value, keeping it where it is in time.
@@ -894,7 +999,7 @@ public final class EditorShellModel {
               let key = node.transform[property].keyframes.first(where: { $0.id == keyframeID })
         else { return }
         effects.setKeyframe(value, for: property, at: key.time, easing: key.easing, on: nodeID)
-        effectsChanged()
+        effectsChanged(node: nodeID)
     }
 
     public func moveKeyframe(
@@ -904,7 +1009,7 @@ public final class EditorShellModel {
         on nodeID: EffectNode.ID,
     ) {
         effects.moveKeyframe(keyframeID, in: property, to: time, on: nodeID)
-        effectsChanged()
+        effectsChanged(node: nodeID)
     }
 
     public func setKeyframeEasing(
@@ -914,7 +1019,7 @@ public final class EditorShellModel {
         on nodeID: EffectNode.ID,
     ) {
         effects.setKeyframeEasing(easing, for: keyframeID, in: property, on: nodeID)
-        effectsChanged()
+        effectsChanged(node: nodeID)
     }
 
     /// Sets a property's resting value.
@@ -1147,7 +1252,7 @@ public final class EditorShellModel {
         keeping time: Double = 0,
     ) {
         effects.setAnimationEnabled(isEnabled, for: property, on: nodeID, keeping: time)
-        effectsChanged()
+        effectsChanged(node: nodeID)
     }
 
     public func clearKeyframes(
@@ -1156,7 +1261,7 @@ public final class EditorShellModel {
         keeping time: Double = 0,
     ) {
         effects.clearKeyframes(for: property, on: nodeID, keeping: time)
-        effectsChanged()
+        effectsChanged(node: nodeID)
     }
 
     /// Starts animating a property, planting a key at the playhead.
@@ -1179,13 +1284,55 @@ public final class EditorShellModel {
 
     // ─── Editing tracks ──────────────────────────────────────────────────────
 
+    /// - Parameter index: where it lands in document order, or `nil` to put it
+    ///   on top. Adding from a row's own menu is asking for a lane *beside that
+    ///   one*, so the caller says where.
     @discardableResult
-    public func addTrack() -> EffectTrack {
-        let track = effects.addTrack()
+    public func addTrack(at index: Int? = nil) -> EffectTrack {
+        let track = effects.addTrack(at: index)
         selectedTrackID = track.id
         selectedNodeID = nil
         effectsChanged()
         return track
+    }
+
+    /// The lane a delete is waiting on confirmation for, if any.
+    ///
+    /// Asking lives in the model rather than in the row that was right-clicked,
+    /// because **two** paths delete a track — the menu and the Delete key — and
+    /// a confirmation attached to one of them leaves the other destroying work
+    /// in silence. That is the path most easily hit by accident.
+    public var trackPendingDeletion: EffectTrack?
+
+    /// How many clips would go with it, for the alert to say so.
+    public var clipsPendingDeletion: Int {
+        trackPendingDeletion?.nodes.count ?? 0
+    }
+
+    /// Deletes a lane, asking first when there is work on it.
+    ///
+    /// An empty lane goes without a word: confirming a delete that destroys
+    /// nothing trains people to dismiss the dialog, and the one time it matters
+    /// they will dismiss that one too. **There is no undo for this** — a track
+    /// with clips is somebody's afternoon.
+    public func requestRemoveTrack(_ trackID: EffectTrack.ID) {
+        guard let track = effects.track(id: trackID) else { return }
+        guard !track.nodes.isEmpty else {
+            removeTrack(trackID)
+            return
+        }
+        trackPendingDeletion = track
+    }
+
+    /// Goes through with the delete the alert was asking about.
+    public func confirmRemoveTrack() {
+        guard let track = trackPendingDeletion else { return }
+        trackPendingDeletion = nil
+        removeTrack(track.id)
+    }
+
+    public func cancelRemoveTrack() {
+        trackPendingDeletion = nil
     }
 
     public func removeTrack(_ trackID: EffectTrack.ID) {
@@ -1218,18 +1365,18 @@ public final class EditorShellModel {
         selectedNodeID = nodeID
         if let trackID = effects.trackID(of: nodeID) { selectedTrackID = trackID }
 
-        effectsChanged()
+        effectsChanged(node: nodeID)
         return filter
     }
 
     public func removeFilter(_ filterID: FilterNode.ID, from nodeID: EffectNode.ID) {
         effects.removeFilter(filterID, from: nodeID)
-        effectsChanged()
+        effectsChanged(node: nodeID)
     }
 
     public func toggleFilter(_ filterID: FilterNode.ID, in nodeID: EffectNode.ID) {
         effects.toggleFilter(filterID, in: nodeID)
-        effectsChanged()
+        effectsChanged(node: nodeID)
     }
 
     public func setFilterValue(
@@ -1550,6 +1697,31 @@ public final class EditorShellModel {
         effectsChanged()
     }
 
+    /// Moves a track to a position in one edit.
+    ///
+    /// A drag across six lanes used to be five `lowerTrack` calls, and each one
+    /// re-evaluated the whole document to reach an arrangement nobody wanted to
+    /// stop at. One move, one evaluation.
+    public func moveTrack(_ trackID: EffectTrack.ID, toIndex index: Int) {
+        effects.moveTrack(trackID, toIndex: index)
+        effectsChanged()
+    }
+
+    /// Sends a track to the front or the back of the stack.
+    ///
+    /// The two ends are worth their own commands because they are where people
+    /// actually want to go: "put this on top" is one thought, and stepping
+    /// there one lane at a time is that thought spelled out five times.
+    public func moveTrackToFront(_ trackID: EffectTrack.ID) {
+        effects.moveTrack(trackID, toIndex: effects.tracks.count - 1)
+        effectsChanged()
+    }
+
+    public func moveTrackToBack(_ trackID: EffectTrack.ID) {
+        effects.moveTrack(trackID, toIndex: 0)
+        effectsChanged()
+    }
+
     /// Signals that something about the effects changed and re-evaluates.
     /// - Parameter node: which clip the edit touched, when it was only one.
     ///   Used so the "catching up" mark lands on that clip rather than on every
@@ -1583,6 +1755,20 @@ public final class EditorShellModel {
     /// pause rather than chasing every step.
     @ObservationIgnored private var isGestureActive = false
     @ObservationIgnored private var pendingEvaluation: Task<Void, Never>?
+
+    /// Rebuilds the sprites because something the effects *read* changed,
+    /// rather than the document itself.
+    ///
+    /// An effect can depend on more than its own parameters — Audio Bars reads
+    /// the song, Beat Pulse reads the tempo — and those arrive **after** the
+    /// project opens. The first evaluation ran without them and its result was
+    /// cached, so a bank of bars stayed on its placeholder wave until somebody
+    /// happened to nudge a parameter. Nothing was wrong with the analysis; it
+    /// was simply never asked again.
+    public func inputsChanged() {
+        effectsRevision &+= 1
+        reevaluate()
+    }
 
     private func reevaluate() {
         // During a gesture, wait for the hand to settle.
@@ -1712,19 +1898,55 @@ public final class EditorShellModel {
         for sprite in sprites {
             counts[sprite.filePath, default: 0] += 1
         }
+        usageCounts = counts
+        rebuildAssets(missing: missingImagePaths)
+    }
 
-        assets = counts
-            .map { path, count in
+    /// How many sprites reference each path, from the last load.
+    @ObservationIgnored private var usageCounts: [String: Int] = [:]
+    /// Paths a sprite names and the folder does not have.
+    @ObservationIgnored private var missingPaths: Set<String> = []
+
+    /// The image files the folder holds, supplied by the app.
+    ///
+    /// The panel used to list **what the storyboard referenced**, which is a
+    /// different question and the wrong one: it answered "what have you used"
+    /// where an assets panel is asked "what do you have". So a file sitting in
+    /// the folder waiting to be placed never appeared — the one case where
+    /// looking at the panel is the whole point.
+    ///
+    /// It also filled with things that are not the mapper's: the app's own
+    /// built-in particles and the hashed glyphs a text effect mints live inside
+    /// the binary, so they have no thumbnail to show and no folder to be
+    /// dragged from.
+    public func loadFolderAssets(_ paths: [String]) {
+        folderPaths = paths
+        rebuildAssets(missing: missingPaths)
+    }
+
+    @ObservationIgnored private var folderPaths: [String] = []
+
+    private func rebuildAssets(missing: Set<String>) {
+        missingPaths = missing
+
+        assets = folderPaths
+            .map { path in
                 AssetItem(
                     id: path,
                     name: (path as NSString).lastPathComponent,
                     path: path,
                     kind: .image,
-                    useCount: count,
-                    isMissing: missingImagePaths.contains(path),
+                    useCount: usageCounts[path] ?? 0,
+                    isMissing: missing.contains(path),
                 )
             }
-            .sorted { $0.useCount > $1.useCount }
+            // Most used first, then by name.
+            //
+            // Use count still leads because it says which files matter to this
+            // storyboard, and a folder can hold dozens. The name breaks ties so
+            // the unused ones — all zero — are in an order somebody can scan
+            // rather than whatever the file system happened to return.
+            .sorted { ($0.useCount, $1.name) > ($1.useCount, $0.name) }
     }
 
 
