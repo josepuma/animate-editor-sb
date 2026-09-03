@@ -1566,10 +1566,15 @@ public final class EditorShellModel {
         let pending = lastEditedNode.map { Set([$0]) } ?? Set(document.nodes.map(\.id))
         if evaluatingNodes != pending { evaluatingNodes = pending }
 
-        evaluationTask = Task { [weak self] in
-            let sprites = await Task.detached(priority: .userInitiated) {
-                evaluator.evaluate(document)
-            }.value
+        // Detached from the outset, not a main-actor task that hands work off.
+        //
+        // `Task { }` inherits the actor it was made on, so this one queued
+        // *behind* whatever the main thread was doing — measured after a resize
+        // gesture, 1,098ms before it even started, against 552ms of actual
+        // work. That wait is the pause between letting go of a clip and the
+        // spinner appearing.
+        evaluationTask = Task.detached(priority: .userInitiated) { [weak self] in
+            let sprites = evaluator.evaluate(document)
 
             guard !Task.isCancelled else { return }
 
