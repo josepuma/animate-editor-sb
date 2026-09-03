@@ -340,3 +340,112 @@ struct EffectDocumentTests {
         #expect(document.track(id: track.id)?.timeRange == nil)
     }
 }
+
+/// Moving a lane across the stack, in one edit.
+///
+/// Sending a track from one end of six to the other used to be five swaps, and
+/// every swap is an edit the rest of the app answers — five evaluations of the
+/// whole document to reach one arrangement nobody wanted to stop at.
+@Suite("Track reordering")
+struct TrackReorderTests {
+    /// Six lanes, named so an assertion can read like the list looks.
+    private func document() -> EffectDocument {
+        var document = EffectDocument()
+        for name in ["A", "B", "C", "D", "E", "F"] {
+            let track = document.addTrack()
+            document.rename(track.id, to: name)
+        }
+        return document
+    }
+
+    private func order(_ document: EffectDocument) -> [String] {
+        document.tracks.map(\.name)
+    }
+
+    @Test("a track moves the whole way in one call")
+    func movesAcrossTheStack() {
+        var document = document()
+        let front = document.tracks.last!.id
+
+        document.moveTrack(front, toIndex: 0)
+
+        #expect(order(document) == ["F", "A", "B", "C", "D", "E"])
+    }
+
+    @Test("moving to a middle position lands exactly there")
+    func movesToTheMiddle() {
+        var document = document()
+        let first = document.tracks[0].id
+
+        document.moveTrack(first, toIndex: 3)
+
+        #expect(order(document) == ["B", "C", "D", "A", "E", "F"])
+    }
+
+    /// Clamped, so a caller can say "all the way up" without checking the count
+    /// first — and an index past the end is a request to go as far as possible,
+    /// not a mistake worth refusing.
+    @Test("an index past either end clamps", arguments: [-5, 99])
+    func clampsOutOfRange(index: Int) {
+        var document = document()
+        let middle = document.tracks[2].id
+
+        document.moveTrack(middle, toIndex: index)
+
+        #expect(document.tracks.count == 6, "no track was lost")
+        let landed = document.tracks.firstIndex { $0.id == middle }
+        #expect(landed == (index < 0 ? 0 : 5))
+    }
+
+    /// A move to where it already is must not disturb the list — a drag that
+    /// returns to its starting row is a drag that did nothing.
+    @Test("moving a track onto itself changes nothing")
+    func movingInPlaceIsInert() {
+        var document = document()
+        let before = order(document)
+
+        document.moveTrack(document.tracks[2].id, toIndex: 2)
+
+        #expect(order(document) == before)
+    }
+
+    /// Asking from a row is asking for a lane *there*.
+    ///
+    /// One that appears at the far end ignores the gesture that summoned it,
+    /// and leaves the author dragging it back to where they asked.
+    @Test("a track added at an index lands there")
+    func addsAtAPosition() {
+        var document = document()
+
+        let added = document.addTrack(named: "New", at: 2)
+
+        #expect(order(document) == ["A", "B", "New", "C", "D", "E", "F"])
+        #expect(document.tracks[2].id == added.id)
+    }
+
+    /// The default has to stay put: every caller that does not say where is
+    /// asking for the behaviour that existed before an index was an option.
+    @Test("adding without an index still appends")
+    func addsOnTopByDefault() {
+        var document = document()
+
+        _ = document.addTrack(named: "New")
+
+        #expect(order(document).last == "New")
+    }
+
+    /// The same result either way, so a drag and a menu command cannot disagree
+    /// about what "send to back" means.
+    @Test("one move matches the swaps it replaces")
+    func matchesRepeatedSwaps() {
+        var stepped = document()
+        var moved = document()
+        let id = stepped.tracks[4].id
+
+        // Four steps down, the long way.
+        for _ in 0 ..< 4 { stepped.lowerTrack(id) }
+        moved.moveTrack(moved.tracks[4].id, toIndex: 0)
+
+        #expect(order(stepped) == order(moved))
+    }
+}

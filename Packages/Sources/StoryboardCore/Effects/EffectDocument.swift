@@ -174,14 +174,27 @@ public struct EffectDocument: Sendable, Codable {
     /// Placed at the front of the draw order, which is the top of both lists.
     /// A new lane appearing behind everything else is a lane whose contents are
     /// hidden the moment anything is put on it.
+    ///
+    /// - Parameter index: where the lane lands in **document order**, or `nil`
+    ///   to append. Asking from a row means asking for a lane *there* — a new
+    ///   track that appears at the far end ignores the gesture that summoned
+    ///   it, and leaves the author dragging it back to where they asked.
     @discardableResult
-    public mutating func addTrack(named name: String? = nil, layer: Layer = .foreground) -> EffectTrack {
+    public mutating func addTrack(
+        named name: String? = nil,
+        layer: Layer = .foreground,
+        at index: Int? = nil,
+    ) -> EffectTrack {
         let track = EffectTrack(
             id: "track-\(UUID().uuidString.prefix(8))",
             name: name ?? "Track \(tracks.count + 1)",
             layer: layer,
         )
-        tracks.append(track)
+        if let index {
+            tracks.insert(track, at: min(max(0, index), tracks.count))
+        } else {
+            tracks.append(track)
+        }
         return track
     }
 
@@ -277,6 +290,25 @@ public struct EffectDocument: Sendable, Codable {
     public mutating func lowerTrack(_ trackID: EffectTrack.ID) {
         guard let index = tracks.firstIndex(where: { $0.id == trackID }), index > 0 else { return }
         tracks.swapAt(index, index - 1)
+    }
+
+    /// Moves a track to a position, in one operation.
+    ///
+    /// One move rather than a run of swaps. Sending a lane from the top of six
+    /// to the bottom as five `lowerTrack` calls is five reorders of the same
+    /// array — and every one of them is an edit the rest of the app answers,
+    /// so the document is re-evaluated five times to reach one arrangement.
+    ///
+    /// - Parameter index: where the track should end up, in **document order**
+    ///   (0 is the back of the stack). Clamped, so a caller can pass
+    ///   `tracks.count` for "all the way up" without checking first.
+    public mutating func moveTrack(_ trackID: EffectTrack.ID, toIndex index: Int) {
+        guard let current = tracks.firstIndex(where: { $0.id == trackID }) else { return }
+        let destination = min(max(0, index), tracks.count - 1)
+        guard destination != current else { return }
+
+        let track = tracks.remove(at: current)
+        tracks.insert(track, at: destination)
     }
 
     public func canRaiseTrack(_ trackID: EffectTrack.ID) -> Bool {
