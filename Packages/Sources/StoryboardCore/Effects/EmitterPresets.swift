@@ -10,7 +10,7 @@ public extension EmitterEffect {
     /// adjusting instead of a black box.
     static let presets: [EffectPreset] = [
         fire, smoke, sparks, snow, rain, storm, confetti, bubbles, stars, shockwave, magic,
-        lightning, embers, flameJet, slashes, dust, bokeh,
+        lightning, embers, flameJet, slashes, dust, bokeh, warp,
     ]
 
     private static func preset(
@@ -488,6 +488,60 @@ public extension EmitterEffect {
         // is what makes a bokeh field read as light rather than as discs.
         Param.opacity: .number(0.5),
         Param.fadeIn: .number(0.25), Param.fadeOut: .number(0.3),
+        Param.additive: .toggle(true),
+    ])
+
+    /// A warp: streaks rushing outward past the viewer from a vanishing point.
+    ///
+    /// Approach in 2D is scale, so every streak is born a speck at the centre
+    /// and grows past the edge of the frame — the eye reads travel down a
+    /// shaft rather than a circle getting bigger. Same illusion as a
+    /// starfield, with streaks instead of points.
+    ///
+    /// `streak` is what makes it. A line drawn as a line is a piece of a light
+    /// trail; built from dots this would be a bokeh cloud however it moved —
+    /// and with a directional texture `Align to Motion` is not optional, or
+    /// each streak faces the way it was drawn instead of the way it travels
+    /// and the radial reads as confetti.
+    ///
+    /// Speed comes from `velocity × life`, not from drag: drag is exponential
+    /// decay, so it would pack almost the whole journey into the first fifth
+    /// of a life and leave the streaks parked for the rest.
+    static let warp = preset("warp", "Warp", "Streaks rushing outward from a vanishing point",
+                             duration: 6000, [
+        // Density is what is on screen, not the count: ~330 alive at a time
+        // over this clip. Long lives buy that for free, where more particles
+        // cost a sprite each.
+        Param.count: .integer(520),
+        Param.sprite: .text(BuiltInSprite.streak),
+        // A point, so everything shares one vanishing point. Radial sends them
+        // outward from it; a few degrees of spread keeps the rays from looking
+        // ruled.
+        Param.shape: .choice(Shape.point.rawValue),
+        Param.radial: .toggle(true),
+        Param.spread: .number(3),
+        Param.velocity: .number(320), Param.velocityRandom: .number(0.45),
+        Param.life: .number(2200), Param.lifeRandom: .number(0.35),
+        // The scale is the depth: a speck at the vanishing point to past the
+        // edge of the screen.
+        Param.scaleStart: .number(0.04), Param.scaleEnd: .number(0.30),
+        Param.scaleRandom: .number(0.45),
+        // Thin and long: the stretch multiplies a scale that is already
+        // applied, so something elongated wants a small scale and a high
+        // stretch rather than both large.
+        Param.stretch: .number(5.5),
+        Param.alignToMotion: .toggle(true),
+        // Blue into magenta into deep blue. The mid costs one command per
+        // particle and is the whole look — a flat tint reads as grey lines.
+        Param.usesColorMid: .toggle(true),
+        Param.color: .color(EffectColor(r: 120, g: 190, b: 255)),
+        Param.colorMid: .color(EffectColor(r: 200, g: 80, b: 255)),
+        Param.colorEnd: .color(EffectColor(r: 60, g: 40, b: 180)),
+        // Low, because additive stacks: at this density anything higher
+        // saturates to white before the ramp has a chance to read, and the
+        // bright core is meant to come from accumulation at the centre.
+        Param.opacity: .number(0.30),
+        Param.fadeIn: .number(0.15), Param.fadeOut: .number(0.45),
         Param.additive: .toggle(true),
     ])
 
