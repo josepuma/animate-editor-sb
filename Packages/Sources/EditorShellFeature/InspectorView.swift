@@ -124,9 +124,24 @@ struct InspectorView: View {
                             guard shell.filterAnimation(
                                 parameter, on: filter.id, in: node.id,
                             )?.isActive == true else { return nil }
+                            // The **observed** clock, and only here.
+                            //
+                            // `playheadTime` is deliberately unobserved so the
+                            // panel does not rebuild sixty times a second — and
+                            // the cost is that a number read from it is
+                            // whatever it was at the last rebuild. A field
+                            // showing 5 while the timeline says 20 is the panel
+                            // reporting a moment that has passed.
+                            //
+                            // Read here it costs a rebuild per frame *only for
+                            // a clip with an animated filter selected*, which
+                            // is exactly when the number has to move.
                             return shell.filterValue(
                                 parameter, on: filter.id, in: node.id,
-                                at: localTime(in: node),
+                                at: max(0, min(
+                                    shell.observedPlayheadTime - node.startTime,
+                                    node.duration,
+                                )),
                             )
                         },
                         beginAnimating: { parameter in

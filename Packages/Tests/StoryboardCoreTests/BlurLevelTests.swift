@@ -269,3 +269,64 @@ struct BlurLevelTests {
         #expect(filtered.allSatisfy { !DerivedSprite.isDerived($0.filePath) })
     }
 }
+
+/// The shape most sprites actually have: fade in, hold, fade out.
+///
+/// The gate multiplies the fades a sprite already carries, so a stretch with no
+/// fade command over it has nothing to turn on. A text glyph fades in over
+/// 40ms, holds silently for six seconds and fades out — and the radius travels
+/// through that silent middle. Reported from a real project: all eleven blur
+/// levels invisible, the text staying sharp for the whole clip.
+@Suite("Blur over a held sprite")
+struct BlurHeldSpriteTests {
+    private let evaluator = EffectEvaluator()
+
+    @Test("a blur reaches a sprite that holds its opacity")
+    func blurReachesAHeldSprite() throws {
+        var document = EffectDocument()
+        let node = document.add(TextEffect.descriptor, at: 0, duration: 6000)
+        document.setValue(.text("Boy"), for: TextEffect.Param.text, on: node.id)
+        document.setValue(.number(40), for: TextEffect.Param.fadeIn, on: node.id)
+        document.setValue(.number(200), for: TextEffect.Param.fadeOut, on: node.id)
+
+        let added = document.addFilter(BlurFilter.descriptor, to: node.id)
+        let filter = try #require(added)
+        document.setFilterAnimation(
+            KeyframeTrack([
+                Keyframe(time: 0, value: 0),
+                Keyframe(time: 2500, value: 0),
+                Keyframe(time: 4800, value: 20),
+            ]),
+            for: BlurFilter.Param.radius, on: filter.id, in: node.id,
+        )
+
+        let sprites = evaluator.evaluate(document)
+
+        /// The blur level actually visible at a moment.
+        func visibleLevel(at time: Double) -> Double? {
+            var best: (level: Double, opacity: Double)?
+            for sprite in sprites {
+                let state = StoryboardResolver.resolve(
+                    StoryboardResolver.prepare([sprite]), at: time,
+                ).first
+                guard let state, state.opacity > 0.4 else { continue }
+                let level: Double
+                if case let .blur(radius) = DerivedSprite.parse(sprite.filePath)?.kind {
+                    level = radius
+                } else {
+                    level = 0
+                }
+                if best == nil || state.opacity > best!.opacity {
+                    best = (level, state.opacity)
+                }
+            }
+            return best?.level
+        }
+
+        // Before the ramp the text is sharp; at the last key it is fully blurred.
+        #expect(visibleLevel(at: 1000) == 0)
+        #expect(visibleLevel(at: 4800) == 20, "the blur never reached its last keyframe")
+        // And it stays there past the key, since the value holds.
+        #expect(visibleLevel(at: 5700) == 20)
+    }
+}

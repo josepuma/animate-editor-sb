@@ -141,7 +141,7 @@ public struct BlurFilter: SpriteFilter {
                 ? DerivedSprite.blurred(sprite.filePath, radius: Double(radius))
                 : sprite.filePath
             copy.commands = gated(
-                sprite.commands,
+                Self.covering(sprite.commands, birth: birth, death: death),
                 toLevel: radius,
                 of: levels,
                 birth: birth,
@@ -151,6 +151,61 @@ public struct BlurFilter: SpriteFilter {
             )
             return copy
         }
+    }
+
+    /// The sprite's commands, with its opacity guaranteed to span its whole
+    /// life.
+    ///
+    /// The gate works by *multiplying* the fades a sprite already has, so a
+    /// stretch with no fade command over it has nothing to turn on — and a
+    /// sprite that fades in, holds, and fades out has exactly that shape: two
+    /// short commands at the ends and a silent middle where its opacity is
+    /// simply whatever the last one left.
+    ///
+    /// Measured on a text clip: every glyph carried a fade at `0-40` and
+    /// another at `6176-6376`, and the entire middle — where the radius
+    /// travels — had none. All eleven blur levels came out invisible.
+    ///
+    /// The hold is written at whatever the sprite's own fade left it at, so a
+    /// sprite that was already fully opaque is unchanged.
+    private static func covering(
+        _ commands: [Command], birth: Double, death: Double,
+    ) -> [Command] {
+        let fades = commands.filter { $0.kind == .fade }.sorted { $0.startTime < $1.startTime }
+        guard !fades.isEmpty else { return commands }
+
+        // Every gap between consecutive fades, not only the tail.
+        //
+        // A sprite that fades in, holds and fades out leaves its hole in the
+        // *middle*: the last command by end time already reaches death, so
+        // looking only past it finds nothing. The hole is between the fade-in
+        // ending and the fade-out starting, which is exactly where a radius
+        // usually travels.
+        var filled = commands
+        for (earlier, later) in zip(fades, fades.dropFirst()) {
+            guard later.startTime > earlier.endTime + 1,
+                  case let .fade(_, held) = earlier.payload, held > 0
+            else { continue }
+            filled.append(Command(
+                easing: .linear,
+                startTime: earlier.endTime,
+                endTime: later.startTime,
+                payload: .fade(start: held, end: held),
+            ))
+        }
+
+        // And the tail, for a sprite whose last fade ends before it does.
+        if let last = fades.last, last.endTime < death - 1,
+           case let .fade(_, held) = last.payload, held > 0
+        {
+            filled.append(Command(
+                easing: .linear,
+                startTime: last.endTime,
+                endTime: death,
+                payload: .fade(start: held, end: held),
+            ))
+        }
+        return filled
     }
 
     /// A copy's commands, with its opacity gated to the stretch where its own
