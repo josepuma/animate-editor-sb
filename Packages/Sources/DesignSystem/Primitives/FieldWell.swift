@@ -20,10 +20,29 @@ public struct FieldWell<Content: View>: View {
     /// ends up typing instead of playing.
     private let isFocused: Bool
 
-    public init(isFocused: Bool = false, @ViewBuilder content: () -> Content) {
+    /// Whether the well hides its plate until the pointer or the keyboard
+    /// arrives.
+    ///
+    /// For places where fields sit in a **column of many** — a timeline's
+    /// keyframe rows — rather than in a panel of a few. A dozen filled plates
+    /// stacked up read as the chrome rather than as the values, and the value
+    /// is the thing anyone is scanning for. The well is still there the moment
+    /// it matters: on hover, and while it holds the keyboard.
+    private let isGhost: Bool
+    @State private var isHovered = false
+
+    public init(
+        isFocused: Bool = false,
+        isGhost: Bool = false,
+        @ViewBuilder content: () -> Content,
+    ) {
         self.isFocused = isFocused
+        self.isGhost = isGhost
         self.content = content()
     }
+
+    /// Whether the plate and border are drawn right now.
+    private var showsWell: Bool { !isGhost || isHovered || isFocused }
 
     public var body: some View {
         content
@@ -34,15 +53,21 @@ public struct FieldWell<Content: View>: View {
             .frame(height: Theme.Size.field)
             .background {
                 RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                    .fill(Theme.Fill.well)
+                    .fill(showsWell ? Theme.Fill.well : .clear)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
                     .strokeBorder(
-                        isFocused ? Theme.Palette.accent : Theme.Border.field,
+                        isFocused ? Theme.Palette.accent
+                            : (showsWell ? Theme.Border.field : .clear),
                         lineWidth: isFocused ? 1.5 : Theme.Size.hairline,
                     )
             }
+            // Only a ghost listens: a well that is always drawn has no reason
+            // to track the pointer, and a hover test per field in a panel of
+            // thirty is thirty tests for nothing.
+            .onHover { if isGhost { isHovered = $0 } }
+            .animation(Theme.Motion.quick, value: showsWell)
             .animation(Theme.Motion.quick, value: isFocused)
     }
 }

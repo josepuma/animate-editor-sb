@@ -212,6 +212,35 @@ public enum TransformProperty: String, CaseIterable, Sendable {
     /// The two axes of scale, in the order they are shown.
     public static let scaleAxes: [TransformProperty] = [.scaleX, .scaleY]
 
+    /// Which family a property belongs to, for telling keyframes apart at a
+    /// glance.
+    ///
+    /// Nine rows of identical diamonds is a wall: with a colour per family the
+    /// eye finds "the position keys" without reading a single label, and the
+    /// grouping is the one that already exists in the format — position is one
+    /// command, scale is one command, colour is three channels of one.
+    ///
+    /// By family rather than by property, because that is the distinction worth
+    /// drawing: X and Y are two halves of a move, and colouring them apart
+    /// would say they are unrelated.
+    public enum Family: String, Sendable, CaseIterable {
+        case position
+        case scale
+        case rotation
+        case opacity
+        case colour
+    }
+
+    public var family: Family {
+        switch self {
+        case .x, .y: .position
+        case .scaleX, .scaleY: .scale
+        case .rotation: .rotation
+        case .opacity: .opacity
+        case .red, .green, .blue: .colour
+        }
+    }
+
     public var title: String {
         switch self {
         case .x: "Position X"

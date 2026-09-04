@@ -488,3 +488,41 @@ struct FilterCurvePreservationTests {
         #expect(fades.count > 1, "the animated factor must be cut into segments")
     }
 }
+
+/// Which family each transform property belongs to.
+///
+/// Nine rows of identical diamonds is a wall; a colour per family lets the eye
+/// find "the position keys" without reading a label. The grouping matters more
+/// than the colours: X and Y are two halves of one move, and colouring them
+/// apart would say they are unrelated.
+@Suite("Keyframe families")
+struct KeyframeFamilyTests {
+    @Test("the two halves of a pair share a family")
+    func pairsShareAFamily() {
+        #expect(TransformProperty.x.family == TransformProperty.y.family)
+        #expect(TransformProperty.scaleX.family == TransformProperty.scaleY.family)
+        // Colour is three channels of one command, so all three go together.
+        #expect(TransformProperty.red.family == TransformProperty.green.family)
+        #expect(TransformProperty.green.family == TransformProperty.blue.family)
+    }
+
+    /// Different families must actually differ, or the colouring says nothing.
+    @Test("unrelated properties are in different families")
+    func unrelatedDiffer() {
+        let families: [TransformProperty.Family] = [
+            .position, .scale, .rotation, .opacity, .colour,
+        ]
+        #expect(Set(families).count == families.count)
+        #expect(TransformProperty.x.family != TransformProperty.scaleX.family)
+        #expect(TransformProperty.rotation.family != TransformProperty.opacity.family)
+    }
+
+    /// Every property has one, so no row falls back to a default that means
+    /// "unclassified" while sitting beside eight that are classified.
+    @Test("every property has a family")
+    func everyPropertyIsClassified() {
+        let byFamily = Dictionary(grouping: TransformProperty.allCases, by: \.family)
+        #expect(byFamily.keys.count == 5)
+        #expect(byFamily.values.map(\.count).reduce(0, +) == TransformProperty.allCases.count)
+    }
+}

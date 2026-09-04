@@ -720,3 +720,40 @@ struct KeyframeModeSelectionTests {
         #expect(shell.selectedEffect == nil)
     }
 }
+
+/// Everything that measures from the left edge has to agree on where content
+/// starts.
+///
+/// The tools column, the ruler, the rows, the playhead and the scrub all use
+/// it. One of them holding the lane-mode constant put the ruler 92 points
+/// before the rows beneath it in keyframe mode: the playhead drew against one
+/// origin while the mouse measured against another, and the difference showed
+/// as dead space above the rows.
+@MainActor
+@Suite("Timeline content origin")
+struct ContentOriginTests {
+    @Test("keyframe mode has a wider header than lane mode")
+    func modesDiffer() {
+        #expect(
+            TrackTimelineView.headerWidth(isEditingKeyframes: true)
+                > TrackTimelineView.headerWidth(isEditingKeyframes: false),
+        )
+    }
+
+    /// The origin follows whichever header is in force. Derived rather than
+    /// stored, so it cannot be updated in one place and forgotten in another.
+    @Test("the content origin follows the header")
+    func originFollowsHeader() {
+        for editing in [true, false] {
+            #expect(
+                TrackTimelineView.contentOrigin(isEditingKeyframes: editing)
+                    > TrackTimelineView.headerWidth(isEditingKeyframes: editing),
+                "the origin has to clear the header and the gap beside it",
+            )
+        }
+        #expect(
+            TrackTimelineView.contentOrigin(isEditingKeyframes: true)
+                != TrackTimelineView.contentOrigin(isEditingKeyframes: false),
+        )
+    }
+}

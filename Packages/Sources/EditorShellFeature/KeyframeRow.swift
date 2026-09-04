@@ -220,6 +220,7 @@ struct KeyframeRows: View {
                         unit: property.unit,
                         step: property.step,
                         range: property.range,
+                        keyColour: Theme.KeyframePalette.colour(for: property.family.rawValue),
                     )
                 }
             }
@@ -275,6 +276,7 @@ struct KeyframeRows: View {
                             unit: filterParameter(row.filterID, row.parameter)?.unit,
                             step: filterParameter(row.filterID, row.parameter)?.step ?? 1,
                             range: filterParameter(row.filterID, row.parameter)?.range,
+                            keyColour: Theme.KeyframePalette.filter,
                         )
                     }
                 }
@@ -328,6 +330,12 @@ struct KeyframeRow: View {
     var unit: String?
     var step: Double = 1
     var range: ClosedRange<Double>?
+
+    /// The colour this row's diamonds take, by what they animate.
+    ///
+    /// Named `keyColour` rather than `tint`: inside a `View` body the latter
+    /// resolves to SwiftUI's own modifier before the property.
+    var keyColour: Color = Theme.Palette.accent
 
     /// The key being dragged, and where it has reached.
     @State private var draft: (id: Keyframe.ID, time: Double)?
@@ -457,6 +465,9 @@ struct KeyframeRow: View {
                         step: step,
                         range: range ?? -.greatestFiniteMagnitude...(.greatestFiniteMagnitude),
                         format: step < 1 ? "%.2f" : "%.0f",
+                        // A column of eleven filled plates reads as chrome
+                        // rather than as values; the well returns on hover.
+                        isGhost: true,
                     )
                     .frame(width: 64)
                 }
@@ -537,7 +548,7 @@ struct KeyframeRow: View {
         let isSelected = selectedKeyID == key.id
 
         Diamond()
-            .fill(isAnimating ? Theme.Palette.accent : Theme.Palette.tertiary)
+            .fill(isAnimating ? keyColour : Theme.Palette.tertiary)
             // A ring rather than a size change: growing the diamond moves its
             // own edges, and a key is a moment — it should not appear to cover
             // more of the timeline because a pointer is near it.

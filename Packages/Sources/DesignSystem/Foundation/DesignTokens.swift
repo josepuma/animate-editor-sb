@@ -244,6 +244,37 @@ public enum Theme {
         public static let red = Color(red: 0.94, green: 0.42, blue: 0.42)
     }
 
+    /// Colours for keyframe families, so nine rows of diamonds are not a wall.
+    ///
+    /// Drawn from ``TrackPalette`` rather than invented: the two sets sit in
+    /// the same window, and a second family of near-but-not-quite colours is
+    /// how a palette starts to drift.
+    ///
+    /// The assignment is not arbitrary — position and scale are the two most
+    /// reached for, so they take the two most distinct hues.
+    public enum KeyframePalette {
+        public static let position = TrackPalette.blue
+        public static let scale = TrackPalette.green
+        public static let rotation = TrackPalette.amber
+        public static let opacity = TrackPalette.violet
+        public static let colour = TrackPalette.pink
+        /// A filter's parameters, which have no family of their own.
+        public static let filter = TrackPalette.teal
+
+        /// The colour for a family, named by its raw value so the design
+        /// system does not have to import the domain type.
+        public static func colour(for family: String) -> Color {
+            switch family {
+            case "position": position
+            case "scale": scale
+            case "rotation": rotation
+            case "opacity": opacity
+            case "colour": colour
+            default: filter
+            }
+        }
+    }
+
     // ─── Motion ──────────────────────────────────────────────────────────────
 
     public enum Motion {

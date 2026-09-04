@@ -16,22 +16,30 @@ public struct NumberField: View {
     @State private var editing: String?
     @FocusState private var isFocused: Bool
 
+    /// Whether the well behind this field stays hidden until it is wanted.
+    ///
+    /// For a column of many fields — a timeline's keyframe rows — where a
+    /// stack of filled plates reads as chrome rather than as values.
+    private let isGhost: Bool
+
     public init(
         value: Binding<Double>,
         unit: String? = nil,
         step: Double = 1,
         range: ClosedRange<Double> = -.infinity...(.infinity),
         format: String = "%.0f",
+        isGhost: Bool = false,
     ) {
         _value = value
         self.unit = unit
         self.step = step
         self.range = range
         self.format = format
+        self.isGhost = isGhost
     }
 
     public var body: some View {
-        FieldWell(isFocused: isFocused) {
+        FieldWell(isFocused: isFocused, isGhost: isGhost) {
             HStack(spacing: Theme.Spacing.tight) {
                 TextField(
                     "",
@@ -124,13 +132,18 @@ public struct TextInputField: View {
     @State private var editing: String?
     @FocusState private var isFocused: Bool
 
-    public init(text: Binding<String>, placeholder: String = "") {
+    private let isGhost: Bool
+
+    public init(
+        text: Binding<String>, placeholder: String = "", isGhost: Bool = false,
+    ) {
         _text = text
         self.placeholder = placeholder
+        self.isGhost = isGhost
     }
 
     public var body: some View {
-        FieldWell(isFocused: isFocused) {
+        FieldWell(isFocused: isFocused, isGhost: isGhost) {
             TextField(
                 placeholder,
                 text: Binding(

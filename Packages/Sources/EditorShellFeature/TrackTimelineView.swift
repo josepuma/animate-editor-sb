@@ -26,6 +26,10 @@ struct TrackTimelineView: View {
     /// and this timeline has already been bitten by a frame that promised less
     /// room than its contents needed.
     /// The header in force, so every measurement in this view agrees on it.
+    private var headerWidth: CGFloat {
+        Self.headerWidth(isEditingKeyframes: shell.keyframeNode != nil)
+    }
+
     private var contentOrigin: CGFloat {
         Self.contentOrigin(isEditingKeyframes: shell.keyframeNode != nil)
     }
@@ -501,7 +505,13 @@ struct TrackTimelineView: View {
             .disabled(!zoom.canZoomIn)
         }
         .padding(.leading, Theme.Spacing.snug)
-        .frame(width: Self.headerWidth, alignment: .leading)
+        // The header in force, not the lane-mode constant.
+        //
+        // The tools sit in the same column the row headers occupy, so a fixed
+        // width left the ruler starting 92 points before the rows beneath it in
+        // keyframe mode: the playhead drew against one origin and the mouse
+        // measured against another, and the gap showed as dead space above.
+        .frame(width: headerWidth, alignment: .leading)
         .animation(Theme.Motion.quick, value: zoom.magnification)
     }
 
