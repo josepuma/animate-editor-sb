@@ -159,3 +159,166 @@ struct FilterAnimationTests {
         #expect(shell.effectsRevision != before)
     }
 }
+
+/// The keyframe editor's filter rows.
+///
+/// The same row component the transform uses, because a keyframe is a keyframe
+/// wherever it came from — dragging, easing and deleting have to work one way
+/// or the mode has two vocabularies.
+@MainActor
+@Suite("Filter keyframe rows")
+struct FilterKeyframeRowTests {
+    private func model() -> (EditorShellModel, EffectNode.ID, FilterNode.ID) {
+        let shell = EditorShellModel()
+        let node = shell.addEffect(EmitterEffect.descriptor, at: 0, duration: 2000)
+        let filter = shell.addFilter(GlowFilter.descriptor, to: node.id)!
+        return (shell, node.id, filter.id)
+    }
+
+    private func rowCount(_ shell: EditorShellModel, _ nodeID: EffectNode.ID) -> Int {
+        guard let node = shell.effects[nodeID] else { return 0 }
+        return KeyframeRows.animatedFilterRows(
+            of: node, descriptor: { shell.filters.descriptor(for: $0) },
+        )
+    }
+
+    /// A filter nobody has animated adds no rows. Every animatable parameter of
+    /// every filter would bury the transform's five under a dozen nobody asked
+    /// for — the same reason the mode shows one clip rather than all of them.
+    @Test("an unanimated filter adds no rows")
+    func noRowsUntilAnimated() {
+        let (shell, nodeID, _) = model()
+        #expect(rowCount(shell, nodeID) == 0)
+    }
+
+    /// One row per animated parameter, appearing as soon as it has keys.
+    @Test("an animated parameter gets a row")
+    func animatedParameterGetsARow() {
+        let (shell, nodeID, filterID) = model()
+        shell.beginAnimatingFilter(
+            GlowFilter.Param.intensity, on: filterID, in: nodeID, at: 0,
+        )
+        #expect(rowCount(shell, nodeID) == 1)
+
+        shell.beginAnimatingFilter(GlowFilter.Param.size, on: filterID, in: nodeID, at: 0)
+        #expect(rowCount(shell, nodeID) == 2)
+    }
+
+    /// The height has to follow, or the rows are drawn where nothing can be
+    /// seen — this timeline has already been bitten by a frame promising less
+    /// room than its contents needed.
+    @Test("the editor grows by one row per animated parameter")
+    func heightFollowsTheRows() {
+        let bare = KeyframeRows.height(forFilterRows: 0)
+        let one = KeyframeRows.height(forFilterRows: 1)
+        let two = KeyframeRows.height(forFilterRows: 2)
+
+        #expect(one > bare)
+        // Evenly, since every row is the same height.
+        #expect(abs((two - one) - (one - bare)) < 0.001)
+    }
+
+    /// A switched-off track keeps its row: the keys are still there, and the
+    /// row is where somebody switches it back on.
+    @Test("a disabled track keeps its row")
+    func disabledTrackKeepsItsRow() {
+        let (shell, nodeID, filterID) = model()
+        shell.beginAnimatingFilter(
+            GlowFilter.Param.intensity, on: filterID, in: nodeID, at: 0,
+        )
+        shell.setFilterAnimationEnabled(
+            false, for: GlowFilter.Param.intensity, on: filterID, in: nodeID, at: 0,
+        )
+
+        #expect(rowCount(shell, nodeID) == 1)
+    }
+
+    /// Clearing takes the row with the keys — a row with nothing on it says
+    /// there is an animation when there is not.
+    @Test("clearing an animation removes its row")
+    func clearingRemovesTheRow() {
+        let (shell, nodeID, filterID) = model()
+        shell.beginAnimatingFilter(
+            GlowFilter.Param.intensity, on: filterID, in: nodeID, at: 0,
+        )
+        shell.clearFilterAnimation(
+            for: GlowFilter.Param.intensity, on: filterID, in: nodeID, keeping: 0,
+        )
+
+        #expect(rowCount(shell, nodeID) == 0)
+    }
+
+    /// Removing the last key removes the animation, not just the key: an empty
+    /// track left behind would linger as a row with nothing on it.
+    @Test("removing the last key removes the animation")
+    func removingLastKeyClearsTheTrack() {
+        let (shell, nodeID, filterID) = model()
+        shell.beginAnimatingFilter(
+            GlowFilter.Param.intensity, on: filterID, in: nodeID, at: 500,
+        )
+        let track = shell.filterAnimation(
+            GlowFilter.Param.intensity, on: filterID, in: nodeID,
+        )
+        let keyID = track!.keyframes.first!.id
+
+        shell.removeFilterKeyframe(
+            keyID, for: GlowFilter.Param.intensity, on: filterID, in: nodeID,
+        )
+
+        // The track is gone, not merely emptied. An empty one left behind
+        // still answers `filterAnimation`, so asserting only on `nil` would
+        // miss it — and a row with no keys on it says there is an animation
+        // when there is not. Verified by mutation.
+        // Gone, not emptied — and `?.isEmpty ?? true` cannot tell those apart,
+        // which is exactly what a mutation leaving the empty track in place
+        // proved. A row is built from a track that exists, so an empty one
+        // left behind would linger with no keys on it.
+        #expect(shell.filterAnimation(
+            GlowFilter.Param.intensity, on: filterID, in: nodeID,
+        ) == nil)
+        #expect(rowCount(shell, nodeID) == 0)
+    }
+
+    /// Dragging a key moves it, and the move is clamped into the clip the same
+    /// way planting one is.
+    @Test("a key can be dragged, and stays inside the clip")
+    func keysCanBeMoved() {
+        let (shell, nodeID, filterID) = model()
+        shell.beginAnimatingFilter(
+            GlowFilter.Param.intensity, on: filterID, in: nodeID, at: 0,
+        )
+        let keyID = shell.filterAnimation(
+            GlowFilter.Param.intensity, on: filterID, in: nodeID,
+        )!.keyframes.first!.id
+
+        shell.moveFilterKeyframe(
+            keyID, for: GlowFilter.Param.intensity, on: filterID, in: nodeID, to: 900,
+        )
+        #expect(shell.filterAnimation(
+            GlowFilter.Param.intensity, on: filterID, in: nodeID,
+        )?.keyframes.first?.time == 900)
+    }
+
+    /// The easing belongs to the key it leaves from, which is how a storyboard
+    /// command works — and it is the one thing a diamond cannot show or a drag
+    /// define, so the row's menu is where it lives.
+    @Test("a key's easing can be set from its row")
+    func easingCanBeSet() {
+        let (shell, nodeID, filterID) = model()
+        shell.beginAnimatingFilter(
+            GlowFilter.Param.intensity, on: filterID, in: nodeID, at: 0,
+        )
+        let keyID = shell.filterAnimation(
+            GlowFilter.Param.intensity, on: filterID, in: nodeID,
+        )!.keyframes.first!.id
+
+        shell.setFilterKeyframeEasing(
+            .quadOut, for: keyID, on: GlowFilter.Param.intensity,
+            filterID: filterID, in: nodeID,
+        )
+
+        #expect(shell.filterAnimation(
+            GlowFilter.Param.intensity, on: filterID, in: nodeID,
+        )?.keyframes.first?.easing == .quadOut)
+    }
+}

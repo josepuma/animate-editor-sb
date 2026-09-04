@@ -1495,6 +1495,55 @@ public final class EditorShellModel {
         effectsChanged(node: nodeID)
     }
 
+    /// Moves one of a filter parameter's keys along the timeline.
+    public func moveFilterKeyframe(
+        _ keyID: Keyframe.ID,
+        for parameterID: String,
+        on filterID: FilterNode.ID,
+        in nodeID: EffectNode.ID,
+        to localTime: Double,
+    ) {
+        guard var track = filterAnimation(parameterID, on: filterID, in: nodeID) else { return }
+        track.move(keyID, to: localTime)
+        effects.setFilterAnimation(track, for: parameterID, on: filterID, in: nodeID)
+        effectsChanged(node: nodeID)
+    }
+
+    /// Removes one key, leaving the rest of the animation alone.
+    public func removeFilterKeyframe(
+        _ keyID: Keyframe.ID,
+        for parameterID: String,
+        on filterID: FilterNode.ID,
+        in nodeID: EffectNode.ID,
+    ) {
+        guard var track = filterAnimation(parameterID, on: filterID, in: nodeID) else { return }
+        track.remove(keyID)
+        // An empty track is no animation, not an animation with nothing in it —
+        // left behind, the row would linger with no keys on it. Dropped by
+        // `EffectDocument.setFilterAnimation`, which is the one place that
+        // decides it: guarding here too would be a second opinion waiting to
+        // disagree.
+        effects.setFilterAnimation(track, for: parameterID, on: filterID, in: nodeID)
+        effectsChanged(node: nodeID)
+    }
+
+    /// Sets the curve a key travels away on.
+    ///
+    /// The easing belongs to the key it leaves *from*, which is how a storyboard
+    /// command works — so this is the segment after `keyID`, not before it.
+    public func setFilterKeyframeEasing(
+        _ easing: Easing,
+        for keyID: Keyframe.ID,
+        on parameterID: String,
+        filterID: FilterNode.ID,
+        in nodeID: EffectNode.ID,
+    ) {
+        guard var track = filterAnimation(parameterID, on: filterID, in: nodeID) else { return }
+        track.setEasing(easing, for: keyID)
+        effects.setFilterAnimation(track, for: parameterID, on: filterID, in: nodeID)
+        effectsChanged(node: nodeID)
+    }
+
     /// Throws away a filter parameter's keyframes, keeping what it was worth.
     ///
     /// Its own action rather than a side effect of the stopwatch, because there

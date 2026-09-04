@@ -18,6 +18,19 @@ struct TrackTimelineView: View {
     /// other use here wants the value at the moment of a click or a menu, which
     /// is exactly what an ignored one gives.
     private var currentTime: Double { shell.playheadTime }
+
+    /// How many rows the keyframe editor's filter section will add.
+    ///
+    /// Counted from the same rule the rows themselves use — a height worked out
+    /// separately from what gets drawn is a height that eventually disagrees,
+    /// and this timeline has already been bitten by a frame that promised less
+    /// room than its contents needed.
+    private var animatedFilterRowCount: Int {
+        guard let node = shell.keyframeNode else { return 0 }
+        return KeyframeRows.animatedFilterRows(
+            of: node, descriptor: { shell.filters.descriptor(for: $0) },
+        )
+    }
     /// Whether the clock is running: a keyframe cannot be placed against a
     /// moving playhead.
     let isPlaying: Bool
@@ -161,9 +174,16 @@ struct TrackTimelineView: View {
     /// around a timeline that grows with its content.
     /// - Parameter isEditingKeyframes: the keyframe editor replaces the lanes
     ///   rather than sitting under them, so it has a height of its own.
-    static func height(trackCount: Int, isEditingKeyframes: Bool = false) -> CGFloat {
+    /// - Parameter filterRows: how many rows the clip's animated filter
+    ///   parameters add. Zero for a clip with none, which is every clip until
+    ///   somebody clicks a stopwatch.
+    static func height(
+        trackCount: Int,
+        isEditingKeyframes: Bool = false,
+        filterRows: Int = 0,
+    ) -> CGFloat {
         let rows = isEditingKeyframes
-            ? KeyframeRows.height
+            ? KeyframeRows.height(forFilterRows: filterRows)
             : (trackHeight + Theme.Spacing.tight) * CGFloat(max(trackCount, 1))
 
         return rulerHeight
@@ -192,8 +212,14 @@ struct TrackTimelineView: View {
     /// The panel's frame and this have to agree exactly. Given less than it
     /// needs, the stack does not scroll — it squeezes, and the last lane is
     /// shaved thinner with every track added.
-    static func stackHeight(trackCount: Int, isEditingKeyframes: Bool) -> CGFloat {
-        let rows = isEditingKeyframes ? KeyframeRows.height : rowsHeight(trackCount: trackCount)
+    static func stackHeight(
+        trackCount: Int,
+        isEditingKeyframes: Bool,
+        filterRows: Int = 0,
+    ) -> CGFloat {
+        let rows = isEditingKeyframes
+            ? KeyframeRows.height(forFilterRows: filterRows)
+            : rowsHeight(trackCount: trackCount)
         return rulerHeight + Theme.Spacing.snug + rows
     }
 
@@ -252,6 +278,7 @@ struct TrackTimelineView: View {
                     height: Self.stackHeight(
                         trackCount: shell.effects.tracks.count,
                         isEditingKeyframes: shell.keyframeNode != nil,
+                        filterRows: animatedFilterRowCount,
                     ),
                     alignment: .top,
                 )
@@ -267,6 +294,7 @@ struct TrackTimelineView: View {
         .frame(height: Self.height(
             trackCount: shell.effects.tracks.count,
             isEditingKeyframes: shell.keyframeNode != nil,
+            filterRows: animatedFilterRowCount,
         ), alignment: .top)
         .onChange(of: shell.keyframeNodeID) { _, newValue in
             if newValue != nil {
@@ -788,6 +816,43 @@ struct TrackTimelineView: View {
                     nodeID: node.id,
                     property: property,
                     keyframeID: id,
+                )
+            },
+            filters: node.filters,
+            filterDescriptor: { shell.filters.descriptor(for: $0) },
+            addFilterKeyframe: { filterID, parameter, time in
+                guard let value = shell.filterValue(
+                    parameter, on: filterID, in: node.id, at: time,
+                ) else { return }
+                shell.setFilterKeyframe(
+                    value, for: parameter, on: filterID, in: node.id, at: time,
+                )
+            },
+            moveFilterKeyframe: { filterID, parameter, id, time in
+                shell.moveFilterKeyframe(
+                    id, for: parameter, on: filterID, in: node.id, to: time,
+                )
+            },
+            removeFilterKeyframe: { filterID, parameter, id in
+                shell.removeFilterKeyframe(
+                    id, for: parameter, on: filterID, in: node.id,
+                )
+            },
+            setFilterEasing: { filterID, parameter, id, easing in
+                shell.setFilterKeyframeEasing(
+                    easing, for: id, on: parameter, filterID: filterID, in: node.id,
+                )
+            },
+            setFilterEnabled: { filterID, parameter, isEnabled in
+                shell.setFilterAnimationEnabled(
+                    isEnabled, for: parameter, on: filterID, in: node.id,
+                    at: currentTime - node.startTime,
+                )
+            },
+            clearFilter: { filterID, parameter in
+                shell.clearFilterAnimation(
+                    for: parameter, on: filterID, in: node.id,
+                    keeping: currentTime - node.startTime,
                 )
             },
         )

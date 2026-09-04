@@ -30,11 +30,89 @@ struct KeyframeRows: View {
     let selectedKey: (property: TransformProperty, id: Keyframe.ID)?
     let selectKey: (TransformProperty, Keyframe.ID) -> Void
 
+    /// The clip's filters, so their animated parameters get rows of their own.
+    ///
+    /// Only the ones somebody has actually animated. A filter can declare
+    /// several animatable parameters and a clip can carry several filters, so
+    /// showing them all would bury the transform's five rows under a dozen
+    /// nobody asked for — the same reason this mode shows one clip rather than
+    /// every clip at once. The stopwatch to *start* animating lives in the
+    /// inspector, beside the value it belongs to.
+    var filters: [FilterNode] = []
+    var filterDescriptor: (String) -> FilterDescriptor? = { _ in nil }
+    var addFilterKeyframe: (FilterNode.ID, String, Double) -> Void = { _, _, _ in }
+    var moveFilterKeyframe: (FilterNode.ID, String, Keyframe.ID, Double) -> Void = { _, _, _, _ in }
+    var removeFilterKeyframe: (FilterNode.ID, String, Keyframe.ID) -> Void = { _, _, _ in }
+    var setFilterEasing: (FilterNode.ID, String, Keyframe.ID, Easing) -> Void = { _, _, _, _ in }
+    var setFilterEnabled: (FilterNode.ID, String, Bool) -> Void = { _, _, _ in }
+    var clearFilter: (FilterNode.ID, String) -> Void = { _, _ in }
+
     static let rowHeight: CGFloat = 20
 
+    /// One row per animated filter parameter, identified by where it lives.
+    ///
+    /// A filter's id and a parameter name, because two glows on one clip can
+    /// both animate intensity and the rows have to stay apart.
+    private struct FilterRow: Identifiable {
+        let id: String
+        let filterID: FilterNode.ID
+        let parameter: String
+        let title: String
+        let track: StoryboardCore.KeyframeTrack
+    }
+
+    private var filterRows: [FilterRow] {
+        Self.rows(for: filters, descriptor: filterDescriptor)
+    }
+
+    /// The rows a clip's filters contribute, by one rule.
+    ///
+    /// Shared with whoever sizes the editor: a height worked out separately
+    /// from what gets drawn is a height that eventually disagrees, and this
+    /// timeline has already been bitten by a frame promising less room than its
+    /// contents needed.
+    private static func rows(
+        for filters: [FilterNode],
+        descriptor: (String) -> FilterDescriptor?,
+    ) -> [FilterRow] {
+        filters.flatMap { filter -> [FilterRow] in
+            guard let descriptor = descriptor(filter.type) else { return [] }
+            return descriptor.parameters.compactMap { parameter in
+                guard let track = filter.animations[parameter.id], !track.isEmpty
+                else { return nil }
+                return FilterRow(
+                    id: "\(filter.id)/\(parameter.id)",
+                    filterID: filter.id,
+                    parameter: parameter.id,
+                    // Named by both, since a clip can carry two of the same
+                    // filter and "Intensity" alone would not say which.
+                    title: "\(descriptor.name) · \(parameter.name)",
+                    track: track,
+                )
+            }
+        }
+    }
+
+    /// How many rows a clip's animated filter parameters need.
+    static func animatedFilterRows(
+        of node: EffectNode,
+        descriptor: (String) -> FilterDescriptor?,
+    ) -> Int {
+        rows(for: node.filters, descriptor: descriptor).count
+    }
+
     /// How tall the rows are, so the timeline can make space.
+    ///
+    /// Static height is not enough once filters can add rows, so this is the
+    /// count for a clip with none — callers that know the clip use
+    /// ``height(forFilterRows:)``.
     static var height: CGFloat {
-        (rowHeight + Theme.Spacing.hair) * CGFloat(TransformProperty.allCases.count)
+        height(forFilterRows: 0)
+    }
+
+    static func height(forFilterRows extra: Int) -> CGFloat {
+        (rowHeight + Theme.Spacing.hair)
+            * CGFloat(TransformProperty.allCases.count + extra)
     }
 
     var body: some View {
@@ -44,7 +122,7 @@ struct KeyframeRows: View {
             // on.
             ForEach(TransformProperty.allCases, id: \.self) { property in
                 KeyframeRow(
-                    property: property,
+                    title: property.title,
                     track: node.transform[property],
                     nodeStart: node.startTime,
                     scale: scale,
@@ -62,13 +140,48 @@ struct KeyframeRows: View {
                     selectKey: { selectKey(property, $0) },
                 )
             }
+
+            // Then whatever the clip's filters are animating. The same row
+            // component, because a keyframe is a keyframe wherever it came
+            // from — dragging, easing and deleting all have to work the same
+            // way or the mode has two vocabularies.
+            ForEach(filterRows) { row in
+                KeyframeRow(
+                    title: row.title,
+                    track: row.track,
+                    nodeStart: node.startTime,
+                    scale: scale,
+                    headerWidth: headerWidth,
+                    localTime: localTime,
+                    playheadNow: playheadNow,
+                    isPlaying: isPlaying,
+                    addKeyframe: { addFilterKeyframe(row.filterID, row.parameter, $0) },
+                    moveKeyframe: { moveFilterKeyframe(row.filterID, row.parameter, $0, $1) },
+                    removeKeyframe: { removeFilterKeyframe(row.filterID, row.parameter, $0) },
+                    setEasing: { setFilterEasing(row.filterID, row.parameter, $0, $1) },
+                    setEnabled: { setFilterEnabled(row.filterID, row.parameter, $0) },
+                    clear: { clearFilter(row.filterID, row.parameter) },
+                    // Selecting a filter key is not wired up yet: the
+                    // inspector's key editor speaks `TransformProperty`, and
+                    // widening it is its own change.
+                    selectedKeyID: nil,
+                    selectKey: { _ in },
+                )
+            }
         }
     }
 }
 
 /// One property's keys, laid along the timeline.
-private struct KeyframeRow: View {
-    let property: TransformProperty
+struct KeyframeRow: View {
+    /// What this row animates, for the label and the tooltips.
+    ///
+    /// A title rather than a `TransformProperty`, which is all the row ever
+    /// used one for: everything else arrives as a track and a set of callbacks
+    /// with the property already applied. That makes the row reusable by
+    /// anything with keyframes — a filter's parameters included — instead of
+    /// needing a near-copy per kind of animated thing.
+    let title: String
     let track: StoryboardCore.KeyframeTrack
     /// The clip's position, since keyframe times are local to it.
     let nodeStart: Double
@@ -103,10 +216,10 @@ private struct KeyframeRow: View {
     }
 
     private var stopwatchHelp: String {
-        if track.isEmpty { return "Animate \(property.title)" }
+        if track.isEmpty { return "Animate \(title)" }
         return isAnimating
-            ? "Switch off \(property.title) animation (keys are kept)"
-            : "Switch \(property.title) animation back on"
+            ? "Switch off \(title) animation (keys are kept)"
+            : "Switch \(title) animation back on"
     }
 
     var body: some View {
@@ -129,7 +242,7 @@ private struct KeyframeRow: View {
                     }
                 }
 
-                Text(property.title)
+                Text(title)
                     .font(Theme.Typography.micro)
                     .foregroundStyle(
                         isAnimating ? Theme.Palette.secondary : Theme.Palette.tertiary,
