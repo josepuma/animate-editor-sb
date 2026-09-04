@@ -239,7 +239,17 @@ struct InspectorView: View {
         selectedFilterKeyframeSection(node)
         transformSection(node)
 
-        ForEach(descriptor.groups, id: \.self) { group in
+        // A group whose parameters are all conditioned out drops with them.
+        //
+        // Filtering only the controls left the heading behind — an empty
+        // "Shape" sitting under the sprite picker with nothing beneath it,
+        // which reads as something failing to load rather than as a group that
+        // does not apply.
+        ForEach(descriptor.groups.filter { group in
+            descriptor.parameters.contains {
+                $0.group == group && ($0.shownWhen?.holds(in: node.values) ?? true)
+            }
+        }, id: \.self) { group in
             FieldGroup(group) {
                 // Conditional parameters drop out when their condition does
                 // not hold: a ring's thickness on a square is a control that
@@ -1187,12 +1197,22 @@ private struct SpriteChoice: Hashable, Identifiable {
     /// back to a shape, which would silently claim the sprite is something it
     /// is not.
     init(path: String) {
-        if let known = Self.known.first(where: { $0.path == path }) {
+        if path.isEmpty {
+            self = Self.built
+        } else if let known = Self.known.first(where: { $0.path == path }) {
             self = known
         } else {
             self = SpriteChoice(id: "custom", title: "Custom", path: nil)
         }
     }
+
+    /// The particle built from the three shape numbers.
+    ///
+    /// An entry of its own rather than the *absence* of a sprite: it is the
+    /// first thing in the list, it says what the Shape group below is for, and
+    /// it is the only way back once a file has been picked. Stored as an empty
+    /// path, which is what "nothing overrides the numbers" means.
+    static let built = SpriteChoice(id: "built", title: "Built from Shape", path: "")
 
     /// Drawn in code: soft, generic, tinted by the effect.
     private static let shapes: [SpriteChoice] = [
@@ -1236,7 +1256,13 @@ private struct SpriteChoice: Hashable, Identifiable {
 
     private static let known = shapes + textures
 
-    static let all = known + [SpriteChoice(id: "custom", title: "Custom", path: nil)]
+    /// The parametric particle first, then the drawn shapes and the files.
+    ///
+    /// "Custom" stays last and keeps its `nil` path — it is a *label* for a
+    /// path typed into the field below, not something to choose. Every other
+    /// entry sets a path, including the built one, so the menu can always be
+    /// used to get back.
+    static let all = [built] + known + [SpriteChoice(id: "custom", title: "Custom", path: nil)]
 }
 
 // ─── Colour bridging ─────────────────────────────────────────────────────────

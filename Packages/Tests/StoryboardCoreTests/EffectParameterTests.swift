@@ -245,3 +245,58 @@ struct ParameterConditionTests {
         #expect(condition.holds(in: [:]))
     }
 }
+
+/// The particle's shape is reachable in both directions.
+///
+/// It shipped as the *absence* of a sprite path, which made it unreachable
+/// twice over: the menu had no entry for it, so picking any file was one-way,
+/// and its Shape group appeared with nothing to explain it.
+@Suite("Shape and sprite")
+struct ShapeAndSpriteTests {
+    /// An empty path is a real state the menu can return to, not a hole.
+    @Test("the built particle and a file are both expressible")
+    func bothStatesExist() {
+        var values = EmitterEffect.descriptor.defaultValues
+        let core = EmitterEffect.descriptor.parameter(EmitterEffect.Param.core)
+
+        // Fresh: built from the numbers.
+        #expect(core?.shownWhen?.holds(in: values) == true)
+
+        // A file: the numbers step aside.
+        values[EmitterEffect.Param.sprite] = .text(BuiltInSprite.star)
+        #expect(core?.shownWhen?.holds(in: values) == false)
+
+        // Back to empty: they return. A one-way trip was the bug.
+        values[EmitterEffect.Param.sprite] = .text("")
+        #expect(core?.shownWhen?.holds(in: values) == true)
+    }
+
+    /// Whether a group has anything left to draw, which is what decides if its
+    /// heading appears. An empty "Shape" under the sprite picker reads as
+    /// something failing to load rather than as a group that does not apply.
+    private func visibleGroups(
+        _ descriptor: EffectDescriptor, _ values: [String: EffectValue],
+    ) -> [String] {
+        descriptor.groups.filter { group in
+            descriptor.parameters.contains {
+                $0.group == group && ($0.shownWhen?.holds(in: values) ?? true)
+            }
+        }
+    }
+
+    @Test("a group with every parameter conditioned out disappears")
+    func emptyGroupsDrop() {
+        let descriptor = EmitterEffect.descriptor
+        var values = descriptor.defaultValues
+
+        #expect(visibleGroups(descriptor, values).contains("Shape"))
+
+        values[EmitterEffect.Param.sprite] = .text(BuiltInSprite.star)
+        #expect(
+            !visibleGroups(descriptor, values).contains("Shape"),
+            "Shape has nothing to show once a file overrides it",
+        )
+        // And the groups that do apply are untouched.
+        #expect(visibleGroups(descriptor, values).contains("Emission"))
+    }
+}
