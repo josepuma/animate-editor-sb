@@ -515,6 +515,82 @@ struct EmitterEffectTests {
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
+    // ─── Drag ────────────────────────────────────────────────────────────────
+
+    /// Distance from birth, so a comparison says how far a particle actually
+    /// travelled rather than where it happened to land.
+    private func travelled(_ sprite: StoryboardSprite) -> Double {
+        let dx = finalX(of: sprite) - sprite.defaultX
+        let dy = finalY(of: sprite) - sprite.defaultY
+        return (dx * dx + dy * dy).squareRoot()
+    }
+
+    private func straightDownwards(_ drag: Double) -> [StoryboardSprite] {
+        sprites([
+            EmitterEffect.Param.count: .integer(1),
+            EmitterEffect.Param.spread: .number(0),
+            EmitterEffect.Param.velocityRandom: .number(0),
+            EmitterEffect.Param.lifeRandom: .number(0),
+            EmitterEffect.Param.velocity: .number(150),
+            EmitterEffect.Param.life: .number(1600),
+            EmitterEffect.Param.drag: .number(drag),
+        ])
+    }
+
+    @Test("drag shortens the journey")
+    func dragSlows() throws {
+        let free = try #require(straightDownwards(0).first)
+        let dragged = try #require(straightDownwards(0.5).first)
+
+        #expect(travelled(dragged) < travelled(free))
+    }
+
+    /// **The bug this pins.** `Drag` was declared `0...1`, so the negative
+    /// values the Portals presets write were clamped away on read: `Tunnel`
+    /// asks for −0.25 and travelled as though it had none. Nobody noticed
+    /// because a tunnel without acceleration still looks like something
+    /// receding — the parameter had no test, which is how it stayed broken.
+    ///
+    /// Negative drag is what reads as *speed* rather than drift, and it comes
+    /// free: the same `(1 − e^(−kt)) / k` becomes growth when k flips sign.
+    @Test("negative drag accelerates instead of being clamped away")
+    func negativeDragAccelerates() throws {
+        let free = try #require(straightDownwards(0).first)
+        let accelerated = try #require(straightDownwards(-0.25).first)
+
+        #expect(travelled(accelerated) > travelled(free))
+    }
+
+    /// The floor exists because the displacement grows exponentially: at −1
+    /// over a long life a particle covers tens of thousands of times its
+    /// linear distance, which is a number rather than an effect.
+    @Test("the drag range admits acceleration without unbounded travel")
+    func dragRangeHasAFloor() throws {
+        let drag = try #require(
+            EmitterEffect.descriptor.parameters.first { $0.id == EmitterEffect.Param.drag },
+        )
+        let range = try #require(drag.range)
+
+        #expect(range.lowerBound < 0, "negative drag has to survive coercion")
+        #expect(range.lowerBound >= -0.3)
+    }
+
+    /// A curved path is split into segments; a straight one costs a single
+    /// command. Acceleration curves it just as gravity does, so the split has
+    /// to happen for a negative drag too — one straight command through an
+    /// accelerating path would draw the particle at a constant speed.
+    @Test("an accelerating path is split into segments")
+    func negativeDragCurvesThePath() throws {
+        let straight = try #require(straightDownwards(0).first)
+        let accelerated = try #require(straightDownwards(-0.25).first)
+
+        let straightMoves = straight.commands.filter { $0.kind == .move }.count
+        let acceleratedMoves = accelerated.commands.filter { $0.kind == .move }.count
+
+        #expect(straightMoves == 1)
+        #expect(acceleratedMoves > straightMoves)
+    }
+
     private func finalX(of sprite: StoryboardSprite) -> Double {
         guard case let .move(_, _, endX, _) = sprite.commands.last(where: { $0.kind == .move })?.payload
         else { return sprite.defaultX }

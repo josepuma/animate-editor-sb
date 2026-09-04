@@ -571,7 +571,13 @@ public struct EmitterEffect: Effect {
                 name: "Drag",
                 group: "Physics",
                 defaultValue: .number(0),
-                range: 0...1,
+                // Negative accelerates, which is what reads as speed rather
+                // than drift — a tunnel is particles rushing past, not
+                // particles wandering off. The floor is −0.3 because the
+                // displacement grows exponentially: at −1 over a long life a
+                // particle travels tens of thousands of times its linear
+                // distance, which is a number, not an effect.
+                range: -0.3...1,
                 step: 0.05,
                 presentation: .slider,
             ),
@@ -1145,14 +1151,16 @@ public struct EmitterEffect: Effect {
     ) -> (x: Double, y: Double) {
         let g = gravity / 1_000_000  // px/s² → px/ms²
 
-        guard drag > 0 else {
+        guard drag != 0 else {
             return (
                 x: startX + vx * time,
                 y: startY + vy * time + 0.5 * g * time * time
             )
         }
 
-        // Velocity decays as v·e^(−kt); distance is its integral.
+        // Velocity decays as v·e^(−kt); distance is its integral. A negative
+        // drag flips the sign of k, and the same expression becomes growth —
+        // acceleration comes free, with no second formula to keep in step.
         let k = drag / 200
         let decay = (1 - exp(-k * time)) / k
         return (
