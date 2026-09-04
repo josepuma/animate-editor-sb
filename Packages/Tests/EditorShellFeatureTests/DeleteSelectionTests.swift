@@ -59,3 +59,77 @@ struct DeleteSelectionTests {
         #expect(shell.effects[nodeID] == nil)
     }
 }
+
+/// The same rule, one kind of keyframe later.
+///
+/// A filter's key was invisible to `deleteSelection` exactly as a transform's
+/// once was — every selection the method can see has to be listed, or Delete
+/// quietly reaches past it for something bigger.
+@MainActor
+@Suite("Delete selection · filter keyframes")
+struct FilterDeleteSelectionTests {
+    private func model() -> (EditorShellModel, EffectNode.ID, FilterNode.ID, Keyframe.ID) {
+        let shell = EditorShellModel()
+        let node = shell.addEffect(EmitterEffect.descriptor, at: 0, duration: 2000)
+        let filter = shell.addFilter(GlowFilter.descriptor, to: node.id)!
+        shell.beginAnimatingFilter(
+            GlowFilter.Param.intensity, on: filter.id, in: node.id, at: 500,
+        )
+        let key = shell.filterAnimation(
+            GlowFilter.Param.intensity, on: filter.id, in: node.id,
+        )!.keyframes.first!
+        return (shell, node.id, filter.id, key.id)
+    }
+
+    @Test("Delete removes a selected filter keyframe")
+    func deleteRemovesFilterKey() {
+        let (shell, nodeID, filterID, keyID) = model()
+        shell.selectedFilterKeyframe = EditorShellModel.FilterKeyframeSelection(
+            nodeID: nodeID, filterID: filterID,
+            parameter: GlowFilter.Param.intensity, keyframeID: keyID,
+        )
+
+        shell.deleteSelection()
+
+        #expect(shell.filterAnimation(
+            GlowFilter.Param.intensity, on: filterID, in: nodeID,
+        ) == nil)
+    }
+
+    /// **The one that matters.** Delete must take the key and nothing else —
+    /// the clip and its filter have to survive. This is the shape of the bug
+    /// that once destroyed a whole clip.
+    @Test("Delete on a filter key spares the clip and the filter")
+    func deleteSparesTheClip() {
+        let (shell, nodeID, filterID, keyID) = model()
+        shell.selectedFilterKeyframe = EditorShellModel.FilterKeyframeSelection(
+            nodeID: nodeID, filterID: filterID,
+            parameter: GlowFilter.Param.intensity, keyframeID: keyID,
+        )
+
+        shell.deleteSelection()
+
+        #expect(shell.effects[nodeID] != nil, "the clip must survive")
+        #expect(
+            shell.effects[nodeID]?.filters.contains { $0.id == filterID } == true,
+            "the filter must survive",
+        )
+    }
+
+    /// With a key selected, Delete does not reach past it for the clip even
+    /// though the clip is selected too — it is selected only because its keys
+    /// are being edited.
+    @Test("a selected key wins over the clip that holds it")
+    func keyWinsOverClip() {
+        let (shell, nodeID, filterID, keyID) = model()
+        shell.selectedNodeID = nodeID
+        shell.selectedFilterKeyframe = EditorShellModel.FilterKeyframeSelection(
+            nodeID: nodeID, filterID: filterID,
+            parameter: GlowFilter.Param.intensity, keyframeID: keyID,
+        )
+
+        shell.deleteSelection()
+
+        #expect(shell.effects[nodeID] != nil)
+    }
+}

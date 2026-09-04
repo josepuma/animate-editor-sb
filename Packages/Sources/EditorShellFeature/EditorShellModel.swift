@@ -974,6 +974,20 @@ public final class EditorShellModel {
             return
         }
 
+        // A filter's key is just as narrow a selection, and was just as
+        // invisible here — the same bug one kind of keyframe later. Every
+        // selection this method can see has to be listed, or Delete quietly
+        // reaches past it for something bigger.
+        if let selection = selectedFilterKeyframe {
+            removeFilterKeyframe(
+                selection.keyframeID,
+                for: selection.parameter,
+                on: selection.filterID,
+                in: selection.nodeID,
+            )
+            return
+        }
+
         // In keyframe mode the clip is selected only because its keys are being
         // edited. Deleting it from under that is never what the key was aimed
         // at, so it takes leaving the mode first.
