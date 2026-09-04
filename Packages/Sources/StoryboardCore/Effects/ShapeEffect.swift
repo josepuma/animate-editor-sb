@@ -22,6 +22,12 @@ public struct ShapeEffect: Effect {
         public static let color = "color"
         public static let opacity = "opacity"
         public static let additive = "additive"
+        public static let fill = "fill"
+        public static let flipH = "flipH"
+        public static let flipV = "flipV"
+        public static let gradientAngle = "gradientAngle"
+        public static let gradientStart = "gradientStart"
+        public static let gradientEnd = "gradientEnd"
     }
 
     /// What gets drawn.
@@ -46,6 +52,28 @@ public struct ShapeEffect: Effect {
             case .ring: BuiltInSprite.hoop(thickness: thickness)
             }
         }
+
+        /// Which gradient shape this is, for the faded version of the image.
+        var gradientShape: BuiltInSprite.GradientShape {
+            switch self {
+            case .square: .square
+            case .circle: .circle
+            case .ring: .ring
+            }
+        }
+    }
+
+    /// How the shape is filled in.
+    ///
+    /// An enum rather than a "gradient" toggle, because a toggle is a two-case
+    /// enum that cannot grow: a pattern, a noise or a texture would have
+    /// nowhere to go, and adding a second toggle beside the first leaves two
+    /// controls free to contradict each other. It names the slot, not one of
+    /// its values, so anything added later joins the list without renaming
+    /// what is already there.
+    public enum Fill: String, CaseIterable, Sendable {
+        case solid = "Solid"
+        case gradient = "Gradient"
     }
 
     public static let descriptor = EffectDescriptor(
@@ -110,6 +138,80 @@ public struct ShapeEffect: Effect {
                 presentation: .slider,
                 shownWhen: .init(parameter: Param.kind, isAnyOf: [Kind.ring.rawValue]),
             ),
+            // A fade along a direction, in **alpha** rather than in colour.
+            //
+            // Every built-in image here is drawn white and tinted by its `_C`
+            // command, so one texture serves every colour and the tint stays
+            // animatable like any other property. Baking two colours in would
+            // mint a texture per pair and take the colour out of the author's
+            // hands — what this adds is *where* the shape is solid and where it
+            // is gone; what colour it is stays a keyframe.
+            EffectParameter(
+                id: Param.fill,
+                name: "Fill",
+                group: "Shape",
+                defaultValue: .choice(Fill.solid.rawValue),
+                options: Fill.allCases.map(\.rawValue),
+            ),
+            // Coarse on purpose, and this is what keeps the atlas finite: the
+            // ramp is drawn into the texture, so three axes multiply and a
+            // continuous slider would mint one at every value it passes
+            // through. Fifteen degrees of difference in a soft ramp is not a
+            // difference anyone can see.
+            EffectParameter(
+                id: Param.gradientAngle,
+                name: "Angle",
+                group: "Shape",
+                defaultValue: .number(0),
+                range: 0...345,
+                step: Double(BuiltInSprite.gradientAngleStep),
+                unit: "°",
+                presentation: .slider,
+                shownWhen: .init(parameter: Param.fill, isAnyOf: [Fill.gradient.rawValue]),
+            ),
+            // Where the fade begins and ends along that direction. Outside them
+            // the shape is held solid or clear, so the stops say *where the
+            // fade happens* rather than where the shape exists.
+            EffectParameter(
+                id: Param.gradientStart,
+                name: "Fade From",
+                group: "Shape",
+                defaultValue: .number(0),
+                range: 0...1,
+                step: Double(BuiltInSprite.gradientStopStep) / 100,
+                presentation: .slider,
+                shownWhen: .init(parameter: Param.fill, isAnyOf: [Fill.gradient.rawValue]),
+            ),
+            EffectParameter(
+                id: Param.gradientEnd,
+                name: "Fade To",
+                group: "Shape",
+                defaultValue: .number(1),
+                range: 0...1,
+                step: Double(BuiltInSprite.gradientStopStep) / 100,
+                presentation: .slider,
+                shownWhen: .init(parameter: Param.fill, isAnyOf: [Fill.gradient.rawValue]),
+            ),
+            // Mirroring, which is not the same as rotating.
+            //
+            // A rotation turns the shape *about its anchor*, so a left-anchored
+            // bar spun 180° swings off the far side of its own edge and leaves
+            // the stage. A flip inverts the image where it stands, which is
+            // what a mirrored pair actually wants — the second half of a
+            // symmetric layout, or a gradient that has to fall the other way
+            // without moving.
+            EffectParameter(
+                id: Param.flipH,
+                name: "Flip H",
+                group: "Appearance",
+                defaultValue: .toggle(false),
+            ),
+            EffectParameter(
+                id: Param.flipV,
+                name: "Flip V",
+                group: "Appearance",
+                defaultValue: .toggle(false),
+            ),
             EffectParameter(
                 id: Param.color,
                 name: "Colour",
@@ -140,6 +242,25 @@ public struct ShapeEffect: Effect {
     /// Stated here because `StoryboardCore` cannot see the renderer that draws
     /// them. A test checks the two agree — a mismatch would make every shape
     /// come out at the wrong size, and nothing would say why.
+    /// The image a shape draws with, faded or not.
+    ///
+    /// The ramp is drawn *into* the texture, because the format has nothing
+    /// that could fade one side of a sprite after the fact — the same reason a
+    /// ring's weight is part of its image.
+    private static func image(for kind: Kind, context: EffectContext) -> String {
+        let thickness = context.number(Param.thickness)
+        guard Fill(rawValue: context.choice(Param.fill)) == .gradient else {
+            return kind.sprite(thickness: thickness)
+        }
+        return BuiltInSprite.gradient(
+            shape: kind.gradientShape,
+            angle: context.number(Param.gradientAngle),
+            start: context.number(Param.gradientStart),
+            end: context.number(Param.gradientEnd),
+            thickness: thickness,
+        )
+    }
+
     public static func sourceSize(for kind: Kind) -> Double {
         switch kind {
         // Round shapes are drawn large: a curve magnified six times becomes a
@@ -147,6 +268,17 @@ public struct ShapeEffect: Effect {
         case .circle, .ring: 512
         case .square: 64
         }
+    }
+
+    /// The size the image is actually drawn at, which a gradient changes.
+    ///
+    /// A ramp needs the texels for a different reason than a curve does: it is
+    /// the *stretch* that bands, not the magnification of an edge. So a faded
+    /// square is drawn large where a solid one does not need to be.
+    static func sourceSize(for kind: Kind, fill: Fill) -> Double {
+        fill == .gradient
+            ? max(sourceSize(for: kind), BuiltInSprite.gradientSourceSize)
+            : sourceSize(for: kind)
     }
 
     /// Kept for the tests that check one number against the renderer.
@@ -166,7 +298,7 @@ public struct ShapeEffect: Effect {
             id: "\(context.idPrefix)/shape",
             layer: .foreground,
             origin: Origin(osbName: context.choice(Param.origin)),
-            filePath: kind.sprite(thickness: context.number(Param.thickness)),
+            filePath: Self.image(for: kind, context: context),
             defaultX: TransformProperty.x.defaultValue,
             defaultY: TransformProperty.y.defaultValue,
         )
@@ -188,7 +320,10 @@ public struct ShapeEffect: Effect {
         // `_V`, because a shape is a size rather than a scale: the two axes are
         // set independently and a bar is nothing but a rectangle with very
         // different ones.
-        let source = Self.sourceSize(for: kind)
+        let source = Self.sourceSize(
+            for: kind,
+            fill: Fill(rawValue: context.choice(Param.fill)) ?? .solid,
+        )
         let scaleX = width / source
         let scaleY = height / source
         sprite.commands.append(Command(
@@ -219,6 +354,25 @@ public struct ShapeEffect: Effect {
                 startTime: 0,
                 endTime: duration,
                 payload: .parameter(.additive),
+            ))
+        }
+
+        // Held for the whole clip, like the additive flag: a mirror is what the
+        // shape *is*, not something it does partway through.
+        if context.toggle(Param.flipH) {
+            sprite.commands.append(Command(
+                easing: .linear,
+                startTime: 0,
+                endTime: duration,
+                payload: .parameter(.flipHorizontal),
+            ))
+        }
+        if context.toggle(Param.flipV) {
+            sprite.commands.append(Command(
+                easing: .linear,
+                startTime: 0,
+                endTime: duration,
+                payload: .parameter(.flipVertical),
             ))
         }
 

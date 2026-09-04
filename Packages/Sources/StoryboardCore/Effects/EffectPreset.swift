@@ -168,6 +168,104 @@ public enum BuiltInSprite {
         return (Double(core) / 100, Double(edge) / 100, Double(falloff) / 100)
     }
 
+    /// A shape that fades out along a direction, as an **alpha** ramp.
+    ///
+    /// The gradient is in opacity, never in colour. Every built-in image in
+    /// this system is drawn white and tinted by its `_C` command, so one
+    /// texture serves every colour and the tint stays animatable like any other
+    /// property — baking two colours in would mint a texture per pair and take
+    /// the colour out of the author's hands. What this adds is *where* the
+    /// shape is solid and where it is gone; what colour it is stays a keyframe.
+    ///
+    /// - Parameters:
+    ///   - angle: which way the fade runs, in degrees. 0 is left-to-right.
+    ///   - start: how far along before it begins to fade, 0…1.
+    ///   - end: how far along it is fully transparent, 0…1.
+    ///
+    /// Quantised coarsely — 15° and 5% — for the reason the hoop and the
+    /// derived blur are, and then some: this has *three* axes, and each one
+    /// multiplies. Fine steps here are precision nobody can see: fifteen
+    /// degrees of difference in a soft ramp is not a difference, and a
+    /// continuous slider would mint a texture at every value it passes through
+    /// while the atlas has a fixed size.
+    /// Which drawn shape a gradient rides on.
+    ///
+    /// A name, not a path: the ring's own path already carries its thickness,
+    /// and threading that through would spell the weight twice in one filename
+    /// and leave the two free to disagree.
+    public enum GradientShape: String, Sendable, CaseIterable {
+        case square = "fill"
+        case circle = "disc"
+        case ring = "hoop"
+    }
+
+    /// - Parameter shape: which drawn shape the ramp rides on. The fade
+    ///   multiplies the shape's alpha rather than replacing it, so a circle
+    ///   stays a circle — a ramp drawn on its own would give a rectangle
+    ///   whatever shape was asked for.
+    public static func gradient(
+        shape: GradientShape,
+        angle: Double,
+        start: Double,
+        end: Double,
+        thickness: Double = 0.12,
+    ) -> String {
+        let degrees = Self.gradientAngleStep
+            * Int((angle.truncatingRemainder(dividingBy: 360) + 360)
+                .truncatingRemainder(dividingBy: 360) / Double(Self.gradientAngleStep))
+        // Only a ring has a weight to name. Spelling one on the others would be
+        // a number in the path that changes nothing about the image.
+        let weight = shape == .ring
+            ? "-t\(Int((min(max(thickness, 0.01), 0.5) * 100).rounded()))"
+            : ""
+        return "__builtin__/g\(shape.rawValue)-\(degrees)"
+            + "-\(gradientStop(start))-\(gradientStop(end))\(weight).png"
+    }
+
+    /// Degrees between one gradient angle and the next.
+    public static let gradientAngleStep = 15
+
+    /// Percent between one gradient stop and the next.
+    public static let gradientStopStep = 5
+
+    /// How many texels across a gradient texture is drawn.
+    ///
+    /// Large because of the *stretch*, not the shape. A ramp is stored in 8
+    /// bits, so a 64-texel source advances four to six levels per texel — blown
+    /// up to a full-width bar that is 13 pixels between neighbours, with the
+    /// interpolation running straight between them. The slope changes abruptly
+    /// at every texel, and those kinks are what reads as banding. At 512 each
+    /// step is half a level and the kinks land under two pixels apart.
+    ///
+    /// Stated here because Core is what scales by it, and the renderer cannot
+    /// be seen from here. A test cross-checks the two.
+    public static let gradientSourceSize: Double = 512
+
+    private static func gradientStop(_ value: Double) -> Int {
+        let percent = min(max(value, 0), 1) * 100
+        return Self.gradientStopStep * Int((percent / Double(Self.gradientStopStep)).rounded())
+    }
+
+    /// The shape and numbers behind a gradient path, or `nil`.
+    public static func gradientProfile(
+        _ path: String,
+    ) -> (shape: GradientShape, angle: Double, start: Double, end: Double, thickness: Double)? {
+        let prefix = "__builtin__/g"
+        guard path.hasPrefix(prefix), path.hasSuffix(".png") else { return nil }
+        let body = path.dropFirst(prefix.count).dropLast(".png".count)
+        let parts = body.split(separator: "-")
+        guard parts.count >= 4,
+              let shape = GradientShape(rawValue: String(parts[0])),
+              let angle = Int(parts[1]), let start = Int(parts[2]), let end = Int(parts[3])
+        else { return nil }
+
+        var thickness = 0.12
+        if parts.count > 4, parts[4].hasPrefix("t"), let percent = Int(parts[4].dropFirst()) {
+            thickness = Double(percent) / 100
+        }
+        return (shape, Double(angle), Double(start) / 100, Double(end) / 100, thickness)
+    }
+
     public static let shapes = [soft, glow, smoke, star, square, streak, ring, fill, disc]
 
     /// Textures shipped as files, for the shapes code cannot draw — a branching

@@ -208,6 +208,20 @@ public enum BuiltInTextures {
                 ))
             }
         }
+        // A shape that fades along a direction. The ramp is in alpha, so the
+        // `_C` tint still decides the colour.
+        if let profile = BuiltInSprite.gradientProfile(filePath) {
+            return cached(filePath) {
+                // Core names the shape with its own enum because it cannot
+                // see this one; the raw values are the same names, and a test
+                // checks the two lists agree.
+                encode(drawGradient(
+                    Shape(rawValue: profile.shape.rawValue) ?? .fill,
+                    angle: profile.angle, start: profile.start, end: profile.end,
+                    thickness: profile.thickness,
+                ))
+            }
+        }
         if let shape = Shape(path: filePath) {
             return cached(filePath) { encode(draw(shape, size: size(for: shape))) }
         }
@@ -366,6 +380,106 @@ public enum BuiltInTextures {
     /// A ring is `core: 0`, a flat disc is `core: 1, edge: 1, falloff: 0`, and
     /// a bokeh is the case that could not be expressed before: a centre dimmer
     /// than its own rim.
+    /// A rectangle whose opacity ramps along a direction.
+    ///
+    /// White throughout — the ramp is in **alpha**, never in colour. Every
+    /// built-in image here is drawn white and tinted by its `_C` command, so
+    /// one texture serves every colour and the tint stays animatable. Baking
+    /// two colours in would mint a texture per pair and take the colour out of
+    /// the author's hands.
+    ///
+    /// Square-edged like `fill`, and for the same reason: a shape is judged by
+    /// where it ends, and a stretched bar would stretch a soft margin with it
+    /// until the ends came out faded.
+    private static func drawGradient(
+        _ shape: Shape,
+        angle degrees: Double, start: Double, end: Double,
+        thickness: Double,
+    ) -> CGImage? {
+        // Large, and the reason is the *stretch* rather than the shape.
+        //
+        // A ramp is stored in 8 bits, so a source of 64 texels advances four to
+        // six levels per texel. Blown up to a full-width bar that is 13 pixels
+        // between one texel and the next, with the interpolation running
+        // straight between them — so the slope changes abruptly every 13
+        // pixels, and those kinks are the bands you see. Not one-level steps,
+        // which is why sub-level dither does nothing for them: noise of ±1
+        // cannot hide a jump of 6.
+        //
+        // At 512 each step is half a level and the kinks land under two pixels
+        // apart, which is below what the eye resolves.
+        //
+        // The number comes from Core, which is what scales by it: a texture
+        // drawn at a size Core does not expect comes out scaled wrong, with
+        // nothing on screen to explain it. A test cross-checks the two.
+        let side = max(size(for: shape), Int(BuiltInSprite.gradientSourceSize))
+        let extent = CGFloat(side)
+        guard let context = makeContext(size: side) else { return nil }
+
+        // A stop pair that does not advance has no ramp to draw: it is a hard
+        // edge, and drawing it as a zero-length gradient is undefined. Nudged
+        // apart by the smallest step the quantiser can express.
+        let from = CGFloat(min(max(start, 0), 1))
+        let to = CGFloat(min(max(end, 0), 1))
+        let (low, high) = from <= to ? (from, to) : (to, from)
+        let span = max(high - low, 0.001)
+
+        guard let gradient = CGGradient(
+            colorsSpace: CGColorSpaceCreateDeviceRGB(),
+            colors: [white(1), white(0)] as CFArray,
+            locations: [0, 1],
+        ) else { return nil }
+
+        // The ramp runs along the angle, reaching exactly as far as the square
+        // does *in that direction*.
+        //
+        // A fixed diagonal is the obvious choice and it is wrong: at 0° it
+        // overshoots the width by 41%, so the ramp has already spent a seventh
+        // of itself before reaching the left edge and the solid end measures
+        // 0.85 instead of 1. Projecting the square onto the axis — |cos|+|sin|
+        // — gives 1 across a side and √2 across a corner, which is edge to edge
+        // at every angle.
+        let radians = CGFloat(degrees) * .pi / 180
+        let axis = CGPoint(x: cos(radians), y: sin(radians))
+        let centre = CGPoint(x: extent / 2, y: extent / 2)
+        let reach = extent / 2 * (abs(axis.x) + abs(axis.y))
+
+        let originPoint = CGPoint(
+            x: centre.x - axis.x * reach + axis.x * 2 * reach * low,
+            y: centre.y - axis.y * reach + axis.y * 2 * reach * low,
+        )
+        let endPoint = CGPoint(
+            x: originPoint.x + axis.x * 2 * reach * span,
+            y: originPoint.y + axis.y * 2 * reach * span,
+        )
+
+        // The shape first, then the ramp multiplied into its alpha.
+        //
+        // `.destinationIn` keeps what is already drawn and scales its opacity
+        // by what arrives, so a disc stays a disc and a hoop stays a hoop —
+        // the fade rides on the shape rather than replacing it. Drawing the
+        // ramp on its own would give a rectangle whatever shape was asked for.
+        switch shape {
+        case .fill: drawFill(in: context, extent: extent)
+        case .disc: drawDisc(in: context, extent: extent)
+        case .hoop: drawHoop(in: context, extent: extent, thickness: CGFloat(thickness))
+        default: drawFill(in: context, extent: extent)
+        }
+
+        context.setBlendMode(.destinationIn)
+        context.drawLinearGradient(
+            gradient,
+            start: originPoint,
+            end: endPoint,
+            // Held at full opacity before the first stop and fully clear after
+            // the last, so the stops mean "where the fade happens" rather than
+            // "where the shape exists".
+            options: [.drawsBeforeStartLocation, .drawsAfterEndLocation],
+        )
+
+        return context.makeImage()
+    }
+
     private static func drawParticle(
         core: Double, edge: Double, falloff: Double,
     ) -> CGImage? {

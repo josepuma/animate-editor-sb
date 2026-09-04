@@ -166,6 +166,140 @@ struct ShapeEffectTests {
         #expect(abs(endY - expectedY * 2) < 0.01)
     }
 
+    // ─── Fill ────────────────────────────────────────────────────────────────
+
+    /// Solid is the default, so a shape dropped on the canvas is the plain one.
+    /// A fill that faded out of the box would be a decision made for the author
+    /// that they would have to find and undo.
+    @Test("a shape is solid unless asked otherwise")
+    func solidByDefault() {
+        let sprites = evaluator.evaluate(node())
+        #expect(sprites.first?.filePath == ShapeEffect.Kind.square.sprite(thickness: 0.12))
+    }
+
+    @Test("a gradient fill names a gradient image", arguments: ShapeEffect.Kind.allCases)
+    func gradientFillNamesAGradient(kind: ShapeEffect.Kind) throws {
+        let sprites = evaluator.evaluate(node([
+            ShapeEffect.Param.kind: .choice(kind.rawValue),
+            ShapeEffect.Param.fill: .choice(ShapeEffect.Fill.gradient.rawValue),
+        ]))
+
+        let path = try #require(sprites.first?.filePath)
+        let profile = try #require(
+            BuiltInSprite.gradientProfile(path), "\(path) is not a gradient",
+        )
+        #expect(profile.shape == kind.gradientShape)
+    }
+
+    /// The angle and stops are the author's, so they have to reach the image —
+    /// a parameter the effect reads and then ignores is a slider that lies.
+    @Test("the gradient parameters reach the image")
+    func gradientParametersReachTheImage() throws {
+        let sprites = evaluator.evaluate(node([
+            ShapeEffect.Param.fill: .choice(ShapeEffect.Fill.gradient.rawValue),
+            ShapeEffect.Param.gradientAngle: .number(90),
+            ShapeEffect.Param.gradientStart: .number(0.25),
+            ShapeEffect.Param.gradientEnd: .number(0.75),
+        ]))
+
+        let path = try #require(sprites.first?.filePath)
+        let profile = try #require(BuiltInSprite.gradientProfile(path))
+        #expect(profile.angle == 90)
+        #expect(abs(profile.start - 0.25) < 0.001)
+        #expect(abs(profile.end - 0.75) < 0.001)
+    }
+
+    /// The gradient's own controls belong to a gradient and nothing else — the
+    /// same rule thickness follows, and the reason `Fill` is an enum rather than
+    /// a toggle: a slot that can grow keeps its conditions in one place.
+    @Test(
+        "the gradient controls show only for a gradient",
+        arguments: [
+            ShapeEffect.Param.gradientAngle,
+            ShapeEffect.Param.gradientStart,
+            ShapeEffect.Param.gradientEnd,
+        ],
+    )
+    func gradientControlsAreConditional(id: String) throws {
+        let parameter = try #require(ShapeEffect.descriptor.parameters.first { $0.id == id })
+        let condition = try #require(parameter.shownWhen)
+
+        for fill in ShapeEffect.Fill.allCases {
+            let values: [String: EffectValue] = [ShapeEffect.Param.fill: .choice(fill.rawValue)]
+            #expect(condition.holds(in: values) == (fill == .gradient), "wrong for \(fill)")
+        }
+    }
+
+    // ─── Mirroring ───────────────────────────────────────────────────────────
+
+    /// **A flip is not a rotation**, and this is the case that shows it.
+    ///
+    /// A rotation turns the shape about its anchor, so a left-anchored bar spun
+    /// 180° swings off the far side of its own edge and leaves the stage — the
+    /// image does invert, and it inverts somewhere nobody can see. A flip
+    /// mirrors it where it stands.
+    @Test("flipping writes a mirror command and does not move the shape")
+    func flipMirrorsInPlace() throws {
+        let plain = try #require(evaluator.evaluate(node()).first)
+        let flipped = try #require(evaluator.evaluate(node([
+            ShapeEffect.Param.flipH: .toggle(true),
+        ])).first)
+
+        #expect(flipped.defaultX == plain.defaultX, "a mirror does not move it")
+        #expect(flipped.commands.contains { { if case .parameter(.flipHorizontal) = $0.payload { true } else { false } }($0) })
+        #expect(!plain.commands.contains { { if case .parameter(.flipHorizontal) = $0.payload { true } else { false } }($0) })
+    }
+
+    @Test("the vertical flip is its own toggle")
+    func verticalFlipIsSeparate() throws {
+        let sprite = try #require(evaluator.evaluate(node([
+            ShapeEffect.Param.flipV: .toggle(true),
+        ])).first)
+
+        #expect(sprite.commands.contains { { if case .parameter(.flipVertical) = $0.payload { true } else { false } }($0) })
+        #expect(!sprite.commands.contains { { if case .parameter(.flipHorizontal) = $0.payload { true } else { false } }($0) })
+    }
+
+    /// Both at once is a half turn — and unlike an actual rotation it stays
+    /// where it is, which is the whole reason these exist.
+    @Test("both axes mirror together")
+    func bothAxesMirror() throws {
+        let sprite = try #require(evaluator.evaluate(node([
+            ShapeEffect.Param.flipH: .toggle(true),
+            ShapeEffect.Param.flipV: .toggle(true),
+        ])).first)
+
+        #expect(sprite.commands.contains { { if case .parameter(.flipHorizontal) = $0.payload { true } else { false } }($0) })
+        #expect(sprite.commands.contains { { if case .parameter(.flipVertical) = $0.payload { true } else { false } }($0) })
+    }
+
+    /// Off writes nothing: a command that changes nothing is a line in the file
+    /// for nothing, multiplied by every shape in the storyboard — the same rule
+    /// white already follows for colour.
+    @Test("not flipping writes no command")
+    func noFlipIsFree() {
+        let commands = evaluator.evaluate(node()).flatMap(\.commands)
+        #expect(!commands.contains { $0.kind == .parameter })
+    }
+
+    /// A mirrored gradient is the case this was added for: the ramp has to fall
+    /// the other way without the shape moving.
+    @Test("a flipped gradient keeps its place")
+    func flippedGradientStaysPut() throws {
+        let values: [String: EffectValue] = [
+            ShapeEffect.Param.fill: .choice(ShapeEffect.Fill.gradient.rawValue),
+            ShapeEffect.Param.origin: .choice(Origin.centreLeft.rawValue),
+        ]
+        let plain = try #require(evaluator.evaluate(node(values)).first)
+
+        var mirrored = values
+        mirrored[ShapeEffect.Param.flipH] = .toggle(true)
+        let flipped = try #require(evaluator.evaluate(node(mirrored)).first)
+
+        #expect(flipped.defaultX == plain.defaultX)
+        #expect(flipped.filePath == plain.filePath, "a mirror is free — no second texture")
+    }
+
     /// Thickness belongs to a ring and nothing else.
     ///
     /// A slider that does nothing is a control that lies, and the condition is
@@ -187,9 +321,30 @@ struct ShapeEffectTests {
 
     /// A parameter with no condition is always shown — the default has to be
     /// "visible", or adding the mechanism would hide every existing control.
+    ///
+    /// Named rather than counted. A count breaks whenever a conditional
+    /// parameter is legitimately added — it did when the gradient arrived —
+    /// and it never checked what the line above promises: that the
+    /// *unconditional* ones stay unconditional.
     @Test("unconditional parameters are unaffected")
     func plainParametersAlwaysShow() {
-        let unconditional = ShapeEffect.descriptor.parameters.filter { $0.shownWhen == nil }
-        #expect(unconditional.count == ShapeEffect.descriptor.parameters.count - 1)
+        let alwaysShown = [
+            ShapeEffect.Param.kind,
+            ShapeEffect.Param.origin,
+            ShapeEffect.Param.width,
+            ShapeEffect.Param.height,
+            ShapeEffect.Param.fill,
+            ShapeEffect.Param.flipH,
+            ShapeEffect.Param.flipV,
+            ShapeEffect.Param.color,
+            ShapeEffect.Param.opacity,
+            ShapeEffect.Param.additive,
+        ]
+
+        for id in alwaysShown {
+            let parameter = ShapeEffect.descriptor.parameters.first { $0.id == id }
+            #expect(parameter != nil, "\(id) is not a parameter")
+            #expect(parameter?.shownWhen == nil, "\(id) grew a condition")
+        }
     }
 }
