@@ -132,15 +132,28 @@ struct SelectionBox: View {
             height: bounds.height * scale,
         )
 
-        // Grown about its own centre, so a resize reads as the clip growing
-        // rather than as the box sliding off one corner.
+        // Grown about the clip's own position, which is where the sprite
+        // grows from.
+        //
+        // This used to grow about the centre of the box, and that is only the
+        // same point when the origin is `Centre`. With `CentreLeft` the sprite
+        // scales rightwards off its position while the frame spread evenly to
+        // both sides: the preview showed one thing and the release committed
+        // another, which is the frame lying about what a drag will do.
+        //
+        // Falls back to the centre when there is no clip position, which is
+        // exactly what it did before asking.
         if liveScaleX != 1 || liveScaleY != 1 {
-            let centre = CGPoint(x: raw.midX, y: raw.midY)
+            let pivot = scalePivot(in: raw)
+            let corner = raw.origin
             raw.size = CGSize(
                 width: raw.width * liveScaleX,
                 height: raw.height * liveScaleY,
             )
-            raw.origin = CGPoint(x: centre.x - raw.width / 2, y: centre.y - raw.height / 2)
+            raw.origin = CGPoint(
+                x: pivot.x - (pivot.x - corner.x) * liveScaleX,
+                y: pivot.y - (pivot.y - corner.y) * liveScaleY,
+            )
         }
         raw = raw.offsetBy(dx: liveOffset.width, dy: liveOffset.height)
 
@@ -528,6 +541,22 @@ struct SelectionBox: View {
         box.width < Self.crowdedSize || box.height < Self.crowdedSize
     }
 
+    /// The point a live resize grows away from, in view coordinates.
+    ///
+    /// The clip's own position, because that is where the sprite scales from —
+    /// the anchor is applied to the half-extent, so a `CentreLeft` sprite grows
+    /// rightwards and a `Centre` one grows both ways.
+    ///
+    /// The centre of the box when there is no position to use, which is what
+    /// this did before it asked and is right for the centred case.
+    private func scalePivot(in box: CGRect) -> CGPoint {
+        guard let origin else { return CGPoint(x: box.midX, y: box.midY) }
+        return CGPoint(
+            x: (origin.x + Double(OsuCanvas.xOffset)) * scale,
+            y: origin.y * scale,
+        )
+    }
+
     /// Where the grip sits inside the box, derived from the stage.
     ///
     /// The clip's own position, converted into the box's space — never the
@@ -540,13 +569,19 @@ struct SelectionBox: View {
     /// `nil` when the point falls outside the box, which is a clip dragged far
     /// enough that its origin is off the visible frame. Drawing it there would
     /// put a grip outside the thing it belongs to.
+    ///
+    /// The bound is the box itself, not the box less the grip's radius. Any
+    /// origin but `Centre` puts the clip's position *on* an edge — `CentreLeft`
+    /// on the left one, `TopLeft` on a corner — and a radius of margin rejected
+    /// exactly those, so the grip disappeared for eight origins out of nine.
+    /// Half a circle hanging over the frame is the honest picture of a sprite
+    /// anchored to its edge.
     private func gripPointInBox(_ box: CGRect) -> CGPoint? {
         guard let point = stageGripPoint else { return nil }
         let inBox = CGPoint(x: point.x - box.minX, y: point.y - box.minY)
 
-        let radius = Double(Self.gripSize) / 2
-        guard inBox.x >= radius, inBox.x <= box.width - radius,
-              inBox.y >= radius, inBox.y <= box.height - radius
+        guard inBox.x >= 0, inBox.x <= box.width,
+              inBox.y >= 0, inBox.y <= box.height
         else { return nil }
 
         return inBox
