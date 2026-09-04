@@ -654,3 +654,69 @@ struct FilterKeyframeSelectionTests {
         #expect(shell.selectedFilterKeyframe == nil)
     }
 }
+
+/// What the inspector describes while the keyframe editor is open.
+///
+/// The two halves of the window have to agree about what is selected. They once
+/// did not: the timeline showed a clip's properties and its filters' keys while
+/// the inspector fell back to the lane and showed a track's name and layer.
+@MainActor
+@Suite("Keyframe mode selection")
+struct KeyframeModeSelectionTests {
+    private func model() -> (EditorShellModel, EffectNode.ID) {
+        let shell = EditorShellModel()
+        let node = shell.addEffect(EmitterEffect.descriptor, at: 0, duration: 2000)
+        return (shell, node.id)
+    }
+
+    /// The mode opens on one clip and fills the timeline with its properties,
+    /// so there is nothing ambiguous about which the panel should describe.
+    @Test("the clip being keyframed answers as the selection")
+    func keyframeClipIsTheSelection() {
+        let (shell, nodeID) = model()
+        shell.selectedNodeID = nil
+        shell.keyframeNodeID = nodeID
+
+        #expect(shell.selectedEffect?.id == nodeID)
+        #expect(shell.selectedDescriptor != nil)
+    }
+
+    /// An explicit selection still wins — this is a fallback, not an override.
+    @Test("an explicitly selected clip still wins")
+    func explicitSelectionWins() {
+        let shell = EditorShellModel()
+        let first = shell.addEffect(EmitterEffect.descriptor, at: 0, duration: 1000)
+        let second = shell.addEffect(EmitterEffect.descriptor, at: 2000, duration: 1000)
+
+        shell.keyframeNodeID = first.id
+        shell.selectedNodeID = second.id
+
+        #expect(shell.selectedEffect?.id == second.id)
+    }
+
+    /// Outside the mode the panel still empties on deselection. The shortcut
+    /// removed earlier — a lane's only effect answering for it — guessed at a
+    /// clip nothing had chosen; this one names the clip a mode was opened on,
+    /// and must not bring the guess back.
+    @Test("deselecting outside the mode still empties the panel")
+    func deselectingStillEmpties() {
+        let (shell, _) = model()
+        shell.selectedNodeID = nil
+        shell.keyframeNodeID = nil
+
+        #expect(shell.selectedEffect == nil)
+    }
+
+    /// Leaving the mode releases it, so the panel does not go on describing a
+    /// clip whose rows are no longer on screen.
+    @Test("leaving the mode releases the fallback")
+    func leavingTheModeReleases() {
+        let (shell, nodeID) = model()
+        shell.selectedNodeID = nil
+        shell.keyframeNodeID = nodeID
+        #expect(shell.selectedEffect != nil)
+
+        shell.keyframeNodeID = nil
+        #expect(shell.selectedEffect == nil)
+    }
+}

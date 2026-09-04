@@ -407,6 +407,20 @@ public final class EditorShellModel {
     public var selectedEffect: EffectNode? {
         if let selectedNodeID, let node = effects[selectedNodeID] { return node }
 
+        // In keyframe mode, the clip being edited *is* the selection.
+        //
+        // The mode opens on one clip and fills the timeline with its
+        // properties, so there is nothing ambiguous about which one the panel
+        // should describe — and the rows on screen name it. Without this the
+        // inspector fell back to the lane and showed a track's name and layer
+        // while the timeline underneath was plainly editing a clip's Glow: two
+        // halves of the window disagreeing about what is selected.
+        //
+        // This is not the "lane's only effect" shortcut removed below. That one
+        // guessed at a clip nothing had chosen; this one names the clip the mode
+        // was opened on.
+        if let keyframeNodeID, let node = effects[keyframeNodeID] { return node }
+
         // No clip selected means no clip's parameters.
         //
         // A lane's only effect used to answer here, so a row holding one clip
