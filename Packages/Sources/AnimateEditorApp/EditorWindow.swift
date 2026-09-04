@@ -43,6 +43,7 @@ struct EditorWindow: View {
                 shell.applyCanvasDrag(
                     dx: drag.dx, dy: drag.dy,
                     scaleX: drag.scaleX, scaleY: drag.scaleY,
+                    isStretch: drag.isStretch,
                     isFinished: drag.isFinished, at: playback.currentTime,
                 )
             },

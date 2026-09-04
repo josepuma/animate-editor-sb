@@ -1241,6 +1241,7 @@ public final class EditorShellModel {
         dy: Double,
         scaleX: Double,
         scaleY: Double,
+        isStretch: Bool = false,
         isFinished: Bool,
         at time: Double,
     ) {
@@ -1267,13 +1268,19 @@ public final class EditorShellModel {
 
         if dx != 0 { write(origin.x + dx, for: .x, on: &updated, at: local) }
         if dy != 0 { write(origin.y + dy, for: .y, on: &updated, at: local) }
-        // Both axes, so a uniform corner drag stays uniform and a side drag can
-        // stretch one on its own — unless the axes are linked, in which case a
-        // side handle scales the pair. The lock has to mean the same thing on
-        // the canvas as it does in the panel, or the two disagree about what a
-        // side handle does.
-        let linkedX = scaleIsLinked && scaleY != 1 ? scaleY : scaleX
-        let linkedY = scaleIsLinked && scaleX != 1 ? scaleX : scaleY
+        // A corner keeps both axes together; a side stretches one on its own.
+        //
+        // The lock governs corners, not sides. Dragging a corner means "make
+        // it bigger", so the pair moves together — but a side handle exists to
+        // stretch one axis, and one that obeyed the lock was a second corner:
+        // the frame showed one axis growing and the clip came out uniform, so
+        // the preview promised something the commit would not honour.
+        //
+        // Which one it was is *passed*, never read off the values: a side
+        // dragged back to exactly 1.0 looks like a corner from here.
+        let stretching = isStretch
+        let linkedX = !stretching && scaleIsLinked && scaleY != 1 ? scaleY : scaleX
+        let linkedY = !stretching && scaleIsLinked && scaleX != 1 ? scaleX : scaleY
 
         if linkedX != 1 { write(origin.scaleX * linkedX, for: .scaleX, on: &updated, at: local) }
         if linkedY != 1 { write(origin.scaleY * linkedY, for: .scaleY, on: &updated, at: local) }
