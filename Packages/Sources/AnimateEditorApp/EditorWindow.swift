@@ -38,6 +38,7 @@ struct EditorWindow: View {
             // in this body rebuilds the whole window on every selection, and
             // the value is only ever consulted when a drag begins.
             isClipLocked: false,
+            clipOrigin: { shell.clipOrigin },
             onClipDrag: { drag in
                 shell.applyCanvasDrag(
                     dx: drag.dx, dy: drag.dy,

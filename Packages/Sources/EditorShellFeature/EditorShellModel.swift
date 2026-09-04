@@ -1152,6 +1152,30 @@ public final class EditorShellModel {
     )?
 
     /// Records where a canvas drag began, once per gesture.
+    /// Where the selected clip sits, in stage units, or `nil` when nothing is
+    /// selected.
+    ///
+    /// The grip on the canvas is drawn here rather than at the centre of the
+    /// selection box, because for anything that travels the two are different
+    /// places. A radial burst is the clearest case: it is emitted from one
+    /// point and its box is the whole spray, several times the width of the
+    /// stage and centred nowhere near the emitter — so a grip at the box
+    /// centre sat away from the convergence the eye is looking at, and moving
+    /// the clip appeared to send it somewhere unrelated.
+    ///
+    /// `@ObservationIgnored` on purpose: this is asked for at draw time by the
+    /// canvas, and reading it in a `body` up the tree rebuilds the window on
+    /// every playhead tick.
+    @ObservationIgnored
+    public var clipOrigin: (x: Double, y: Double)? {
+        guard let nodeID = selectedNodeID, let node = effects[nodeID] else { return nil }
+        let local = min(max(0, playheadTime - node.startTime), node.duration)
+        return (
+            x: node.transform.value(.x, at: local),
+            y: node.transform.value(.y, at: local)
+        )
+    }
+
     private func canvasDragBaseline(for node: EffectNode, at time: Double) -> (
         x: Double, y: Double, scaleX: Double, scaleY: Double
     ) {

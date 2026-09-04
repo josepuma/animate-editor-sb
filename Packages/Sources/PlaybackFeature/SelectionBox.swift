@@ -18,6 +18,20 @@ public struct ClipDrag: Sendable, Equatable {
     /// a side drives one, which is what stretching means.
     public var scaleX: Double = 1
     public var scaleY: Double = 1
+
+    /// Whether this came from a side handle rather than a corner.
+    ///
+    /// Passed rather than inferred. The model used to read it off the values —
+    /// "one axis is 1, so it must be a side" — and that is a guess: a side
+    /// dragged back to exactly 1.0 is indistinguishable from a corner, and a
+    /// corner is what it was treated as.
+    ///
+    /// It decides whether the axis lock applies. A corner keeps it, because
+    /// dragging a corner means "make it bigger". A side ignores it, because
+    /// stretching one axis is the only thing a side handle is for — obeying
+    /// the lock there makes it a second corner.
+    public var isStretch = false
+
     /// Whether the gesture has finished, so a caller can commit once.
     public var isFinished = false
 }
@@ -29,6 +43,16 @@ public struct ClipDrag: Sendable, Equatable {
 /// it is given a box and reports what a hand did to it.
 struct SelectionBox: View {
     let bounds: ClipBounds?
+
+    /// Where the clip itself sits, in stage units — not the centre of its box.
+    ///
+    /// For a sprite the two agree and this changes nothing. For anything that
+    /// travels they are different places, and the box centre is the wrong one:
+    /// a radial burst is emitted from a point and its box is the whole spray,
+    /// wider than the stage and centred nowhere near the emitter. The grip
+    /// belongs where the effect comes from, which is what the eye is looking
+    /// at and what the position fields describe.
+    var origin: (x: Double, y: Double)?
     /// Stage size, so stage units can be converted to points and back.
     let stageSize: (width: Double, height: Double)
     let viewSize: CGSize
@@ -120,18 +144,20 @@ struct SelectionBox: View {
         }
         raw = raw.offsetBy(dx: liveOffset.width, dy: liveOffset.height)
 
-        // Held to the stage only while the box is at rest.
+        // Held to the stage, moving or not.
         //
-        // The clamp keeps an oversized clip readable, but during a move it
-        // fights the hand: the box stops at the edge while the pointer keeps
-        // going, and since the grip is positioned inside the box, the grip
-        // jumps back under the cursor and the next event measures from
-        // somewhere else — the frame appears to bounce. A moving box is being
-        // watched, not read, so it is allowed to leave.
-        guard liveOffset == .zero else {
-            return raw.width > Self.minimumSize && raw.height > Self.minimumSize ? raw : nil
-        }
-
+        // An earlier version let a moving box leave, because the grip lived
+        // inside it and a clamped box dragged the grip back under the cursor,
+        // which made the next event measure from somewhere else. Neither is
+        // true any more: the grip is drawn on the stage and the gesture
+        // measures in a fixed coordinate space, so the clamp no longer fights
+        // the hand.
+        //
+        // And leaving is what broke it. Measured on a radial burst, the box is
+        // 1504×2926 against a 463-point view — six times taller than the
+        // screen. Its four borders sit far outside the canvas, so what is
+        // drawn inside the stage is its empty middle: the frame is there and
+        // reads as gone, taking the resize handles with it.
         let minX = max(inset, raw.minX)
         let minY = max(inset, raw.minY)
         let maxX = min(viewSize.width - inset, raw.maxX)
@@ -192,30 +218,41 @@ struct SelectionBox: View {
                     .allowsHitTesting(false)
 
                 if !isLocked {
-                    // A grip at the centre, because the body is not always
-                    // grabbable: a clip can be larger than the stage, or so
-                    // small that its inside is a few pixels, and either way
-                    // there is no reliable place to take hold of it. The centre
-                    // is always there, and it is where a hand looks first.
-                    Circle()
-                        .fill(.white)
-                        .frame(width: Self.gripSize, height: Self.gripSize)
-                        .overlay(
-                            Circle()
-                                .strokeBorder(.black.opacity(0.35), lineWidth: 1),
-                        )
-                        .contentShape(.circle.inset(by: -Self.handleSize))
-                        .position(x: box.width / 2, y: box.height / 2)
-                        .onHover { hovering in
-                            setZone(.body, hovering)
-                        }
-
                     ForEach(Side.allCases, id: \.self) { side in
                         sideHandle(side, in: box)
                     }
 
                     ForEach(Corner.allCases, id: \.self) { corner in
                         handle(corner, in: box)
+                    }
+
+                    // The grip, inside the box's own stack — one hover
+                    // surface, not two.
+                    //
+                    // It briefly lived in an outer `.overlay` so its position
+                    // could come from the stage. That put it on a layer above
+                    // the handles, and the two traded events: the log shows
+                    // hover alternating corner → body → corner → side with the
+                    // pointer still, so the cursor flickered between a hand and
+                    // a resize arrow.
+                    //
+                    // The position still comes from the stage — the box is
+                    // re-measured every evaluation and does not hold still —
+                    // but it is converted into the box's own space here, so
+                    // there is a single stack deciding what the pointer is on.
+                    if let point = gripPointInBox(box) {
+                        Circle()
+                            .fill(.white)
+                            .overlay(
+                                Circle()
+                                    .strokeBorder(.black.opacity(0.35), lineWidth: 1),
+                            )
+                            .frame(width: Self.gripSize, height: Self.gripSize)
+                            .contentShape(.circle)
+                            .position(point)
+                            .onHover { hovering in
+                                setZone(.body, hovering)
+                            }
                     }
                 }
             }
@@ -267,6 +304,10 @@ struct SelectionBox: View {
             }
         }
         .frame(width: viewSize.width, height: viewSize.height)
+        // The frame the move gesture measures against. On the outermost layer
+        // because it is the only one sized to the stage rather than to the
+        // clip: everything inside moves as the box is re-measured.
+        .coordinateSpace(.named(Self.dragSpace))
         // Clipped to the stage: a background is deliberately larger than the
         // frame it fills, and a box drawn past the edge would spill over the
         // panels beside the canvas.
@@ -278,8 +319,26 @@ struct SelectionBox: View {
 
     // ─── Moving ──────────────────────────────────────────────────────────────
 
+    /// A space that does not move, for the move gesture to measure in.
+    ///
+    /// **The bug this pins.** A `DragGesture` reports its translation relative
+    /// to the view it is attached to, and that view is positioned from the
+    /// box. An emitter's box is not stable — its particles travel, so it grows
+    /// every frame, and it is re-measured asynchronously as the clip is
+    /// re-evaluated. Every remeasure slid the view out from under the cursor
+    /// and the next event's translation was taken from the new place.
+    ///
+    /// Logged on a radial burst: the pointer's reported location went from
+    /// (432, 271) to (689, 1012) between two consecutive events of one gesture
+    /// while the hand barely moved — a jump of 741 points, to a position
+    /// outside the window. The clip went from (200, 240) to (599, 1179).
+    ///
+    /// Named on the canvas itself, which is anchored to the stage and never
+    /// moves, so a translation means the same thing at every event.
+    private static let dragSpace = "SelectionBox.stage"
+
     private var moveGesture: some Gesture {
-        DragGesture(minimumDistance: 1)
+        DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.dragSpace))
             .onChanged { value in
                 // Converted through the stage scale, not tracked in points: at
                 // any size but 1:1 the two disagree and the box drifts away
@@ -454,8 +513,8 @@ struct SelectionBox: View {
         let factor = max(0.05, 1 + travel / span)
 
         return side.isHorizontal
-            ? ClipDrag(scaleX: factor, scaleY: 1)
-            : ClipDrag(scaleX: 1, scaleY: factor)
+            ? ClipDrag(scaleX: factor, scaleY: 1, isStretch: true)
+            : ClipDrag(scaleX: 1, scaleY: factor, isStretch: true)
     }
 
     /// Whether the box is too small to hold its handles inside.
@@ -468,6 +527,61 @@ struct SelectionBox: View {
     private func handlesSitOutside(_ box: CGRect) -> Bool {
         box.width < Self.crowdedSize || box.height < Self.crowdedSize
     }
+
+    /// Where the grip sits inside the box, derived from the stage.
+    ///
+    /// The clip's own position, converted into the box's space — never the
+    /// centre of the box. An emitter's box is re-measured on every evaluation
+    /// and its particles are in flight, so it changes size between frames:
+    /// logged across one drag, the same clip reported 1949×2145, 811×451 and
+    /// 285×451, and a grip placed relative to it landed at 942, then 393, then
+    /// 146, flicking between them fast enough to read as vanishing.
+    ///
+    /// `nil` when the point falls outside the box, which is a clip dragged far
+    /// enough that its origin is off the visible frame. Drawing it there would
+    /// put a grip outside the thing it belongs to.
+    private func gripPointInBox(_ box: CGRect) -> CGPoint? {
+        guard let point = stageGripPoint else { return nil }
+        let inBox = CGPoint(x: point.x - box.minX, y: point.y - box.minY)
+
+        let radius = Double(Self.gripSize) / 2
+        guard inBox.x >= radius, inBox.x <= box.width - radius,
+              inBox.y >= radius, inBox.y <= box.height - radius
+        else { return nil }
+
+        return inBox
+    }
+
+    /// Where the grip sits on the stage, in view coordinates.
+    ///
+    /// Derived from the clip's own position and the live drag offset — never
+    /// from the box.
+    ///
+    /// **The bug this pins.** An emitter's box is re-measured on every
+    /// evaluation and its particles are in flight, so it does not hold still:
+    /// logged across a single drag, the same clip reported boxes of 1949×2145,
+    /// 811×451 and 285×451. A grip positioned inside it landed somewhere
+    /// different for each — 942, then 393, then 146 — flicking between them
+    /// fast enough to read as the grip vanishing.
+    ///
+    /// `nil` when there is no clip position to draw it at.
+    private var stageGripPoint: CGPoint? {
+        guard let origin else { return nil }
+
+        let x = (origin.x + Double(OsuCanvas.xOffset)) * scale + Double(liveOffset.width)
+        let y = origin.y * scale + Double(liveOffset.height)
+
+        // Held on the stage, because a clip can be dragged past the edge and a
+        // grip nobody can see is a grip nobody can grab. The margin keeps it
+        // off the canvas border rather than clear of the resize handles — out
+        // here it no longer shares space with them.
+        let margin = Double(Self.gripSize)
+        return CGPoint(
+            x: min(max(margin, x), viewSize.width - margin),
+            y: min(max(margin, y), viewSize.height - margin),
+        )
+    }
+
 
     /// How far a handle moves out when it will not fit in.
     private func handleOffset(_ box: CGRect) -> CGFloat {

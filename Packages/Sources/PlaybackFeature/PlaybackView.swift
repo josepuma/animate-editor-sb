@@ -25,6 +25,12 @@ public struct PlaybackView: View {
 
     /// Whether the framed clip refuses edits.
     private let isClipLocked: Bool
+    /// Where the selected clip sits, asked for at draw time.
+    ///
+    /// A callback rather than a value, like every other seam into the shell in
+    /// this file: reading it in a `body` up the tree rebuilds the window on
+    /// every playhead tick.
+    private let clipOrigin: (() -> (x: Double, y: Double)?)?
 
     /// The motion path being edited, asked for rather than passed: read as a
     /// property in the window's body it would rebuild the window on every edit.
@@ -37,6 +43,7 @@ public struct PlaybackView: View {
         timeline: TimelineModel,
         source: any StoryboardSource,
         isClipLocked: Bool = false,
+        clipOrigin: (() -> (x: Double, y: Double)?)? = nil,
         onClipDrag: ((ClipDrag) -> Void)? = nil,
         onDeselect: (() -> Void)? = nil,
         editablePath: (() -> MotionPath?)? = nil,
@@ -47,6 +54,7 @@ public struct PlaybackView: View {
         _timeline = Bindable(timeline)
         self.source = source
         self.isClipLocked = isClipLocked
+        self.clipOrigin = clipOrigin
         self.onClipDrag = onClipDrag
         self.onDeselect = onDeselect
         self.editablePath = editablePath
@@ -73,6 +81,7 @@ public struct PlaybackView: View {
             timeline: timeline,
             source: source,
             isClipLocked: isClipLocked,
+            clipOrigin: clipOrigin,
             onClipDrag: onClipDrag,
             onDeselect: onDeselect,
             editablePath: editablePath,
@@ -96,6 +105,9 @@ public struct PlaybackCanvas: View {
     @Bindable var timeline: TimelineModel
     let source: any StoryboardSource
     var isClipLocked = false
+    /// Where the selected clip sits, asked for at draw time rather than read
+    /// here — the same seam every other shell callback in this file uses.
+    var clipOrigin: (() -> (x: Double, y: Double)?)?
     var onClipDrag: ((ClipDrag) -> Void)?
     var onDeselect: (() -> Void)?
     /// The path being edited, or nil when there is nothing to edit.
@@ -156,6 +168,7 @@ public struct PlaybackCanvas: View {
                     let stage = OsuCanvas.size(widescreen: model.isWidescreen)
                     SelectionBox(
                         bounds: model.selectionBounds,
+                        origin: clipOrigin?(),
                         stageSize: (Double(stage.width), Double(stage.height)),
                         viewSize: size,
                         isLocked: isClipLocked,
