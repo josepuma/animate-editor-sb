@@ -317,7 +317,18 @@ public struct BlurFilter: SpriteFilter {
             let value = Self.weight(
                 forLevel: level, atRadius: radius(time), step: step,
             )
-            if let previous, abs(value - previous) > 0.001 { times.append(time) }
+            if let previous, abs(value - previous) > 0.001 {
+                // **Two** cuts, a moment apart.
+                //
+                // The weight is a step function now — one level at a time — and
+                // a command interpolates between its cuts, so a single cut
+                // turns the step into a ramp: measured, levels reading 0.33 and
+                // 0.20 that the rule says are zero, and the pair of them
+                // showing at once is the halo that pulses. A pair of cuts a
+                // millisecond apart leaves the switch as a switch.
+                times.append(max(first, time - 1))
+                times.append(time)
+            }
             previous = value
         }
         return times
@@ -329,17 +340,26 @@ public struct BlurFilter: SpriteFilter {
     /// separately is how they come to disagree — and a cut placed where the
     /// weight does *not* change is a command written for nothing.
     static func weight(forLevel level: Int, atRadius radius: Double, step: Double) -> Double {
-        let distance = abs(radius - Double(level))
-        guard distance < step else { return 0 }
-
-        // The nearer of the two levels either side of the radius is opaque and
-        // the further fades in behind it.
+        // **One level at a time.** The nearest, at full opacity; every other at
+        // nothing.
         //
-        // Sprites composite **over** rather than adding — two at 0.5 give 0.75,
-        // not 1.0 — so a pair of weights summing to one algebraically leaves the
-        // picture dim in the middle of every crossing. Measured, it dipped to
-        // 0.76 and back to 1.00 at each level boundary, which is the flicker.
-        return distance <= step / 2 ? 1 : (step - distance) / (step / 2)
+        // Cross-fading neighbours is the obvious answer and it is what caused
+        // the flicker, for a reason no amount of weighting could fix: a blurred
+        // image is *physically larger* than the one it came from — the blur is
+        // drawn on a canvas grown by `radius × 3` so the light is not clipped —
+        // so two levels superimposed do not cover each other. The wider one
+        // shows all the way around the narrower, and as its opacity rises and
+        // falls across a crossing that halo **pulses**.
+        //
+        // Measured, the two levels summed to 2.02 where an `over` composite of
+        // identical shapes would give 1.0: the extra light is exactly the ring
+        // spilling past the edge.
+        //
+        // Switching levels outright means a visible step at each boundary
+        // rather than a smooth ramp — but the step between two adjacent blur
+        // radii is two pixels of softness, which is far less noticeable than a
+        // halo breathing around the subject.
+        abs(radius - Double(level)) <= step / 2 ? 1 : 0
     }
 
     /// One sprite per blur level the radius passes through.

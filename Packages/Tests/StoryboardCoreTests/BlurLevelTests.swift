@@ -152,18 +152,48 @@ struct BlurLevelTests {
             return radius
         }
 
-        // Early in the clip the radius is near 0, so the sharpest level leads
-        // and the softest must be dark.
-        let early = sprites.map { (level(of: $0), opacity($0, at: 100)) }
-        let sharpEarly = early.filter { $0.0 == 0 }.map(\.1).max() ?? 0
-        let softEarly = early.filter { $0.0 == 8 }.map(\.1).max() ?? 0
-        #expect(sharpEarly > softEarly)
+        // Only one level is drawn at a time, so the test is *which* one rather
+        // than which is brighter. Resolved rather than read off the commands,
+        // since a level's opacity is the product of several of them.
+        // Relative to the brightest, not against a fixed threshold: these are
+        // emitter particles, so early in the clip they are still fading in and
+        // an absolute cut-off cannot tell "not drawn" from "being born".
+        func drawn(at time: Double) -> [Double] {
+            let lit = sprites.map { sprite -> (Double, Double) in
+                let state = StoryboardResolver.resolve(
+                    StoryboardResolver.prepare([sprite]), at: time,
+                ).first
+                return (level(of: sprite), state?.opacity ?? 0)
+            }
+            guard let peak = lit.map(\.1).max(), peak > 0.001 else { return [] }
+            return lit.filter { $0.1 > peak * 0.5 }.map(\.0)
+        }
 
-        // Late it is the other way round.
-        let late = sprites.map { (level(of: $0), opacity($0, at: 1900)) }
-        let sharpLate = late.filter { $0.0 == 0 }.map(\.1).max() ?? 0
-        let softLate = late.filter { $0.0 == 8 }.map(\.1).max() ?? 0
-        #expect(softLate > sharpLate)
+        // Early in the clip the radius is near 0; late it has climbed.
+        #expect(drawn(at: 100) == [0])
+        #expect(drawn(at: 1900).allSatisfy { $0 >= 6 })
+
+        // Never two levels of the **same particle** at once, which is the whole
+        // point: a blurred image is larger than its source, so a second level
+        // showing through spills a halo all the way around.
+        //
+        // Grouped by particle, since this clip has two of them and each has its
+        // own stack. Sampled off the boundaries, where the switch happens — the
+        // two do overlap there, for the millisecond the step takes.
+        for time in stride(from: 25.0, through: 1975, by: 50) {
+            let byParticle = Dictionary(grouping: sprites) { sprite in
+                sprite.id.split(separator: "l").dropLast().joined(separator: "l")
+            }
+            for (particle, stack) in byParticle {
+                let lit = stack.filter { sprite in
+                    let state = StoryboardResolver.resolve(
+                        StoryboardResolver.prepare([sprite]), at: time,
+                    ).first
+                    return (state?.opacity ?? 0) > 0.01
+                }
+                #expect(lit.count <= 1, "\(lit.count) levels of \(particle) at \(time)ms")
+            }
+        }
     }
 
     /// **Superseded, and worth keeping as a record.**
@@ -335,12 +365,18 @@ struct BlurStackTests {
         // Every 50ms, which is finer than the level boundaries the dip sat on.
         for time in stride(from: 0.0, through: 2000, by: 50) {
             let light = visible(sprites, at: time)
-            // Never *thinner* than solid, which is what reads as flicker.
-            // Slightly over is two neighbouring levels overlapping, which the
-            // eye cannot see: opacity clamps at one on screen.
+            // Exactly one level visible, at full opacity.
+            //
+            // Cross-fading neighbours is what caused the flicker: a blurred
+            // image is drawn on a canvas grown by `radius × 3`, so it is
+            // physically larger than the one it came from and the two do not
+            // cover each other. The wider shows all the way around the
+            // narrower, and its opacity rising and falling makes that halo
+            // pulse. Measured, the pair summed to 2.02 where identical shapes
+            // would give 1.0 — the difference is the spill.
             #expect(
-                light > 0.98,
-                "the stack thinned to \(light) at \(time)ms",
+                abs(light - 1) < 0.01,
+                "\(light) of a level was visible at \(time)ms; exactly one is right",
             )
         }
     }
