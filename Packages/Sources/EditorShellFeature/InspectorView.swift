@@ -87,6 +87,15 @@ struct InspectorView: View {
     ///
     /// On the track rather than on each clip: a look belongs to the lane, which
     /// is already the unit of grouping and of draw order.
+    /// Where the playhead sits inside a clip, clamped to it.
+    ///
+    /// Keyframe times are clip-local, and a key past the end names a moment the
+    /// clip never reaches. Read from `playheadTime` — the `@ObservationIgnored`
+    /// copy — because the inspector must not rebuild with the clock.
+    private func localTime(in node: EffectNode) -> Double {
+        max(0, min(shell.playheadTime - node.startTime, node.duration))
+    }
+
     @ViewBuilder
     private func filterSection(_ node: EffectNode) -> some View {
         FieldGroup("Filters") {
@@ -105,6 +114,43 @@ struct InspectorView: View {
                         onChange: { parameter, value in
                             shell.setFilterValue(
                                 value, for: parameter, on: filter.id, in: node.id,
+                            )
+                        },
+                        keyTime: localTime(in: node),
+                        animation: {
+                            shell.filterAnimation($0, on: filter.id, in: node.id)
+                        },
+                        animatedValue: { parameter in
+                            guard shell.filterAnimation(
+                                parameter, on: filter.id, in: node.id,
+                            )?.isActive == true else { return nil }
+                            return shell.filterValue(
+                                parameter, on: filter.id, in: node.id,
+                                at: localTime(in: node),
+                            )
+                        },
+                        beginAnimating: { parameter in
+                            shell.beginAnimatingFilter(
+                                parameter, on: filter.id, in: node.id,
+                                at: localTime(in: node),
+                            )
+                        },
+                        setAnimationEnabled: { parameter, isEnabled in
+                            shell.setFilterAnimationEnabled(
+                                isEnabled, for: parameter, on: filter.id, in: node.id,
+                                at: localTime(in: node),
+                            )
+                        },
+                        addKeyframe: { parameter, value in
+                            shell.setFilterKeyframe(
+                                value, for: parameter, on: filter.id, in: node.id,
+                                at: localTime(in: node),
+                            )
+                        },
+                        clearAnimation: { parameter in
+                            shell.clearFilterAnimation(
+                                for: parameter, on: filter.id, in: node.id,
+                                keeping: localTime(in: node),
                             )
                         },
                     )
@@ -742,6 +788,16 @@ private struct FilterCard: View {
     var onEditingChanged: (Bool) -> Void = { _ in }
     let onChange: (String, EffectValue) -> Void
 
+    /// Everything the stopwatches need. Defaulted, so a card can still be built
+    /// without them — a preview or a test has no playhead to speak of.
+    var keyTime: Double = 0
+    var animation: (String) -> StoryboardCore.KeyframeTrack? = { _ in nil }
+    var animatedValue: (String) -> Double? = { _ in nil }
+    var beginAnimating: (String) -> Void = { _ in }
+    var setAnimationEnabled: (String, Bool) -> Void = { _, _ in }
+    var addKeyframe: (String, Double) -> Void = { _, _ in }
+    var clearAnimation: (String) -> Void = { _ in }
+
     @State private var isExpanded = true
 
     var body: some View {
@@ -786,14 +842,52 @@ private struct FilterCard: View {
                     descriptor.parameters.filter { $0.shownWhen?.holds(in: filter.values) ?? true },
                     id: \.id,
                 ) { parameter in
-                    ParameterControl(
-                        parameter: parameter,
-                        value: filter.values[parameter.id] ?? parameter.defaultValue,
-                        onChange: { onChange(parameter.id, $0) },
-                        onEditingChanged: onEditingChanged,
-                        isDrawingPath: isDrawingPath,
-                        onToggleDrawing: onToggleDrawing,
-                    )
+                    HStack(spacing: Theme.Spacing.tight) {
+                        ParameterControl(
+                            parameter: parameter,
+                            // While animating, the field shows the value at the
+                            // playhead — so scrubbing moves the number, exactly
+                            // as a transform's does.
+                            value: animatedValue(parameter.id).map { EffectValue.number($0) }
+                                ?? filter.values[parameter.id] ?? parameter.defaultValue,
+                            onChange: { value in
+                                // Typing while animating plants a key here
+                                // rather than moving the resting value, which
+                                // is what a timeline editor means by editing an
+                                // animated property.
+                                if case let .number(number) = value,
+                                   animation(parameter.id)?.isActive == true
+                                {
+                                    addKeyframe(parameter.id, number)
+                                } else {
+                                    onChange(parameter.id, value)
+                                }
+                            },
+                            onEditingChanged: onEditingChanged,
+                            isDrawingPath: isDrawingPath,
+                            onToggleDrawing: onToggleDrawing,
+                        )
+
+                        if parameter.animation.isAnimatable {
+                            FilterKeyframeControls(
+                                track: animation(parameter.id),
+                                keyTime: keyTime,
+                                current: animatedValue(parameter.id)
+                                    ?? number(of: parameter, in: filter),
+                                costWarning: costWarning(for: parameter),
+                                beginAnimating: { beginAnimating(parameter.id) },
+                                setEnabled: { setAnimationEnabled(parameter.id, $0) },
+                                addKey: {
+                                    addKeyframe(
+                                        parameter.id,
+                                        animatedValue(parameter.id)
+                                            ?? number(of: parameter, in: filter),
+                                    )
+                                },
+                                clear: { clearAnimation(parameter.id) },
+                            )
+                        }
+                    }
                 }
                 .disabled(!filter.isEnabled)
                 .opacity(filter.isEnabled ? 1 : 0.5)
@@ -805,6 +899,29 @@ private struct FilterCard: View {
                 .fill(Theme.Fill.well)
         }
         .animation(Theme.Motion.quick, value: isExpanded)
+    }
+
+    /// A parameter's resting number, for the key a first click plants.
+    private func number(of parameter: EffectParameter, in filter: FilterNode) -> Double {
+        switch filter.values[parameter.id] ?? parameter.defaultValue {
+        case let .number(value): value
+        case let .integer(value): Double(value)
+        default: 0
+        }
+    }
+
+    /// What animating a parameter will cost, when it is not free.
+    ///
+    /// Only `.textures` has anything to say: it mints an image per level the
+    /// value passes through, so the count is knowable in advance and has to be
+    /// said before somebody writes a file osu! will not open. A parameter that
+    /// lands in a command costs nothing and stays quiet.
+    private func costWarning(for parameter: EffectParameter) -> String? {
+        guard case let .textures(step) = parameter.animation, step > 0 else { return nil }
+        guard let range = parameter.range else { return "Animate this — one sprite per level" }
+
+        let levels = Int(((range.upperBound - range.lowerBound) / step).rounded()) + 1
+        return "Animate this — one sprite per level, up to \(levels) across the full range"
     }
 }
 

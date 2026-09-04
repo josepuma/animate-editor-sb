@@ -1389,6 +1389,131 @@ public final class EditorShellModel {
         effectsChanged(node: nodeID)
     }
 
+    // ─── Animating a filter's parameters ─────────────────────────────────────
+    //
+    // The same three moves the transform already has, because a stopwatch has
+    // to mean the same thing wherever it appears. What differs is only that a
+    // filter's parameters are named rather than a fixed list.
+
+    /// The keyframes on one of a filter's parameters, if any.
+    public func filterAnimation(
+        _ parameterID: String,
+        on filterID: FilterNode.ID,
+        in nodeID: EffectNode.ID,
+    ) -> KeyframeTrack? {
+        effects[nodeID]?.filters.first { $0.id == filterID }?.animations[parameterID]
+    }
+
+    /// What a filter parameter is worth at a moment — its animation sampled
+    /// there, or its resting value when nothing animates it.
+    ///
+    /// The inspector shows this in the field, so scrubbing the playhead over an
+    /// animated parameter moves its number, exactly as the transform's does.
+    public func filterValue(
+        _ parameterID: String,
+        on filterID: FilterNode.ID,
+        in nodeID: EffectNode.ID,
+        at localTime: Double,
+    ) -> Double? {
+        guard let filter = effects[nodeID]?.filters.first(where: { $0.id == filterID })
+        else { return nil }
+
+        if let track = filter.animations[parameterID], track.isActive {
+            return track.value(at: localTime)
+        }
+        switch filter.values[parameterID] {
+        case let .number(value): return value
+        case let .integer(value): return Double(value)
+        default: return nil
+        }
+    }
+
+    /// Plants a key on a filter parameter, switching animation on if it was off.
+    ///
+    /// Adding a key to a disabled track re-enables it: planting a key is asking
+    /// for the thing to animate, and leaving it inert would look like the click
+    /// did nothing.
+    public func setFilterKeyframe(
+        _ value: Double,
+        for parameterID: String,
+        on filterID: FilterNode.ID,
+        in nodeID: EffectNode.ID,
+        at localTime: Double,
+    ) {
+        var track = filterAnimation(parameterID, on: filterID, in: nodeID) ?? KeyframeTrack()
+        track.isEnabled = true
+        track.set(value, at: localTime)
+        effects.setFilterAnimation(track, for: parameterID, on: filterID, in: nodeID)
+        effectsChanged(node: nodeID)
+    }
+
+    /// Starts animating a filter parameter, planting a key at the playhead.
+    ///
+    /// The key holds the value the parameter already had, so switching
+    /// animation on changes nothing on screen — it only changes what editing
+    /// the field will do. The first click on a stopwatch still has to leave
+    /// something behind, or nothing appears to have happened.
+    public func beginAnimatingFilter(
+        _ parameterID: String,
+        on filterID: FilterNode.ID,
+        in nodeID: EffectNode.ID,
+        at localTime: Double,
+    ) {
+        guard let current = filterValue(
+            parameterID, on: filterID, in: nodeID, at: localTime,
+        ) else { return }
+        setFilterKeyframe(
+            current, for: parameterID, on: filterID, in: nodeID, at: localTime,
+        )
+    }
+
+    /// Switches a filter parameter's animation on or off without discarding it.
+    ///
+    /// Keeps the value the animation held at that moment, the way the transform
+    /// does: switching animation off is a decision about how a property
+    /// behaves, not about what it is worth.
+    public func setFilterAnimationEnabled(
+        _ isEnabled: Bool,
+        for parameterID: String,
+        on filterID: FilterNode.ID,
+        in nodeID: EffectNode.ID,
+        at localTime: Double,
+    ) {
+        guard var track = filterAnimation(parameterID, on: filterID, in: nodeID) else { return }
+
+        if !isEnabled, let held = filterValue(
+            parameterID, on: filterID, in: nodeID, at: localTime,
+        ) {
+            // Written to the resting value before the track goes quiet, so the
+            // parameter keeps looking the way it did a moment ago.
+            effects.setFilterValue(
+                .number(held), for: parameterID, on: filterID, in: nodeID,
+            )
+        }
+        track.isEnabled = isEnabled
+        effects.setFilterAnimation(track, for: parameterID, on: filterID, in: nodeID)
+        effectsChanged(node: nodeID)
+    }
+
+    /// Throws away a filter parameter's keyframes, keeping what it was worth.
+    ///
+    /// Its own action rather than a side effect of the stopwatch, because there
+    /// is no undo to climb out of it with.
+    public func clearFilterAnimation(
+        for parameterID: String,
+        on filterID: FilterNode.ID,
+        in nodeID: EffectNode.ID,
+        keeping localTime: Double,
+    ) {
+        if let held = filterValue(parameterID, on: filterID, in: nodeID, at: localTime) {
+            effects.setFilterValue(
+                .number(held), for: parameterID, on: filterID, in: nodeID,
+            )
+        }
+        effects.setFilterAnimation(nil, for: parameterID, on: filterID, in: nodeID)
+        effectsChanged(node: nodeID)
+    }
+
     /// How many sprites one effect produces.
     ///
     /// Evaluated rather than guessed: an emitter's count is a parameter, but a
