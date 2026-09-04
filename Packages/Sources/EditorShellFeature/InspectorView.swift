@@ -1157,26 +1157,54 @@ private struct ParameterControl: View {
             // stay typeable.
             VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
                 if parameter.id == EmitterEffect.Param.sprite {
+                    let choice = SpriteChoice(path: string)
                     MenuField(
                         items: SpriteChoice.all,
                         selection: Binding(
-                            get: { SpriteChoice(path: string) },
-                            set: { choice in
-                                guard let path = choice.path else { return }
-                                onChange(.text(path))
-                            },
+                            get: { choice },
+                            // "Custom" has no path of its own — it means "let
+                            // me type one". Picking it used to `return` and do
+                            // nothing at all, so the entry looked broken.
+                            // Seeding a placeholder puts a path in the field to
+                            // edit, which is the whole point of choosing it.
+                            set: { onChange(.text($0.path ?? customPlaceholder)) },
                         ),
                         label: \.title,
                     )
-                }
 
-                TextInputField(
-                    text: Binding(get: { string }, set: { onChange(.text($0)) }),
-                )
+                    // The field only where there is a path to edit.
+                    //
+                    // The built particle stores an empty path by design — its
+                    // shape comes from three numbers — so an empty box beneath
+                    // it invites typing into something that is deliberately
+                    // blank, and anything typed silently turns the shape
+                    // parameters off.
+                    if !string.isEmpty {
+                        TextInputField(
+                            text: Binding(get: { string }, set: { onChange(.text($0)) }),
+                        )
+                    }
+                } else {
+                    TextInputField(
+                        text: Binding(get: { string }, set: { onChange(.text($0)) }),
+                    )
+                }
             }
         }
     }
 }
+
+/// What picking "Custom" puts in the field.
+///
+/// A path rather than an empty string: empty *is* the built particle, so
+/// clearing the field would silently bounce the menu back to it. A visible
+/// stand-in says "replace this" and keeps the choice where it was put.
+///
+/// Named after the folder a beatmap's own images live in, so it reads as an
+/// example of the shape a path takes rather than as a file anyone expects to
+/// find. A path that resolves to nothing draws a plain quad, which is the same
+/// thing any mistyped path already does.
+private let customPlaceholder = "sb/your-image.png"
 
 /// The built-in shapes, plus an entry standing in for a path typed by hand.
 private struct SpriteChoice: Hashable, Identifiable {

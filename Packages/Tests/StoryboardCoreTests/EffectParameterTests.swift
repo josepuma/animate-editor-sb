@@ -300,3 +300,37 @@ struct ShapeAndSpriteTests {
         #expect(visibleGroups(descriptor, values).contains("Emission"))
     }
 }
+
+/// The sprite picker's states, which have to round-trip.
+///
+/// "Custom" is not a path — it means "let me type one" — and the built
+/// particle stores an empty one. Neither is expressible as the other, and
+/// conflating them is how the menu became one-way.
+@Suite("Sprite picker states")
+struct SpritePickerStateTests {
+    /// Empty means built-from-numbers, and only that. If a hand-typed path
+    /// could be cleared to empty, the menu would jump back to the built
+    /// particle and take the Shape group with it.
+    @Test("empty is the built particle and nothing else")
+    func emptyIsTheBuiltParticle() {
+        var values = EmitterEffect.descriptor.defaultValues
+        values[EmitterEffect.Param.sprite] = .text("")
+
+        let core = EmitterEffect.descriptor.parameter(EmitterEffect.Param.core)
+        #expect(core?.shownWhen?.holds(in: values) == true)
+    }
+
+    /// Any path at all — real, built-in, or one that resolves to nothing —
+    /// hands the shape over to the file.
+    @Test(
+        "any path turns the shape numbers off",
+        arguments: [BuiltInSprite.star, "sb/your-image.png", "does-not-exist.png"],
+    )
+    func anyPathOverrides(path: String) {
+        var values = EmitterEffect.descriptor.defaultValues
+        values[EmitterEffect.Param.sprite] = .text(path)
+
+        let core = EmitterEffect.descriptor.parameter(EmitterEffect.Param.core)
+        #expect(core?.shownWhen?.holds(in: values) == false)
+    }
+}
