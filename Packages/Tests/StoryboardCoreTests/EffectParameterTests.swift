@@ -186,3 +186,62 @@ private extension EffectRandom {
         return copy.unit()
     }
 }
+
+/// A condition has to understand every kind of value it can be pointed at.
+///
+/// `Condition.holds` handled choices and toggles and let everything else fall
+/// to `false` — so a condition on a **text** field hid its group permanently.
+/// The emitter's three shape numbers, which appear only while no sprite path
+/// overrides them, were invisible from the moment they were added.
+@Suite("Parameter conditions")
+struct ParameterConditionTests {
+    @Test("a condition can read a text field")
+    func textConditions() {
+        let blank = EffectParameter.Condition(parameter: "sprite", isAnyOf: [""])
+        #expect(blank.holds(in: ["sprite": .text("")]))
+        #expect(!blank.holds(in: ["sprite": .text("particle.png")]))
+    }
+
+    /// The case that was actually broken: the shape numbers are shown on a
+    /// freshly placed emitter, which is the only time anyone can find them.
+    @Test("the emitter's shape numbers show by default")
+    func shapeNumbersAreVisible() {
+        let values = EmitterEffect.descriptor.defaultValues
+        for id in [
+            EmitterEffect.Param.core,
+            EmitterEffect.Param.edge,
+            EmitterEffect.Param.softness,
+        ] {
+            let parameter = EmitterEffect.descriptor.parameter(id)
+            #expect(
+                parameter?.shownWhen?.holds(in: values) ?? true,
+                "\(id) is hidden on a fresh emitter, so nobody can reach it",
+            )
+        }
+    }
+
+    /// And they step aside for a hand-written path, which is the escape hatch
+    /// for shapes code cannot draw.
+    @Test("a sprite path hides the shape numbers")
+    func aPathHidesThem() {
+        var values = EmitterEffect.descriptor.defaultValues
+        values[EmitterEffect.Param.sprite] = .text(BuiltInSprite.smoke)
+
+        let core = EmitterEffect.descriptor.parameter(EmitterEffect.Param.core)
+        #expect(core?.shownWhen?.holds(in: values) == false)
+    }
+
+    /// An unlisted kind must not silently hide a control. Defaulting to
+    /// *shown* is the safe direction: a control that appears when it should
+    /// not is noticed, one that never appears is not.
+    @Test("an unhandled value kind does not hide its control")
+    func unhandledKindsShow() {
+        let condition = EffectParameter.Condition(parameter: "colour", isAnyOf: ["x"])
+        // A colour cannot be compared to a name, but hiding on that basis is
+        // how three parameters went missing.
+        #expect(!condition.holds(in: ["colour": .color(.white)]))
+        // Absent entirely, though, a condition holds — that is the documented
+        // default and what keeps existing controls visible.
+        #expect(condition.holds(in: [:]))
+    }
+}

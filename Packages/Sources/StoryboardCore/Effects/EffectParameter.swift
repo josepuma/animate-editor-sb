@@ -206,6 +206,11 @@ public struct EffectParameter: Sendable, Equatable {
             // A toggle reads as its own name: `shownWhen: .init(parameter:
             // "radial", isAnyOf: ["true"])`.
             case let .toggle(on): self.values.contains(on ? "true" : "false")
+            // A text field reads as its own contents, so a condition can turn
+            // on a group when a path is left blank — which is how the emitter's
+            // shape numbers appear only while no file overrides them. Without
+            // this case they fell to `false` and were never shown at all.
+            case let .text(value): self.values.contains(value)
             case .none: true
             default: false
             }
