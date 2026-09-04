@@ -65,8 +65,31 @@ public enum DerivedSprite {
     /// Without this a continuous slider mints a new image for every position it
     /// passes through, and a handful of drags fills the atlas with textures
     /// nobody can tell apart.
+    /// How far apart two radii must be to be different images.
+    ///
+    /// Public because an animated radius has to know it: the number of textures
+    /// a run from one value to another will mint is exactly what makes its cost
+    /// knowable before anybody writes the file.
+    public static let quantumStep: Double = 2
+
     static func quantise(_ radius: Double) -> Int {
-        let step = 2.0
-        return Int((max(0, radius) / step).rounded()) * Int(step)
+        Int((max(0, radius) / quantumStep).rounded()) * Int(quantumStep)
+    }
+
+    /// The distinct blur radii a run between two values passes through.
+    ///
+    /// This is the whole cost of animating a blur, made countable. A sprite
+    /// draws one image for its entire life, so a radius that travels is not one
+    /// sprite changing — it is one sprite per level, each visible over its own
+    /// stretch.
+    ///
+    /// Only the levels actually crossed, in order, and never fewer than one.
+    public static func levels(from: Double, to: Double) -> [Int] {
+        let low = quantise(min(from, to))
+        let high = quantise(max(from, to))
+        guard high > low else { return [low] }
+
+        let step = Int(quantumStep)
+        return stride(from: low, through: high, by: step).map { $0 }
     }
 }
