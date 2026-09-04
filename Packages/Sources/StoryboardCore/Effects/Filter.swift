@@ -118,6 +118,7 @@ public struct FilterNode: Identifiable, Sendable, Equatable, Codable {
             type: type,
             isEnabled: isEnabled,
             values: values,
+            animations: animations,
         )
     }
     /// Matches `FilterDescriptor.type`.
@@ -125,16 +126,72 @@ public struct FilterNode: Identifiable, Sendable, Equatable, Codable {
     public var isEnabled: Bool
     public var values: [String: EffectValue]
 
+    /// Keyframes for parameters being animated, by parameter id.
+    ///
+    /// Separate from `values` rather than folded into it, which is the same
+    /// split ``Transform`` already draws between a resting value and its
+    /// animation — and for the same reason. Editing a field with animation off
+    /// changes the value; with animation on it plants a key. Merged, moving the
+    /// playhead and typing a number would plant keys nobody asked for, in
+    /// parameters nobody was animating.
+    ///
+    /// A parameter with no entry here reads its `values` entry, so every filter
+    /// saved before this existed loads and runs unchanged.
+    public var animations: [String: KeyframeTrack]
+
     public init(
         id: String,
         type: String,
         isEnabled: Bool = true,
         values: [String: EffectValue] = [:],
+        animations: [String: KeyframeTrack] = [:],
     ) {
         self.id = id
         self.type = type
         self.isEnabled = isEnabled
         self.values = values
+        self.animations = animations
+    }
+
+    /// The tracks that actually drive a value, ignoring switched-off and empty
+    /// ones. A disabled track falls back to the resting value, exactly as if it
+    /// had no keys.
+    public var activeAnimations: [String: KeyframeTrack] {
+        animations.filter(\.value.isActive)
+    }
+
+    public var isAnimated: Bool {
+        animations.values.contains(where: \.isAnimated)
+    }
+
+    // A project saved before `animations` existed has no such key, and
+    // synthesised decoding treats a missing non-optional as a failure — so the
+    // whole file would refuse to open rather than open without animation. The
+    // same trap `"scale"` fell into when it became two axes.
+    private enum CodingKeys: String, CodingKey {
+        case id, type, isEnabled, values, animations
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        type = try container.decode(String.self, forKey: .type)
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        values = try container.decodeIfPresent([String: EffectValue].self, forKey: .values) ?? [:]
+        animations = try container.decodeIfPresent(
+            [String: KeyframeTrack].self, forKey: .animations,
+        ) ?? [:]
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(type, forKey: .type)
+        try container.encode(isEnabled, forKey: .isEnabled)
+        try container.encode(values, forKey: .values)
+        // Omitted when empty, so adding this did not rewrite every saved
+        // project's diff on the next save.
+        if !animations.isEmpty { try container.encode(animations, forKey: .animations) }
     }
 }
 
@@ -186,6 +243,48 @@ public struct FilterContext: Sendable {
             }
         }
         values = resolved
+
+        // Only tracks that drive something, clamped by what the parameter
+        // accepts. A key dragged past a slider's range would otherwise write a
+        // value the same parameter refuses when typed.
+        var tracks: [String: KeyframeTrack] = [:]
+        for parameter in descriptor.parameters {
+            guard parameter.animation.isAnimatable,
+                  let track = node.animations[parameter.id], track.isActive
+            else { continue }
+            tracks[parameter.id] = parameter.clampingTrack(track)
+        }
+        animations = tracks
+    }
+
+    /// The keyframes in force, by parameter id. Empty for a filter nobody is
+    /// animating, which is every filter until somebody clicks a stopwatch.
+    public let animations: [String: KeyframeTrack]
+
+    /// Whether `id` is being animated, so a filter can take the cheap path when
+    /// it is not.
+    ///
+    /// Worth asking rather than always cutting segments: a filter that writes
+    /// one command for a still value must keep writing one, or every project
+    /// that never touched a stopwatch would start paying for keyframes it does
+    /// not have.
+    public func isAnimated(_ id: String) -> Bool {
+        animations[id]?.isAnimated ?? false
+    }
+
+    /// Every moment any animated parameter names, so no key falls inside a
+    /// segment another parameter defined.
+    ///
+    /// The same rule position and scale already follow: a key on one channel
+    /// has to be a command boundary for all of them, or its curve is lost
+    /// inside a span the other one drew.
+    public func keyTimes(of ids: [String]) -> [Double] {
+        var times: Set<Double> = []
+        for id in ids {
+            guard let track = animations[id], track.isAnimated else { continue }
+            for key in track.keyframes { times.insert(key.time) }
+        }
+        return times.sorted()
     }
 
     public func number(_ id: String) -> Double {
@@ -194,6 +293,28 @@ public struct FilterContext: Sendable {
         case let .integer(value): Double(value)
         default: 0
         }
+    }
+
+    /// A numeric parameter at a moment in the clip.
+    ///
+    /// Falls back to the resting value when nothing is animating it, so a
+    /// filter can ask with a time unconditionally and still behave exactly as
+    /// it did before anyone added keys.
+    public func number(_ id: String, at time: Double) -> Double {
+        guard let track = animations[id], track.isActive else { return number(id) }
+        return track.value(at: time)
+    }
+
+    /// The easing leaving the key at `time`, for a filter cutting its own
+    /// commands at keyframe boundaries.
+    ///
+    /// A segment carries the curve of the key it *leaves from* — the same rule
+    /// a storyboard command follows — so a filter writing one command per
+    /// segment has to ask for it rather than defaulting to linear, which is the
+    /// one curve nothing real follows.
+    public func easing(of id: String, leaving time: Double) -> Easing {
+        guard let track = animations[id] else { return .linear }
+        return track.keyframes.last { $0.time <= time }?.easing ?? .linear
     }
 
     public func integer(_ id: String) -> Int {

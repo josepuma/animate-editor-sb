@@ -53,6 +53,7 @@ public struct GlowFilter: SpriteFilter {
                 range: 1...6,
                 step: 0.1,
                 unit: "×",
+                animation: .commands,
             ),
             EffectParameter(
                 id: Param.intensity,
@@ -62,6 +63,11 @@ public struct GlowFilter: SpriteFilter {
                 range: 0...2,
                 step: 0.05,
                 presentation: .slider,
+                // Free to animate: it scales the fade commands the halo was
+                // writing anyway. Softness is not here — that lands in a
+                // texture path, and one image per value is a different cost
+                // entirely.
+                animation: .commands,
             ),
             EffectParameter(
                 id: Param.tinted,
@@ -81,23 +87,36 @@ public struct GlowFilter: SpriteFilter {
     /// One halo per sprite, whatever the settings — the point of the blurred
     /// approach is that softness costs pixels rather than sprites.
     public func estimatedMultiplier(in context: FilterContext) -> Double {
-        context.number(Param.intensity) > 0 ? 2 : 1
+        // An animated intensity resting at zero still draws a halo wherever its
+        // keys take it, so the estimate has to answer for the whole track and
+        // not for one instant of it.
+        let draws = context.isAnimated(Param.intensity)
+            || context.number(Param.intensity) > 0
+        return draws ? 2 : 1
     }
 
     public func apply(to sprites: [StoryboardSprite], in context: FilterContext) -> [StoryboardSprite] {
         let radius = context.number(Param.radius)
-        let size = context.number(Param.size)
-        let intensity = context.number(Param.intensity)
         let tinted = context.toggle(Param.tinted)
         let haloColour = context.color(Param.color)
 
-        guard intensity > 0 else { return sprites }
+        // Where the animated factors change, so a command spanning a keyframe
+        // is cut there rather than holding one value across it.
+        let cuts = context.keyTimes(of: [Param.size, Param.intensity])
+        let size = { context.number(Param.size, at: $0) }
+        let intensity = { context.number(Param.intensity, at: $0) }
+
+        // An intensity animated up from zero still has a halo to show later, so
+        // only a resting zero with no animation means there is nothing to draw.
+        guard context.isAnimated(Param.intensity) || context.number(Param.intensity) > 0
+        else { return sprites }
 
         let halos = sprites.enumerated().map { index, sprite in
             haloCopy(
                 of: sprite,
                 id: "\(context.idPrefix)/g\(index)",
                 radius: radius,
+                cuts: cuts,
                 scale: size,
                 opacity: intensity,
                 tint: tinted ? haloColour : nil,
@@ -113,8 +132,9 @@ public struct GlowFilter: SpriteFilter {
         of sprite: StoryboardSprite,
         id: String,
         radius: Double,
-        scale: Double,
-        opacity: Double,
+        cuts: [Double],
+        scale: @escaping (Double) -> Double,
+        opacity: @escaping (Double) -> Double,
         tint: EffectColor?,
     ) -> StoryboardSprite {
         var copy = sprite
@@ -126,40 +146,48 @@ public struct GlowFilter: SpriteFilter {
             ? DerivedSprite.blurred(sprite.filePath, radius: radius)
             : sprite.filePath
 
-        copy.commands = sprite.commands.compactMap { command in
+        // Each factor read at both ends of every command, and every command a
+        // keyframe falls inside cut there first. Sampled once instead, the halo
+        // would freeze at whatever the factor was when the sprite was born
+        // while the inspector showed the number moving — the mistake this
+        // project has already made with opacity and with scale.
+        copy.commands = AnimatedFactor.apply(to: sprite.commands, cutAt: cuts) { command in
+            let atStart = command.startTime
+            let atEnd = command.endTime
+
             switch command.payload {
             case let .fade(start, end):
                 // Multiplied rather than replaced, so the halo keeps the
                 // sprite's own timing — it appears and leaves with its subject
                 // instead of hanging in the frame on its own schedule. Clamped,
                 // since intensity can exceed one and opacity cannot.
-                Command(
+                return Command(
                     timing: command.timing,
                     payload: .fade(
-                        start: min(1, start * opacity),
-                        end: min(1, end * opacity),
+                        start: min(1, start * opacity(atStart)),
+                        end: min(1, end * opacity(atEnd)),
                     ),
                 )
 
             case let .scale(start, end):
-                Command(
+                return Command(
                     timing: command.timing,
-                    payload: .scale(start: start * scale, end: end * scale),
+                    payload: .scale(start: start * scale(atStart), end: end * scale(atEnd)),
                 )
 
             case let .vectorScale(startX, startY, endX, endY):
-                Command(
+                return Command(
                     timing: command.timing,
                     payload: .vectorScale(
-                        startX: startX * scale, startY: startY * scale,
-                        endX: endX * scale, endY: endY * scale,
+                        startX: startX * scale(atStart), startY: startY * scale(atStart),
+                        endX: endX * scale(atEnd), endY: endY * scale(atEnd),
                     ),
                 )
 
             case .color:
                 // A tinted halo takes its own colour; an untinted one keeps the
                 // sprite's, so a red particle glows red without being told to.
-                tint.map { colour in
+                return tint.map { colour in
                     Command(
                         timing: command.timing,
                         payload: .color(
@@ -172,10 +200,10 @@ public struct GlowFilter: SpriteFilter {
             case .parameter(.additive):
                 // Already additive; the copy will be too, so drop the duplicate
                 // rather than writing it twice.
-                nil
+                return nil
 
             default:
-                command
+                return command
             }
         }
 
@@ -184,12 +212,35 @@ public struct GlowFilter: SpriteFilter {
         if !sprite.commands.contains(where: { $0.kind == .scale || $0.kind == .vectorScale }),
            let first = sprite.commands.map(\.startTime).min()
         {
-            copy.commands.append(Command(
-                easing: .linear,
-                startTime: first,
-                endTime: first,
-                payload: .scale(start: scale, end: scale),
-            ))
+            // An animated size needs a command that travels, not a value held:
+            // the sprite has no scale command of its own for the factor to ride
+            // on, so this is the only place the animation can live.
+            //
+            // And one command per keyframe segment, not one from end to end —
+            // a single span would stretch the whole change over the sprite's
+            // life and throw away every key in between. The same mistake an
+            // animated rotation already made once.
+            let last = sprite.commands.map(\.endTime).max() ?? first
+            let inside = cuts.filter { $0 > first && $0 < last }
+
+            if inside.isEmpty {
+                copy.commands.append(Command(
+                    easing: .linear,
+                    startTime: first,
+                    endTime: first,
+                    payload: .scale(start: scale(first), end: scale(first)),
+                ))
+            } else {
+                let bounds = [first] + inside + [last]
+                for (from, to) in zip(bounds, bounds.dropFirst()) {
+                    copy.commands.append(Command(
+                        easing: .linear,
+                        startTime: from,
+                        endTime: to,
+                        payload: .scale(start: scale(from), end: scale(to)),
+                    ))
+                }
+            }
         }
 
         // Light adds; it does not occlude. Without this the halo is a grey

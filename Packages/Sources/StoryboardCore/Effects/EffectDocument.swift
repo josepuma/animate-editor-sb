@@ -247,6 +247,51 @@ public struct EffectDocument: Sendable, Codable {
         tracks[location.track].nodes[location.node].filters[index].values[parameterID] = value
     }
 
+    /// Sets the keyframes driving one of a filter's parameters.
+    ///
+    /// Separate from ``setFilterValue(_:for:on:in:)`` rather than folded into
+    /// it, which is the same split ``Transform`` draws between a resting value
+    /// and its animation. Merged, moving the playhead and typing a number would
+    /// plant keys nobody asked for.
+    public mutating func setFilterAnimation(
+        _ track: KeyframeTrack?,
+        for parameterID: String,
+        on filterID: FilterNode.ID,
+        in nodeID: EffectNode.ID,
+    ) {
+        guard let location = locate(nodeID),
+              let index = tracks[location.track].nodes[location.node].filters
+                  .firstIndex(where: { $0.id == filterID })
+        else { return }
+
+        // Keys are clip-local, so one past the end names a moment the clip
+        // never reaches: it would sit in the file, keep drawing in the lane,
+        // and never be playable. Clamped here so every path in — dragging,
+        // planting from the inspector, whatever comes next — obeys one limit.
+        let duration = tracks[location.track].nodes[location.node].duration
+        let clamped = track.map { existing in
+            KeyframeTrack(
+                existing.keyframes.map {
+                    Keyframe(
+                        id: $0.id,
+                        time: min(max(0, $0.time), duration),
+                        value: $0.value,
+                        easing: $0.easing,
+                    )
+                },
+                isEnabled: existing.isEnabled,
+            )
+        }
+
+        if let clamped, !clamped.isEmpty {
+            tracks[location.track].nodes[location.node]
+                .filters[index].animations[parameterID] = clamped
+        } else {
+            tracks[location.track].nodes[location.node]
+                .filters[index].animations[parameterID] = nil
+        }
+    }
+
     public mutating func toggleFilter(_ filterID: FilterNode.ID, in nodeID: EffectNode.ID) {
         guard let location = locate(nodeID),
               let index = tracks[location.track].nodes[location.node].filters

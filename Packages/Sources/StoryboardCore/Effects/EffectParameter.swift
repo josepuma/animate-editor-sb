@@ -154,6 +154,41 @@ public struct EffectParameter: Sendable, Equatable {
     /// is the property that makes the whole system worth having.
     public var shownWhen: Condition?
 
+    /// Whether this parameter can be keyframed, and what animating it costs.
+    ///
+    /// Declared here for the same reason as ``shownWhen``: the descriptor stays
+    /// the only thing the UI reads, so a filter that makes a parameter
+    /// animatable needs no inspector work. The inspector learns one general
+    /// rule — offer a stopwatch where this says so — rather than one rule per
+    /// filter.
+    ///
+    /// The distinction the cases draw is not cosmetic. A parameter that ends up
+    /// in a *command* animates for free, because the command was being written
+    /// anyway. One that ends up in a *path* — a blur radius names a derived
+    /// texture — cannot be interpolated at all: osu! draws one image for a
+    /// sprite's whole life, so changing it over time means more sprites.
+    public var animation: Animation
+
+    /// What it costs to animate a parameter.
+    public enum Animation: Sendable, Equatable {
+        /// Not animatable. The default, because most parameters describe what a
+        /// filter *is* rather than what it does over time — and a stopwatch on
+        /// a structural value promises something the format cannot deliver.
+        case none
+        /// Lands in a command, so animating is free: the same command gets cut
+        /// into one segment per keyframe pair.
+        case commands
+        /// Lands in a texture path, so each distinct value is another sprite.
+        ///
+        /// `step` is the quantisation the value is already subject to, which is
+        /// what makes the cost knowable in advance: a run from 0 to 10 at a
+        /// step of 2 is six textures, and the inspector can say so before
+        /// anybody writes the file.
+        case textures(step: Double)
+
+        public var isAnimatable: Bool { self != .none }
+    }
+
     /// One parameter having one of a set of values.
     public struct Condition: Sendable, Equatable {
         public let parameter: String
@@ -188,6 +223,7 @@ public struct EffectParameter: Sendable, Equatable {
         options: [String] = [],
         presentation: Presentation = .field,
         shownWhen: Condition? = nil,
+        animation: Animation = .none,
     ) {
         self.id = id
         self.name = name
@@ -199,6 +235,7 @@ public struct EffectParameter: Sendable, Equatable {
         self.options = options
         self.presentation = presentation
         self.shownWhen = shownWhen
+        self.animation = animation
     }
 
     public var kind: Kind { defaultValue.kind }
@@ -233,5 +270,26 @@ public struct EffectParameter: Sendable, Equatable {
         case .toggle, .color, .text, .path:
             return value
         }
+    }
+
+    /// The same keyframes with every value brought inside what this parameter
+    /// accepts.
+    ///
+    /// A key is dragged in a lane that knows nothing of the parameter's range,
+    /// so without this a keyframed radius could hold a number the very same
+    /// parameter refuses when it is typed into the field beside it.
+    public func clampingTrack(_ track: KeyframeTrack) -> KeyframeTrack {
+        guard let range else { return track }
+        return KeyframeTrack(
+            track.keyframes.map {
+                Keyframe(
+                    id: $0.id,
+                    time: $0.time,
+                    value: min(max($0.value, range.lowerBound), range.upperBound),
+                    easing: $0.easing,
+                )
+            },
+            isEnabled: track.isEnabled,
+        )
     }
 }
