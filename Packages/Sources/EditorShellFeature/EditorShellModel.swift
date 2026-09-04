@@ -1174,6 +1174,17 @@ public final class EditorShellModel {
     /// `@ObservationIgnored` on purpose: this is asked for at draw time by the
     /// canvas, and reading it in a `body` up the tree rebuilds the window on
     /// every playhead tick.
+    /// Whether the selected clip refuses to be moved.
+    ///
+    /// `@ObservationIgnored` for the same reason `clipOrigin` is: it is asked
+    /// for at draw time, and reading it in a `body` up the tree rebuilds the
+    /// window on every playhead tick.
+    @ObservationIgnored
+    public var isSelectionLocked: Bool {
+        guard let nodeID = selectedNodeID else { return false }
+        return isLocked(nodeID)
+    }
+
     @ObservationIgnored
     public var clipOrigin: (x: Double, y: Double)? {
         guard let nodeID = selectedNodeID, let node = effects[nodeID] else { return nil }

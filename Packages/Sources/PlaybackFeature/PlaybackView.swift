@@ -24,7 +24,13 @@ public struct PlaybackView: View {
     private let onDeselect: (() -> Void)?
 
     /// Whether the framed clip refuses edits.
-    private let isClipLocked: Bool
+    /// Whether the selected clip refuses to be moved, asked for at draw time.
+    ///
+    /// A callback rather than a value, like every other seam into the shell in
+    /// this file: reading it in a `body` up the tree rebuilds the window on
+    /// every playhead tick. It used to be passed as a literal `false`, so the
+    /// locked frame this drives was implemented and never once shown.
+    private let isClipLocked: () -> Bool
     /// Where the selected clip sits, asked for at draw time.
     ///
     /// A callback rather than a value, like every other seam into the shell in
@@ -42,7 +48,7 @@ public struct PlaybackView: View {
         model: PlaybackModel,
         timeline: TimelineModel,
         source: any StoryboardSource,
-        isClipLocked: Bool = false,
+        isClipLocked: @escaping () -> Bool = { false },
         clipOrigin: (() -> (x: Double, y: Double)?)? = nil,
         onClipDrag: ((ClipDrag) -> Void)? = nil,
         onDeselect: (() -> Void)? = nil,
@@ -104,7 +110,7 @@ public struct PlaybackCanvas: View {
     @Bindable var model: PlaybackModel
     @Bindable var timeline: TimelineModel
     let source: any StoryboardSource
-    var isClipLocked = false
+    var isClipLocked: () -> Bool = { false }
     /// Where the selected clip sits, asked for at draw time rather than read
     /// here — the same seam every other shell callback in this file uses.
     var clipOrigin: (() -> (x: Double, y: Double)?)?
@@ -171,7 +177,7 @@ public struct PlaybackCanvas: View {
                         origin: clipOrigin?(),
                         stageSize: (Double(stage.width), Double(stage.height)),
                         viewSize: size,
-                        isLocked: isClipLocked,
+                        isLocked: isClipLocked(),
                         onDrag: onClipDrag,
                         onSnap: { snapX, snapY in
                             snappedX = snapX

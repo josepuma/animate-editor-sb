@@ -34,10 +34,12 @@ struct EditorWindow: View {
             model: playback,
             timeline: timeline,
             source: source,
-            // Read from the model at gesture time rather than here: reading it
-            // in this body rebuilds the whole window on every selection, and
-            // the value is only ever consulted when a drag begins.
-            isClipLocked: false,
+            // Asked for at draw time, not read here: reading it in this body
+            // rebuilds the whole window on every selection. It was passed as a
+            // literal `false` for exactly that reason, which left the locked
+            // frame implemented and never shown — a clip that refuses to move
+            // looked identical to one that is broken.
+            isClipLocked: { shell.isSelectionLocked },
             clipOrigin: { shell.clipOrigin },
             onClipDrag: { drag in
                 shell.applyCanvasDrag(

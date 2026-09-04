@@ -100,12 +100,15 @@ struct SelectionBox: View {
         case body
         case corner(Corner)
         case side(Side)
+        /// A clip that refuses to move, so the pointer can say so.
+        case locked
 
         var cursor: NSCursor {
             switch self {
             case .body: .openHand
             case let .corner(corner): corner.cursor
             case let .side(side): side.cursor
+            case .locked: .operationNotAllowed
             }
         }
     }
@@ -325,9 +328,22 @@ struct SelectionBox: View {
         // frame it fills, and a box drawn past the edge would spill over the
         // panels beside the canvas.
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.stage, style: .continuous))
-        // A locked clip shows where it is but refuses to be moved, which is
-        // what the lock is for.
-        .allowsHitTesting(!isLocked)
+        // A locked clip takes the pointer so it can refuse *out loud*.
+        //
+        // It used to opt out of hit testing entirely, which meant a drag
+        // reached the canvas underneath and simply did nothing: no cursor, no
+        // frame response, nothing to distinguish a clip that will not move from
+        // one that is broken. That is exactly how this bug was found — a drag
+        // rejected 65 times in a row with the app saying nothing.
+        .overlay(alignment: .topLeading) {
+            if isLocked, let box = frame {
+                Color.clear
+                    .frame(width: box.width, height: box.height)
+                    .contentShape(.rect)
+                    .offset(x: box.minX, y: box.minY)
+                    .onHover { hovering in setZone(.locked, hovering) }
+            }
+        }
     }
 
     // ─── Moving ──────────────────────────────────────────────────────────────
