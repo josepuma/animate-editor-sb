@@ -282,3 +282,91 @@ struct AnimatedFilterTests {
         #expect(!shadows.isEmpty, "an animated opacity resting at zero drew nothing")
     }
 }
+
+/// Every animated filter, on the shape of sprite that broke Blur.
+///
+/// A text glyph fades in over 40ms, holds silently for seconds, and fades out —
+/// and it never moves, so its position lives in `defaultX/Y` read once. Both of
+/// those are holes a filter can fall into: what it multiplies or displaces has
+/// to *exist* before it can be animated.
+///
+/// Blur was reported broken this way from a real project. Asking the same
+/// question of every other filter found two more — Shadow's offset and
+/// Chromatic's split, both frozen at their first value — which is why this is a
+/// parametric suite rather than a fix in one place.
+@Suite("Animated filters on a held, still sprite")
+struct HeldSpriteFilterTests {
+    private let evaluator = EffectEvaluator()
+
+    private func heldClip() -> (EffectDocument, EffectNode.ID) {
+        var document = EffectDocument()
+        let node = document.add(TextEffect.descriptor, at: 0, duration: 6000)
+        document.setValue(.text("Boy"), for: TextEffect.Param.text, on: node.id)
+        document.setValue(.number(40), for: TextEffect.Param.fadeIn, on: node.id)
+        document.setValue(.number(200), for: TextEffect.Param.fadeOut, on: node.id)
+        return (document, node.id)
+    }
+
+    /// Every sprite's resolved state at one moment, compared per sprite so an
+    /// untouched subject cannot swamp the difference.
+    private func state(_ document: EffectDocument, at time: Double) -> [String] {
+        evaluator.evaluate(document).map { sprite in
+            let s = StoryboardResolver.resolve(
+                StoryboardResolver.prepare([sprite]), at: time,
+            ).first
+            return String(
+                format: "%.2f,%.2f,%.2f,%.2f",
+                s?.x ?? 0, s?.y ?? 0, s?.scaleX ?? 0, s?.opacity ?? 0,
+            )
+        }.sorted()
+    }
+
+    @Test(
+        "an animated parameter reaches a sprite that holds still",
+        arguments: [
+            (GlowFilter.descriptor, GlowFilter.Param.intensity, 0.1, 2.0),
+            (GlowFilter.descriptor, GlowFilter.Param.size, 1.0, 5.0),
+            (ShadowFilter.descriptor, ShadowFilter.Param.opacity, 0.1, 1.0),
+            (ShadowFilter.descriptor, ShadowFilter.Param.offsetX, 0.0, 80.0),
+            (ShadowFilter.descriptor, ShadowFilter.Param.offsetY, 0.0, 80.0),
+            (ChromaticFilter.descriptor, ChromaticFilter.Param.intensity, 0.1, 1.0),
+            (ChromaticFilter.descriptor, ChromaticFilter.Param.offset, 0.0, 30.0),
+            (WiggleFilter.descriptor, WiggleFilter.Param.amount, 0.0, 40.0),
+            (BlurFilter.descriptor, BlurFilter.Param.radius, 0.0, 20.0),
+        ],
+    )
+    func reachesAHeldSprite(
+        descriptor: FilterDescriptor, parameter: String, from: Double, to: Double,
+    ) throws {
+        var (document, nodeID) = heldClip()
+        let added = document.addFilter(descriptor, to: nodeID)
+        let filter = try #require(added)
+        document.setFilterValue(.number(from), for: parameter, on: filter.id, in: nodeID)
+
+        var held = document
+        held.setFilterAnimation(
+            KeyframeTrack([
+                Keyframe(time: 0, value: from),
+                Keyframe(time: 4800, value: from),
+            ]),
+            for: parameter, on: filter.id, in: nodeID,
+        )
+        document.setFilterAnimation(
+            KeyframeTrack([
+                Keyframe(time: 0, value: from),
+                Keyframe(time: 4800, value: to),
+            ]),
+            for: parameter, on: filter.id, in: nodeID,
+        )
+
+        // Deep in the silent middle, where the sprite has neither a fade
+        // command nor a movement of its own.
+        #expect(
+            state(document, at: 4700) != state(held, at: 4700),
+            """
+            \(descriptor.name) · \(parameter) never reached a sprite that holds \
+            its opacity and does not move
+            """,
+        )
+    }
+}

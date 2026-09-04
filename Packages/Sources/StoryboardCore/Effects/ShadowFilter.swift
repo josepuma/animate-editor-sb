@@ -88,8 +88,25 @@ public struct ShadowFilter: SpriteFilter {
 
             // Every coordinate the commands name moves with it, or a sprite
             // that travels leaves its shadow behind at the starting point.
-            shadow.commands = AnimatedFactor.apply(to: sprite.commands, cutAt: cuts) {
-                Self.offset($0, by: offsetX($0.startTime), offsetY($0.startTime))
+            // An animated offset needs a movement command to displace: a still
+            // sprite keeps its position in `defaultX/Y`, read once, so the
+            // offset would freeze at its first value.
+            let carried = AnimatedFactor.carrying(
+                sprite.commands,
+                defaultX: sprite.defaultX, defaultY: sprite.defaultY,
+                cutAt: (context.isAnimated(Param.offsetX)
+                    || context.isAnimated(Param.offsetY)) ? cuts : [],
+            )
+            shadow.commands = AnimatedFactor.apply(to: carried, cutAt: cuts) {
+                // Each end read at its own moment. Both taken from the start,
+                // a command spanning the clip carried the offset the sprite was
+                // born with for its whole length — the animation existed in the
+                // document and never reached the picture.
+                Self.offset(
+                    $0,
+                    byStart: (offsetX($0.startTime), offsetY($0.startTime)),
+                    end: (offsetX($0.endTime), offsetY($0.endTime)),
+                )
             }
 
             // Dimmed by multiplying the fades it already has, so a shadow
@@ -138,16 +155,27 @@ public struct ShadowFilter: SpriteFilter {
     }
 
     /// Moves every coordinate a command names.
-    private static func offset(_ command: Command, by x: Double, _ y: Double) -> Command {
+    private static func offset(
+        _ command: Command,
+        byStart from: (x: Double, y: Double),
+        end to: (x: Double, y: Double),
+    ) -> Command {
         switch command.payload {
         case let .move(sx, sy, ex, ey):
             Command(timing: command.timing, payload: .move(
-                startX: sx + x, startY: sy + y, endX: ex + x, endY: ey + y,
+                startX: sx + from.x, startY: sy + from.y,
+                endX: ex + to.x, endY: ey + to.y,
             ))
         case let .moveX(start, end):
-            Command(timing: command.timing, payload: .moveX(start: start + x, end: end + x))
+            Command(
+                timing: command.timing,
+                payload: .moveX(start: start + from.x, end: end + to.x),
+            )
         case let .moveY(start, end):
-            Command(timing: command.timing, payload: .moveY(start: start + y, end: end + y))
+            Command(
+                timing: command.timing,
+                payload: .moveY(start: start + from.y, end: end + to.y),
+            )
         default:
             command
         }

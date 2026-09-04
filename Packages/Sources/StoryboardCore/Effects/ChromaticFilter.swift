@@ -262,8 +262,17 @@ public struct ChromaticFilter: SpriteFilter {
                 copy.defaultX += dx(birth)
                 copy.defaultY += dy(birth)
 
+                // A still sprite has no movement command for the split to
+                // displace — its position lives in `defaultX/Y`, read once —
+                // so an animated split would freeze at its first value.
+                let carried = AnimatedFactor.carrying(
+                    sprite.commands,
+                    defaultX: sprite.defaultX, defaultY: sprite.defaultY,
+                    cutAt: (context.isAnimated(Param.offset)
+                        || context.isAnimated(Param.angle)) ? cuts : [],
+                )
                 copy.commands = AnimatedFactor.apply(
-                    to: sprite.commands, cutAt: cuts,
+                    to: carried, cutAt: cuts,
                 ) { command in
                     let atStart = command.startTime
                     let atEnd = command.endTime

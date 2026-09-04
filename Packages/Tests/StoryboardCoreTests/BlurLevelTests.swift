@@ -166,62 +166,22 @@ struct BlurLevelTests {
         #expect(softLate > sharpLate)
     }
 
-    /// Neighbouring levels must sum to roughly what one sprite would show, or
-    /// the stack dips in brightness halfway between every pair — a pulsing
-    /// blur rather than a smooth one.
+    /// **Superseded, and worth keeping as a record.**
     ///
-    /// This is the reason the weights are linear across exactly one step: any
-    /// other falloff leaves a hole or a bulge at the crossing point.
-    @Test("neighbouring levels sum to one across a crossing")
-    func crossFadesSumToOne() throws {
-        let (document, _, _) = try animated(from: 0, to: 8)
-        let sprites = evaluator.evaluate(document)
-
-        // Read out of the evaluated sprites, never recomputed from the same
-        // rule the filter uses. A test that reimplements its subject's formula
-        // agrees with any formula — verified by mutation: an earlier version of
-        // this passed with the gate forced to full, which draws every level at
-        // once and is the exact bug the cross-fade prevents.
-        func opacity(_ sprite: StoryboardSprite, at time: Double) -> Double {
-            var value = 0.0
-            for command in sprite.commands.sorted(by: { $0.startTime < $1.startTime }) {
-                guard case let .fade(start, end) = command.payload else { continue }
-                if time < command.startTime { break }
-                if time >= command.endTime { value = end; continue }
-                let span = command.endTime - command.startTime
-                let t = span > 0 ? (time - command.startTime) / span : 0
-                value = start + (end - start) * t
-            }
-            return value
-        }
-
-        // One particle's stack, so the sum is over levels rather than over
-        // every particle alive at once.
-        let byParticle = Dictionary(grouping: sprites) { sprite in
-            sprite.id.split(separator: "l").dropLast().joined(separator: "l")
-        }
-        let stack = try #require(byParticle.values.max { $0.count < $1.count })
-        #expect(stack.count > 1, "an animated radius must produce a stack")
-
-        // The subject's own fade at the same moment, so the comparison is
-        // against how bright one unfiltered sprite would be.
-        var unblurred = document
-        let trackID = clip(in: unblurred)
-        unblurred.nodes.first.map { node in
-            for filter in node.filters { unblurred.removeFilter(filter.id, from: trackID) }
-        }
-        let plain = evaluator.evaluate(unblurred)
-        let subject = try #require(plain.first)
-
-        for percent in stride(from: 0.15, through: 0.85, by: 0.1) {
-            let time = 2000 * percent
-            let total = stack.reduce(0.0) { $0 + opacity($1, at: time) }
-            let expected = opacity(subject, at: time)
-            #expect(
-                abs(total - expected) < 0.05,
-                "at \(time)ms the stack summed to \(total), one sprite shows \(expected)",
-            )
-        }
+    /// This used to assert that neighbouring levels *sum* to what one sprite
+    /// shows. That premise was wrong and it is what produced the flicker: two
+    /// sprites at 0.5 composite to 0.75, not 1.0, so weights that add up
+    /// correctly leave the picture dim in the middle of every crossing.
+    ///
+    /// What actually has to hold is that the **composited** result stays at
+    /// one, which `BlurStackTests` checks. Kept here as a pointer, because the
+    /// wrong version of this test passed while the bug was on screen.
+    @Test("the stack is judged by compositing, not by summing")
+    func summingIsTheWrongMeasure() {
+        // Two half-opaque layers over one another.
+        let a = 0.5, b = 0.5
+        #expect(a + b == 1.0)
+        #expect(abs((a + b - a * b) - 0.75) < 1e-9)
     }
 
     /// A particle born late must show the radius in force *then*. Reading the
@@ -302,25 +262,26 @@ struct BlurHeldSpriteTests {
 
         let sprites = evaluator.evaluate(document)
 
-        /// The blur level actually visible at a moment.
+        /// The blur level actually on top at a moment.
+        ///
+        /// The **last** visible one in draw order, not the most opaque: levels
+        /// the radius has passed are held opaque behind so the stack cannot
+        /// thin, so "brightest" now finds the earliest rather than the one
+        /// being shown.
         func visibleLevel(at time: Double) -> Double? {
-            var best: (level: Double, opacity: Double)?
+            var top: Double?
             for sprite in sprites {
                 let state = StoryboardResolver.resolve(
                     StoryboardResolver.prepare([sprite]), at: time,
                 ).first
                 guard let state, state.opacity > 0.4 else { continue }
-                let level: Double
                 if case let .blur(radius) = DerivedSprite.parse(sprite.filePath)?.kind {
-                    level = radius
+                    top = radius
                 } else {
-                    level = 0
-                }
-                if best == nil || state.opacity > best!.opacity {
-                    best = (level, state.opacity)
+                    top = 0
                 }
             }
-            return best?.level
+            return top
         }
 
         // Before the ramp the text is sharp; at the last key it is fully blurred.
@@ -328,5 +289,105 @@ struct BlurHeldSpriteTests {
         #expect(visibleLevel(at: 4800) == 20, "the blur never reached its last keyframe")
         // And it stays there past the key, since the value holds.
         #expect(visibleLevel(at: 5700) == 20)
+    }
+}
+
+/// The stack must never thin out as the radius travels.
+///
+/// Sprites composite **over** each other, so two at 0.5 do not make one at 1.0
+/// — the back is seen through the front and the result is 0.75. Weights that
+/// sum to one algebraically therefore darken the picture in the middle of every
+/// level crossing: measured, it dipped to 0.76 and returned to 1.00 at each
+/// boundary, which reads as flicker.
+@Suite("Blur stack stays solid")
+struct BlurStackTests {
+    private let evaluator = EffectEvaluator()
+
+    /// What the eye receives, compositing in draw order.
+    private func visible(_ sprites: [StoryboardSprite], at time: Double) -> Double {
+        var result = 0.0
+        for sprite in sprites {
+            let state = StoryboardResolver.resolve(
+                StoryboardResolver.prepare([sprite]), at: time,
+            ).first
+            let alpha = state?.opacity ?? 0
+            guard alpha > 0.001 else { continue }
+            result = result + alpha - result * alpha
+        }
+        return result
+    }
+
+    @Test("an animated blur never flickers")
+    func stackStaysSolid() throws {
+        var document = EffectDocument()
+        let node = document.add(ShapeEffect.descriptor, at: 0, duration: 2000)
+        let added = document.addFilter(BlurFilter.descriptor, to: node.id)
+        let filter = try #require(added)
+        document.setFilterAnimation(
+            KeyframeTrack([
+                Keyframe(time: 0, value: 0),
+                Keyframe(time: 2000, value: 20),
+            ]),
+            for: BlurFilter.Param.radius, on: filter.id, in: node.id,
+        )
+
+        let sprites = evaluator.evaluate(document)
+        // Every 50ms, which is finer than the level boundaries the dip sat on.
+        for time in stride(from: 0.0, through: 2000, by: 50) {
+            let light = visible(sprites, at: time)
+            // Never *thinner* than solid, which is what reads as flicker.
+            // Slightly over is two neighbouring levels overlapping, which the
+            // eye cannot see: opacity clamps at one on screen.
+            #expect(
+                light > 0.98,
+                "the stack thinned to \(light) at \(time)ms",
+            )
+        }
+    }
+
+    /// **Superseded.** Holding every passed level opaque was the first answer
+    /// to the flicker, and it broke a radius that comes back down: the levels
+    /// already left stayed drawn on top, so a run 20 → 0 → 20 never looked
+    /// sharp again. Reported from a real project.
+    ///
+    /// What actually holds is narrower — only the two levels *straddling* the
+    /// radius are drawn, the nearer opaque and the further fading in behind.
+    @Test("a radius that comes back down looks sharp again")
+    func comingBackDownLooksSharp() throws {
+        var document = EffectDocument()
+        let node = document.add(ShapeEffect.descriptor, at: 0, duration: 3000)
+        let added = document.addFilter(BlurFilter.descriptor, to: node.id)
+        let filter = try #require(added)
+        document.setFilterAnimation(
+            KeyframeTrack([
+                Keyframe(time: 0, value: 20),
+                Keyframe(time: 1500, value: 0),
+                Keyframe(time: 3000, value: 20),
+            ]),
+            for: BlurFilter.Param.radius, on: filter.id, in: node.id,
+        )
+
+        let sprites = evaluator.evaluate(document)
+
+        // Around the trough, not only at its exact bottom.
+        //
+        // At the bottom the radius equals the lowest level, and an end clamp
+        // written `>=` rather than `>` holds the *top* level opaque there while
+        // still passing a test that only samples that instant. Sampling either
+        // side catches it.
+        for time in [1300.0, 1500.0, 1700.0] {
+            for sprite in sprites {
+                guard case let .blur(radius) = DerivedSprite.parse(sprite.filePath)?.kind,
+                      radius > 4
+                else { continue }
+                let state = StoryboardResolver.resolve(
+                    StoryboardResolver.prepare([sprite]), at: time,
+                ).first
+                #expect(
+                    (state?.opacity ?? 0) < 0.05,
+                    "blur\(Int(radius)) was drawn at \(time)ms, near the sharp trough",
+                )
+            }
+        }
     }
 }

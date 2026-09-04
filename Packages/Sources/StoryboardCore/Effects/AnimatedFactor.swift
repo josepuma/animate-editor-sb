@@ -102,9 +102,17 @@ public enum AnimatedFactor {
         // cuts it needed and never travelled. What matters is whether the
         // output depends on *when* it is asked, not on whether one sample
         // happens to change anything.
+        // Sampled at the command's own **midpoint**, not a millisecond later.
+        //
+        // A factor that is equal at both ends of a long command — a radius that
+        // starts and finishes at 20, dipping to 0 in between — looks constant
+        // from its edges, and a probe one millisecond along sees nothing
+        // either. The command then went uncut and the picture stayed blurred
+        // for the whole clip while the middle of the animation was ignored.
+        let middle = (probe.startTime + probe.endTime) / 2
         var later = probe
-        later.timing.startTime = probe.startTime + 1
-        later.timing.endTime = probe.endTime + 1
+        later.timing.startTime = middle
+        later.timing.endTime = middle
         guard let shifted = transform(later) else { return true }
         return !samePayload(shifted.payload, later.payload)
     }
@@ -152,6 +160,50 @@ public enum AnimatedFactor {
         default:
             false
         }
+    }
+
+    /// The sprite's commands, guaranteed to carry a movement over its whole
+    /// life.
+    ///
+    /// A filter that displaces a sprite works by rewriting the coordinates its
+    /// commands name — so a sprite that never moves has nothing to displace.
+    /// Its position lives in `defaultX/Y`, read once, and an *animated* offset
+    /// then has nowhere to land: measured on a text glyph, Shadow's offset and
+    /// Chromatic's split both came out frozen at their first value.
+    ///
+    /// It is the same shape as the fade gap ``BlurFilter`` hit, one payload
+    /// over: what a filter multiplies or displaces has to exist first.
+    ///
+    /// Costs nothing when nothing is animating — the caller passes no cut times
+    /// and this returns the commands untouched.
+    public static func carrying(
+        _ commands: [Command],
+        defaultX: Double,
+        defaultY: Double,
+        cutAt times: [Double],
+    ) -> [Command] {
+        guard !times.isEmpty else { return commands }
+        guard !commands.contains(where: {
+            $0.kind == .move || $0.kind == .moveX || $0.kind == .moveY
+        }) else { return commands }
+
+        let starts = commands.map(\.startTime)
+        let ends = commands.map(\.endTime)
+        guard let birth = starts.min(), let death = ends.max(), death > birth
+        else { return commands }
+
+        // A single held movement, which the filter then displaces per moment.
+        // Written at the position the sprite already had, so a sprite nobody is
+        // displacing looks exactly as it did.
+        return commands + [Command(
+            easing: .linear,
+            startTime: birth,
+            endTime: death,
+            payload: .move(
+                startX: defaultX, startY: defaultY,
+                endX: defaultX, endY: defaultY,
+            ),
+        )]
     }
 
     /// One command cut into pieces at every moment falling strictly inside it.

@@ -244,25 +244,18 @@ public struct BlurFilter: SpriteFilter {
         return AnimatedFactor.apply(to: commands, cutAt: cuts) { command in
             guard case let .fade(start, end) = command.payload else { return command }
 
-            func weight(at time: Double) -> Double {
-                let actual = context.number(Param.radius, at: time)
-                let distance = abs(actual - Double(level))
-                guard distance < step else { return 0 }
-                // Linear across one step: at the level itself this is 1, at its
-                // neighbour 0, and the two always sum to 1 in between — so the
-                // pair reads as one image rather than as a dip in brightness
-                // halfway across.
-                return 1 - distance / step
-            }
-
-            // The ends of the range keep their level beyond it, or the stack
-            // fades to nothing wherever the radius sits past the outermost
-            // sample.
+            // The ends of the range stand in beyond it, or the stack shows
+            // nothing wherever the radius sits past the outermost level.
+            //
+            // Strictly past, not `<=`/`>=`: a level is trivially equal to
+            // itself, so the loose test held the top level opaque at *every*
+            // instant and a radius running 20 → 0 → 20 stayed blurred from end
+            // to end.
             func clampedWeight(at time: Double) -> Double {
                 let actual = context.number(Param.radius, at: time)
-                if level == levels.first, actual <= Double(level) { return 1 }
-                if level == levels.last, actual >= Double(level) { return 1 }
-                return weight(at: time)
+                if level == levels.first, actual < Double(level) { return 1 }
+                if level == levels.last, actual > Double(level) { return 1 }
+                return Self.weight(forLevel: level, atRadius: actual, step: step)
             }
 
             return Command(
@@ -292,45 +285,61 @@ public struct BlurFilter: SpriteFilter {
         let ends = commands.map(\.endTime)
         guard let first = starts.min(), let last = ends.max(), last > first else { return [] }
 
-        // Enough samples to catch a band crossing without writing a command per
-        // sample: the cuts these produce are bounded by how many times the
-        // radius can cross one band, not by the sample count.
-        let samples = 240
+        // Enough samples that a cut lands within a fraction of a pixel of each
+        // corner in the weight curve.
+        //
+        // The curve is piecewise linear with corners where the radius is half a
+        // step and a full step away — and a command interpolates *between* its
+        // cuts, so a cut landing near a corner rather than on it rounds the
+        // corner off. Measured on a 0→20 ramp: a level that should have been
+        // flat at 1.000 read 0.996 and drifting, and the pair composited to
+        // 0.968 instead of 1. Small, and visible as flicker because it repeats
+        // at every one of the eleven crossings.
+        let samples = 2000
         let interval = (last - first) / Double(samples)
 
+        // Every sample where this level's weight **changes**, rather than where
+        // it enters and leaves its band.
+        //
+        // Edge detection assumed a level starts outside its band. One that
+        // begins inside — a radius running 20 → 0 → 20 starts sitting on the
+        // top level — recorded no boundary at all and came out as a single
+        // command held opaque for the whole clip, so the picture stayed blurred
+        // from end to end.
+        //
+        // Asking "did the weight move" needs no such assumption, and it catches
+        // each pass's peak for free: the weight stops changing there.
         var times: [Double] = []
-        var wasInside = false
-        var closest: (time: Double, distance: Double)?
+        var previous: Double?
 
         for index in 0 ... samples {
             let time = first + interval * Double(index)
-            let distance = abs(radius(time) - Double(level))
-            let inside = distance < step
-
-            if inside != wasInside {
-                if index > 0 { times.append(time) }
-                // Leaving the band closes off the pass just measured, so its
-                // nearest approach is recorded before the next one starts.
-                if !inside, let peak = closest { times.append(peak.time) }
-                closest = nil
-            }
-            if inside, closest == nil || distance < closest!.distance {
-                closest = (time, distance)
-            }
-            wasInside = inside
+            let value = Self.weight(
+                forLevel: level, atRadius: radius(time), step: step,
+            )
+            if let previous, abs(value - previous) > 0.001 { times.append(time) }
+            previous = value
         }
-        // A pass still open at the end has its peak recorded too.
-        if wasInside, let peak = closest { times.append(peak.time) }
+        return times
+    }
 
-        // The nearest approach as well as the edges.
+    /// How opaque one level is at a given radius.
+    ///
+    /// The single rule both the cuts and the gate read. Two places computing it
+    /// separately is how they come to disagree — and a cut placed where the
+    /// weight does *not* change is a command written for nothing.
+    static func weight(forLevel level: Int, atRadius radius: Double, step: Double) -> Double {
+        let distance = abs(radius - Double(level))
+        guard distance < step else { return 0 }
+
+        // The nearer of the two levels either side of the radius is opaque and
+        // the further fades in behind it.
         //
-        // Cutting only where a level's band starts and ends leaves one command
-        // spanning the whole pass — and the weight at *both* of its ends is
-        // zero, because that is what being on the edge of a band means. The
-        // level then fades in to nothing and out again: measured, every
-        // intermediate level peaked at 0.08 instead of 1.00, so a blur running
-        // 0→20 was very nearly invisible in between.
-        return times.sorted()
+        // Sprites composite **over** rather than adding — two at 0.5 give 0.75,
+        // not 1.0 — so a pair of weights summing to one algebraically leaves the
+        // picture dim in the middle of every crossing. Measured, it dipped to
+        // 0.76 and back to 1.00 at each level boundary, which is the flicker.
+        return distance <= step / 2 ? 1 : (step - distance) / (step / 2)
     }
 
     /// One sprite per blur level the radius passes through.
