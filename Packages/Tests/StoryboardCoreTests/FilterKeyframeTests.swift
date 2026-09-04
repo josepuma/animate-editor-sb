@@ -413,3 +413,78 @@ struct FilterKeyframeTests {
         #expect(copy.animations == node.animations)
     }
 }
+
+/// A filter must not straighten the curves it is only passing along.
+///
+/// Cutting a command re-expresses its curve as a row of chords, which is right
+/// for a command whose values are about to be rewritten and wrong for one the
+/// filter merely copies. A glow takes its subject's movement verbatim, so
+/// slicing an eased `_M` left the halo travelling in straight lines while the
+/// sprite followed the curve — measured at 30px apart, meeting again at every
+/// cut, which is exactly what a chord approximating an arc looks like.
+@Suite("Filters preserve untouched curves")
+struct FilterCurvePreservationTests {
+    private let evaluator = EffectEvaluator()
+
+    @Test("a halo follows an eased move exactly")
+    func haloFollowsTheCurve() throws {
+        var document = EffectDocument()
+        let node = document.add(ShapeEffect.descriptor, at: 0, duration: 2000)
+        document.setKeyframe(100, for: .x, at: 0, easing: .quadOut, on: node.id)
+        document.setKeyframe(600, for: .x, at: 2000, on: node.id)
+
+        let added = document.addFilter(GlowFilter.descriptor, to: node.id)
+        let filter = try #require(added)
+        // An animated factor is what introduces the cuts in the first place.
+        document.setFilterAnimation(
+            KeyframeTrack([
+                Keyframe(time: 0, value: 0.2),
+                Keyframe(time: 1000, value: 1.5),
+                Keyframe(time: 2000, value: 0.3),
+            ]),
+            for: GlowFilter.Param.intensity, on: filter.id, in: node.id,
+        )
+
+        let sprites = evaluator.evaluate(document)
+        let halos = sprites.filter { $0.id.contains("/g") }
+        let subjects = sprites.filter { !$0.id.contains("/g") }
+        let halo = try #require(halos.first)
+        let subject = try #require(subjects.first)
+
+        func x(_ sprite: StoryboardSprite, at time: Double) -> Double {
+            StoryboardResolver.resolve(StoryboardResolver.prepare([sprite]), at: time)
+                .first?.x ?? .nan
+        }
+
+        // Sampled between the cuts, which is where a chord departs from its arc
+        // — at the cuts themselves the two agree even when the bug is present.
+        for time in stride(from: 0.0, through: 2000, by: 100) {
+            #expect(
+                abs(x(subject, at: time) - x(halo, at: time)) < 0.01,
+                "halo drifted from its subject at \(time)ms",
+            )
+        }
+    }
+
+    /// The rewritten commands still get cut — this must not fix the curve by
+    /// giving up on animating the factor.
+    @Test("an animated factor still produces its own commands")
+    func factorStillAnimates() throws {
+        var document = EffectDocument()
+        let node = document.add(ShapeEffect.descriptor, at: 0, duration: 2000)
+        let added = document.addFilter(GlowFilter.descriptor, to: node.id)
+        let filter = try #require(added)
+        document.setFilterAnimation(
+            KeyframeTrack([
+                Keyframe(time: 0, value: 0.2),
+                Keyframe(time: 1000, value: 1.5),
+            ]),
+            for: GlowFilter.Param.intensity, on: filter.id, in: node.id,
+        )
+
+        let halos = evaluator.evaluate(document).filter { $0.id.contains("/g") }
+        let halo = try #require(halos.first)
+        let fades = halo.commands.filter { $0.kind == .fade }
+        #expect(fades.count > 1, "the animated factor must be cut into segments")
+    }
+}
