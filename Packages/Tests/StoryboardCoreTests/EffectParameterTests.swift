@@ -61,7 +61,8 @@ struct EffectParameterTests {
     @Test("groups come out in declaration order, without repeats")
     func groupOrder() {
         #expect(EmitterEffect.descriptor.groups == [
-            "Emission", "Position", "Direction", "Physics", "Particle", "Appearance",
+            "Emission", "Shape", "Position", "Direction", "Physics",
+            "Particle", "Appearance",
         ])
     }
 
@@ -97,6 +98,10 @@ struct EffectParameterTests {
             EmitterEffect.Param.opacity,
             EmitterEffect.Param.fadeIn, EmitterEffect.Param.fadeOut,
             EmitterEffect.Param.additive,
+            // The particle's own form, built from numbers rather than picked
+            // from a list of nine textures.
+            EmitterEffect.Param.core, EmitterEffect.Param.edge,
+            EmitterEffect.Param.softness,
         ]
 
         #expect(Set(read) == declared)

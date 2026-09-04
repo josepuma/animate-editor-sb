@@ -44,9 +44,19 @@ struct EmitterEffectTests {
         #expect(sprites(duration: 0).isEmpty)
     }
 
-    @Test("an emitter with no sprite file produces nothing")
-    func missingSpriteFile() {
-        #expect(sprites([EmitterEffect.Param.sprite: .text("")]).isEmpty)
+    /// **The premise changed.** An empty path used to mean "nothing to draw";
+    /// it now means "build the particle from its three numbers", which is what
+    /// makes the shape composable rather than a menu of nine.
+    @Test("an emitter with no sprite file draws its parametric particle")
+    func missingSpriteFile() throws {
+        let drawn = sprites([EmitterEffect.Param.sprite: .text("")])
+        #expect(!drawn.isEmpty)
+
+        let path = try #require(drawn.first?.filePath)
+        #expect(
+            BuiltInSprite.particleProfile(path) != nil,
+            "an emitter without a file should name a parametric particle",
+        )
     }
 
     // ─── Emission ────────────────────────────────────────────────────────────

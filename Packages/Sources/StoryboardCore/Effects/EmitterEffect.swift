@@ -27,6 +27,9 @@ public struct EmitterEffect: Effect {
         public static let emission = "emission"
         public static let burstCount = "burstCount"
         public static let sprite = "sprite"
+        public static let core = "core"
+        public static let edge = "edge"
+        public static let softness = "softness"
 
         /// Kept so presets written against them still place an emitter: the
         /// values are moved onto the transform when one is applied.
@@ -419,10 +422,66 @@ public struct EmitterEffect: Effect {
                 id: Param.sprite,
                 name: "Sprite",
                 group: "Emission",
-                // The app's own particle, so a freshly dropped emitter draws
-                // something before any file has been chosen. Kept as a plain
-                // path because that is what it becomes on export.
-                defaultValue: .text(EmitterEffect.defaultSpritePath),
+                // Empty by default, so the three shape parameters below decide
+                // what a particle looks like. A path here overrides them —
+                // that is the escape hatch for anything code cannot draw.
+                defaultValue: .text(""),
+            ),
+
+            // ── Shape ───────────────────────────────────────────────────────
+            //
+            // Three numbers instead of a menu of nine textures.
+            //
+            // The fixed list was the one thing in this system a user could not
+            // compose: every other parameter is an axis they combine freely,
+            // while the particle's own form could only be widened by editing
+            // the app. That is the line between an editor and a catalogue.
+            //
+            // And most of those nine were the same radial gradient with
+            // different numbers — a soft dot, a tight glow, a flat disc and a
+            // ring differ only in how bright the middle is and where the edge
+            // falls. Made parametric, everything *between* them opens up too,
+            // which is where a bokeh circle lives.
+            EffectParameter(
+                id: Param.core,
+                name: "Core",
+                group: "Shape",
+                // Solid, which is what a plain particle is. Below one the
+                // middle dims — at zero it is a ring, and around 0.6 it is the
+                // defocused highlight a lens makes, dimmer inside than at its
+                // own rim.
+                defaultValue: .number(1),
+                range: 0...1,
+                step: 0.02,
+                presentation: .slider,
+                shownWhen: .init(parameter: Param.sprite, isAnyOf: [""]),
+            ),
+            EffectParameter(
+                id: Param.edge,
+                name: "Edge",
+                group: "Shape",
+                // Where the brightest ring sits. Near zero the particle is a
+                // point of light; near one it is a disc with a defined rim.
+                defaultValue: .number(0.35),
+                range: 0.02...1,
+                step: 0.02,
+                unit: "×",
+                presentation: .slider,
+                shownWhen: .init(parameter: Param.sprite, isAnyOf: [""]),
+            ),
+            EffectParameter(
+                id: Param.softness,
+                name: "Softness",
+                group: "Shape",
+                // How much of the radius *left over* past the edge the fade
+                // uses. A fraction rather than a distance, or the two fight
+                // over the same space and a rim near the outside silently
+                // clips its own falloff.
+                defaultValue: .number(1),
+                range: 0...1,
+                step: 0.02,
+                presentation: .slider,
+                shownWhen: .init(parameter: Param.sprite, isAnyOf: [""]),
             ),
 
             // ── Position ────────────────────────────────────────────────────
@@ -699,7 +758,17 @@ public struct EmitterEffect: Effect {
 
         let emission = Emission(rawValue: context.choice(Param.emission)) ?? .continuous
         let burstCount = max(1, context.integer(Param.burstCount))
-        let filePath = context.text(Param.sprite)
+        // A path wins when there is one — that is the escape hatch for shapes
+        // code cannot draw, which is why the texture pack exists. Otherwise the
+        // particle is built from its three numbers.
+        let chosen = context.text(Param.sprite)
+        let filePath = chosen.isEmpty
+            ? BuiltInSprite.particle(
+                core: context.number(Param.core),
+                edge: context.number(Param.edge),
+                falloff: context.number(Param.softness),
+            )
+            : chosen
         guard !filePath.isEmpty else { return [] }
 
         // Particles are emitted around the canvas centre; the clip's transform

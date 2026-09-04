@@ -127,6 +127,20 @@ struct EmitterParameterEffectTests {
         (EmitterEffect.Param.fadeIn, .number(0.8), [:]),
         (EmitterEffect.Param.fadeOut, .number(0.05), [:]),
         (EmitterEffect.Param.additive, .toggle(true), [:]),
+
+        // The particle's own form. Each changes the texture path the sprites
+        // name, which is how a shape built from numbers shows up at all —
+        // there is no command in the format that could reshape an image after
+        // it is drawn, so a different profile is a different file.
+        //
+        // Only with the sprite left empty: a path set by hand overrides them,
+        // which is the escape hatch for shapes code cannot draw.
+        (EmitterEffect.Param.core, .number(0.4),
+         [EmitterEffect.Param.sprite: .text("")]),
+        (EmitterEffect.Param.edge, .number(0.9),
+         [EmitterEffect.Param.sprite: .text("")]),
+        (EmitterEffect.Param.softness, .number(0.1),
+         [EmitterEffect.Param.sprite: .text("")]),
     ]
 
     @Test("the cases cover every declared parameter")

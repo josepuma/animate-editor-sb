@@ -109,6 +109,65 @@ public enum BuiltInSprite {
         return "__builtin__/hoop\(percent).png"
     }
 
+    /// A particle built from **numbers**, not chosen from a menu.
+    ///
+    /// The nine fixed shapes are one closed list, and a closed list is the one
+    /// thing in this system a user cannot compose: every other parameter is an
+    /// axis they combine freely, while the particle's own form could only be
+    /// widened by someone editing the app. That is the line between an editor
+    /// and a catalogue.
+    ///
+    /// And most of those nine are **the same radial gradient with different
+    /// numbers** — a soft dot, a tight glow, a flat disc, a ring and a bokeh
+    /// circle differ only in how bright the middle is and where the edge falls:
+    ///
+    /// | | core | edge |
+    /// |---|---|---|
+    /// | soft | 1.0 | fades out |
+    /// | glow | 1.0 | small peak, long halo |
+    /// | disc | 1.0 | 1.0, hard |
+    /// | bokeh | 0.62 | **brighter than the middle** |
+    /// | ring | 0.0 | 1.0 |
+    ///
+    /// Three numbers cover all of them, and everything between — which is where
+    /// a bokeh lives, and the reason it could not be built before.
+    ///
+    /// - Parameters:
+    ///   - core: how bright the centre is, 0…1. Below one it dims toward the
+    ///     middle, which is what a defocused highlight does — the aperture is
+    ///     projected, not a point of light smeared, so it can be *brighter at
+    ///     the rim*. Measured against a real bokeh: 0.62.
+    ///   - edge: where the brightest ring sits, 0…1 of the radius. At 1 the
+    ///     particle simply falls off; below it there is a rim.
+    ///   - falloff: how abruptly it ends past that ring, 0…1. Near zero is a
+    ///     hard cut like a lens aperture; near one is a long soft halo.
+    ///
+    /// Quantised to whole percent for the reason the hoop is: a continuous
+    /// slider would mint a texture at every value it passes through, and the
+    /// atlas has a fixed size.
+    public static func particle(
+        core: Double, edge: Double, falloff: Double,
+    ) -> String {
+        func percent(_ value: Double) -> Int {
+            Int((min(max(value, 0), 1) * 100).rounded())
+        }
+        return "__builtin__/p\(percent(core))-\(percent(edge))-\(percent(falloff)).png"
+    }
+
+    /// The three numbers behind a parametric particle path, or `nil`.
+    public static func particleProfile(
+        _ path: String,
+    ) -> (core: Double, edge: Double, falloff: Double)? {
+        let prefix = "__builtin__/p"
+        guard path.hasPrefix(prefix), path.hasSuffix(".png") else { return nil }
+        let body = path.dropFirst(prefix.count).dropLast(".png".count)
+        let parts = body.split(separator: "-")
+        guard parts.count == 3,
+              let core = Int(parts[0]), let edge = Int(parts[1]), let falloff = Int(parts[2])
+        else { return nil }
+        return (Double(core) / 100, Double(edge) / 100, Double(falloff) / 100)
+    }
+
     public static let shapes = [soft, glow, smoke, star, square, streak, ring, fill, disc]
 
     /// Textures shipped as files, for the shapes code cannot draw — a branching

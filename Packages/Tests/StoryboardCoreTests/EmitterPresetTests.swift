@@ -71,10 +71,31 @@ struct EmitterPresetTests {
     }
 
     /// Every preset draws a shape the renderer can actually supply.
+    ///
+    /// An **empty** path is one of those: it means the particle is built from
+    /// its three shape numbers rather than named, which is what makes the form
+    /// composable instead of a menu of nine textures. The check then moves to
+    /// those numbers producing a path the renderer knows how to draw.
     @Test("every preset names a real sprite", arguments: EmitterEffect.presets)
     func presetsUseKnownSprites(preset: EffectPreset) {
         guard case let .text(path) = preset.values[EmitterEffect.Param.sprite] else {
             Issue.record("\(preset.id) has no sprite")
+            return
+        }
+        guard !path.isEmpty else {
+            func number(_ id: String) -> Double {
+                if case let .number(value) = preset.values[id] { return value }
+                return 0
+            }
+            let built = BuiltInSprite.particle(
+                core: number(EmitterEffect.Param.core),
+                edge: number(EmitterEffect.Param.edge),
+                falloff: number(EmitterEffect.Param.softness),
+            )
+            #expect(
+                BuiltInSprite.particleProfile(built) != nil,
+                "\(preset.id) builds a particle the renderer cannot read back",
+            )
             return
         }
         #expect(BuiltInSprite.all.contains(path), "\(preset.id) uses an unknown sprite: \(path)")

@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import ImageIO
+import StoryboardCore
 import UniformTypeIdentifiers
 
 /// Images the app supplies itself, for effects that need something to draw
@@ -199,6 +200,14 @@ public enum BuiltInTextures {
                 encode(draw(.hoop, size: size(for: .hoop), thickness: thickness))
             }
         }
+        // A particle built from numbers rather than picked from the list.
+        if let profile = BuiltInSprite.particleProfile(filePath) {
+            return cached(filePath) {
+                encode(drawParticle(
+                    core: profile.core, edge: profile.edge, falloff: profile.falloff,
+                ))
+            }
+        }
         if let shape = Shape(path: filePath) {
             return cached(filePath) { encode(draw(shape, size: size(for: shape))) }
         }
@@ -335,6 +344,72 @@ public enum BuiltInTextures {
             endCenter: middle, endRadius: radius ?? extent / 2,
             options: [],
         )
+    }
+
+    // ─── Parametric particle ─────────────────────────────────────────────────
+
+    /// A particle drawn from three numbers instead of chosen from a menu.
+    ///
+    /// The nine fixed shapes were a closed list, and a closed list is the one
+    /// thing here a user could not compose — every other parameter is an axis
+    /// they combine freely. Most of those nine are the same radial gradient
+    /// with different numbers, so the gradient itself becomes the parameter.
+    ///
+    /// The stops are built rather than tabulated:
+    ///
+    /// - the centre sits at `core`
+    /// - the brightest ring sits at `edge`, always at full
+    /// - past it the fall is shaped by `falloff` — a near-zero one cuts within
+    ///   a couple of percent of the radius, which is what gives a bokeh its
+    ///   aperture edge, while a high one trails off like a glow
+    ///
+    /// A ring is `core: 0`, a flat disc is `core: 1, edge: 1, falloff: 0`, and
+    /// a bokeh is the case that could not be expressed before: a centre dimmer
+    /// than its own rim.
+    private static func drawParticle(
+        core: Double, edge: Double, falloff: Double,
+    ) -> CGImage? {
+        // Drawn large, like every other round shape: a curve magnified becomes
+        // a staircase where a straight edge survives.
+        let side = 512
+        let extent = CGFloat(side)
+        guard let context = makeContext(size: side) else { return nil }
+
+        let core = CGFloat(min(max(core, 0), 1))
+        let edge = CGFloat(min(max(edge, 0.02), 1))
+        let falloff = CGFloat(min(max(falloff, 0), 1))
+
+        // `edge` places the brightest ring; `falloff` is how much of the
+        // *remaining* radius the fade uses.
+        //
+        // Expressed as a fraction of what is left rather than an absolute
+        // distance, the two parameters stop fighting over the same space: a rim
+        // at 0.9 has a tenth of the radius to fade in, and `falloff: 1` should
+        // use all of it rather than being clipped by a number that assumed
+        // there was more room.
+        let rim = min(edge, 0.98)
+        let remaining = 1 - rim
+        // Squared at the low end, where an aperture edge lives — otherwise
+        // every value under a half reads the same. Floored at a texel: a
+        // gradient ending exactly at its canvas has nowhere for the
+        // antialiased pixel, and the circle comes out with flat sides.
+        let reach = max(0.008, remaining * (0.02 + falloff * falloff * 0.98))
+
+        var stops: [(CGFloat, CGFloat)] = [(0, core)]
+        // Halfway to the rim the profile is already climbing, or a dimmed
+        // middle reads flat and the rim looks pasted on.
+        if rim > 0.04 {
+            stops.append((rim * 0.6, core + (1 - core) * 0.35))
+        }
+        stops.append((rim, 1))
+        // A knee, so a long falloff trails like a glow rather than ramping
+        // straight out.
+        stops.append((min(1, rim + reach * 0.45), 0.28))
+        stops.append((min(1, rim + reach), 0))
+        if stops.last!.0 < 1 { stops.append((1, 0)) }
+
+        fillRadial(context, extent: extent, stops: stops)
+        return context.makeImage()
     }
 
     // ─── Shapes ──────────────────────────────────────────────────────────────

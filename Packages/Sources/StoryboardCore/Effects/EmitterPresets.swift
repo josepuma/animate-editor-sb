@@ -10,7 +10,7 @@ public extension EmitterEffect {
     /// adjusting instead of a black box.
     static let presets: [EffectPreset] = [
         fire, smoke, sparks, snow, rain, storm, confetti, bubbles, stars, shockwave, magic,
-        lightning, embers, flameJet, slashes, dust,
+        lightning, embers, flameJet, slashes, dust, bokeh,
     ]
 
     private static func preset(
@@ -442,6 +442,55 @@ public extension EmitterEffect {
     ///
     /// The lesson generalises. A texture that is a whole effect cannot be a
     /// particle; a particle has to be one thing.
+    /// Defocused highlights drifting across the frame.
+    ///
+    /// The preset that proves the shape parameters were the missing piece: a
+    /// bokeh circle is *dimmer in its middle than at its rim* — the lens
+    /// aperture projected rather than a point of light smeared — and none of
+    /// the nine fixed textures could be that. Nor could a blur: measured, a
+    /// blurred disc goes the other way, 1.00 → 0.62 → 0.49 across its radius,
+    /// because blurring softens an edge and a bokeh has a hard one.
+    ///
+    /// Built from `core: 0.62, edge: 0.92, softness: 0.06` — a dim middle, a
+    /// bright ring near the outside, and almost no fade past it.
+    static let bokeh = preset("bokeh", "Bokeh", "Defocused highlights drifting past",
+                              duration: 6000, [
+        // Few and large, which is what depth of field does: a defocused
+        // highlight is *bigger* than the light that made it, and a screen of
+        // small ones reads as confetti.
+        Param.count: .integer(46),
+        Param.emission: .choice(Emission.continuous.rawValue),
+        // Empty, so the three numbers below decide the shape.
+        Param.sprite: .text(""),
+        Param.core: .number(0.62),
+        Param.edge: .number(0.92),
+        Param.softness: .number(0.06),
+        // The whole frame, since these are out-of-focus lights *behind*
+        // whatever is sharp — not something emitted from a point.
+        Param.width: .number(900), Param.height: .number(520),
+        // Barely moving. A bokeh field drifts with the camera; particles that
+        // travel read as sparks.
+        Param.direction: .number(250), Param.spread: .number(80),
+        Param.velocity: .number(18), Param.velocityRandom: .number(0.9),
+        Param.drag: .number(0.2),
+        // Long lives, so the field is dense without paying for more sprites —
+        // the cheapest density there is.
+        Param.life: .number(5200), Param.lifeRandom: .number(0.4),
+        // The spread of sizes is the effect. A real defocused field has
+        // circles several times each other's diameter, from lights at
+        // different distances.
+        Param.scaleStart: .number(0.16), Param.scaleEnd: .number(0.18),
+        Param.scaleRandom: .number(0.85),
+        Param.color: .color(EffectColor(r: 255, g: 196, b: 108)),
+        Param.colorEnd: .color(EffectColor(r: 255, g: 214, b: 150)),
+        Param.colorVariety: .number(0.08),
+        // Low, and additive: overlapping circles brightening where they cross
+        // is what makes a bokeh field read as light rather than as discs.
+        Param.opacity: .number(0.5),
+        Param.fadeIn: .number(0.25), Param.fadeOut: .number(0.3),
+        Param.additive: .toggle(true),
+    ])
+
     static let dust = preset("dust", "Dust", "Grit kicked up by an impact, then settling",
                              duration: 2600, [
         Param.count: .integer(70),
