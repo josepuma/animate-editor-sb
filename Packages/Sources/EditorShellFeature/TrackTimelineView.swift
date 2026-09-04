@@ -25,10 +25,13 @@ struct TrackTimelineView: View {
     /// separately from what gets drawn is a height that eventually disagrees,
     /// and this timeline has already been bitten by a frame that promised less
     /// room than its contents needed.
-    private var animatedFilterRowCount: Int {
+    private var keyframeRowCount: Int {
         guard let node = shell.keyframeNode else { return 0 }
-        return KeyframeRows.animatedFilterRows(
-            of: node, descriptor: { shell.filters.descriptor(for: $0) },
+        return KeyframeRows.rowCount(
+            of: node,
+            descriptor: { shell.filters.descriptor(for: $0) },
+            isTransformExpanded: shell.isTransformGroupExpanded,
+            isFilterExpanded: { shell.isFilterGroupExpanded($0, in: node.id) },
         )
     }
     /// Whether the clock is running: a keyframe cannot be placed against a
@@ -174,18 +177,18 @@ struct TrackTimelineView: View {
     /// around a timeline that grows with its content.
     /// - Parameter isEditingKeyframes: the keyframe editor replaces the lanes
     ///   rather than sitting under them, so it has a height of its own.
-    /// - Parameter filterRows: how many rows the clip's animated filter
-    ///   parameters add. Zero for a clip with none, which is every clip until
-    ///   somebody clicks a stopwatch.
+    /// - Parameter keyframeRows: how many rows the keyframe editor draws,
+    ///   headings included and folded groups excluded. Ignored unless the
+    ///   editor is open.
     static func height(
         trackCount: Int,
         isEditingKeyframes: Bool = false,
-        filterRows: Int = 0,
+        keyframeRows: Int = 0,
     ) -> CGFloat {
         let rows = rowsHeight(
             trackCount: trackCount,
             isEditingKeyframes: isEditingKeyframes,
-            filterRows: filterRows,
+            keyframeRows: keyframeRows,
         )
 
         return rulerHeight
@@ -218,10 +221,10 @@ struct TrackTimelineView: View {
     static func rowsHeight(
         trackCount: Int,
         isEditingKeyframes: Bool = false,
-        filterRows: Int = 0,
+        keyframeRows: Int = 0,
     ) -> CGFloat {
         let rows = isEditingKeyframes
-            ? KeyframeRows.height(forFilterRows: filterRows)
+            ? KeyframeRows.height(rows: keyframeRows)
             : (trackHeight + Theme.Spacing.tight) * CGFloat(max(trackCount, 1))
         return min(rows, maximumRowsHeight)
     }
@@ -235,12 +238,12 @@ struct TrackTimelineView: View {
     static func stackHeight(
         trackCount: Int,
         isEditingKeyframes: Bool,
-        filterRows: Int = 0,
+        keyframeRows: Int = 0,
     ) -> CGFloat {
         return rulerHeight + Theme.Spacing.snug + rowsHeight(
             trackCount: trackCount,
             isEditingKeyframes: isEditingKeyframes,
-            filterRows: filterRows,
+            keyframeRows: keyframeRows,
         )
     }
 
@@ -299,7 +302,7 @@ struct TrackTimelineView: View {
                     height: Self.stackHeight(
                         trackCount: shell.effects.tracks.count,
                         isEditingKeyframes: shell.keyframeNode != nil,
-                        filterRows: animatedFilterRowCount,
+                        keyframeRows: keyframeRowCount,
                     ),
                     alignment: .top,
                 )
@@ -315,7 +318,7 @@ struct TrackTimelineView: View {
         .frame(height: Self.height(
             trackCount: shell.effects.tracks.count,
             isEditingKeyframes: shell.keyframeNode != nil,
-            filterRows: animatedFilterRowCount,
+            keyframeRows: keyframeRowCount,
         ), alignment: .top)
         .onChange(of: shell.keyframeNodeID) { _, newValue in
             if newValue != nil {
@@ -840,6 +843,10 @@ struct TrackTimelineView: View {
                 )
             },
             filters: node.filters,
+            isTransformExpanded: shell.isTransformGroupExpanded,
+            toggleTransform: { shell.isTransformGroupExpanded.toggle() },
+            isFilterExpanded: { shell.isFilterGroupExpanded($0, in: node.id) },
+            toggleFilter: { shell.toggleFilterGroup($0, in: node.id) },
             filterDescriptor: { shell.filters.descriptor(for: $0) },
             addFilterKeyframe: { filterID, parameter, time in
                 guard let value = shell.filterValue(
@@ -1036,7 +1043,7 @@ struct TrackTimelineView: View {
                 .frame(height: Self.rowsHeight(
                     trackCount: shell.effects.tracks.count,
                     isEditingKeyframes: shell.keyframeNode != nil,
-                    filterRows: animatedFilterRowCount,
+                    keyframeRows: keyframeRowCount,
                 ))
 
                 // No audio row.
@@ -1065,7 +1072,7 @@ struct TrackTimelineView: View {
         .frame(height: Self.rowsHeight(
                     trackCount: shell.effects.tracks.count,
                     isEditingKeyframes: shell.keyframeNode != nil,
-                    filterRows: animatedFilterRowCount,
+                    keyframeRows: keyframeRowCount,
                 ))
     }
 

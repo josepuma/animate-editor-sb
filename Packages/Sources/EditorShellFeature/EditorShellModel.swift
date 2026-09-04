@@ -1389,6 +1389,40 @@ public final class EditorShellModel {
         effectsChanged(node: nodeID)
     }
 
+    /// What each filter group in the keyframe editor is showing.
+    ///
+    /// Three states, not two, and that is the whole reason this is a dictionary
+    /// rather than a set of open ids: a filter somebody is animating opens on
+    /// its own — they are exactly who wants to see its diamonds — so there has
+    /// to be somewhere to record "shut it anyway". With only an open set, the
+    /// chevron on an animated filter would appear to do nothing.
+    ///
+    /// It lives on the model rather than in the view because the timeline sizes
+    /// itself from the row count, and a height that cannot see what is folded
+    /// is a height that disagrees with what gets drawn.
+    public var filterGroupState: [FilterNode.ID: Bool] = [:]
+
+    /// Whether a filter's group is showing its properties.
+    ///
+    /// Unasked, a filter with keyframes is open and one without is shut: a clip
+    /// carrying three untouched filters is three lines rather than fifteen rows
+    /// above the nine anybody came for.
+    public func isFilterGroupExpanded(_ filterID: FilterNode.ID, in nodeID: EffectNode.ID) -> Bool {
+        if let asked = filterGroupState[filterID] { return asked }
+        guard let filter = effects[nodeID]?.filters.first(where: { $0.id == filterID })
+        else { return false }
+        return filter.animations.values.contains { !$0.isEmpty }
+    }
+
+    public func toggleFilterGroup(_ filterID: FilterNode.ID, in nodeID: EffectNode.ID) {
+        filterGroupState[filterID] = !isFilterGroupExpanded(filterID, in: nodeID)
+    }
+
+    /// Whether the transform group is showing its nine properties.
+    ///
+    /// Open by default, because it is what the mode is for.
+    public var isTransformGroupExpanded = true
+
     // ─── Animating a filter's parameters ─────────────────────────────────────
     //
     // The same three moves the transform already has, because a stopwatch has

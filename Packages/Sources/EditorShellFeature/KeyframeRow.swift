@@ -3,12 +3,17 @@ import Foundation
 import StoryboardCore
 import SwiftUI
 
-/// The keyframe rows for the selected clip, under its lane.
+/// The keyframe rows for the selected clip, in collapsible groups.
 ///
-/// Only for the selection, and only for properties that are animated. Every
-/// property of every clip at once is five rows per clip and unreadable by the
-/// second one — After Effects reveals a layer's properties the same way, and
-/// for the same reason.
+/// One group for the transform and one per filter, which is how After Effects
+/// lays out a layer — and for the same reason. Flat, a clip carrying three
+/// filters would put fifteen rows above the nine anybody came for; folded, each
+/// filter is one line until it is wanted.
+///
+/// The grouping is what lets a filter offer *every* parameter it can animate
+/// rather than only the ones already animated. Without it, a parameter with no
+/// keys had nowhere to appear, so the only way to start animating one was the
+/// inspector — a stopwatch somebody had to already know was there.
 struct KeyframeRows: View {
     let node: EffectNode
     let scale: TimelineScale
@@ -30,15 +35,14 @@ struct KeyframeRows: View {
     let selectedKey: (property: TransformProperty, id: Keyframe.ID)?
     let selectKey: (TransformProperty, Keyframe.ID) -> Void
 
-    /// The clip's filters, so their animated parameters get rows of their own.
-    ///
-    /// Only the ones somebody has actually animated. A filter can declare
-    /// several animatable parameters and a clip can carry several filters, so
-    /// showing them all would bury the transform's five rows under a dozen
-    /// nobody asked for — the same reason this mode shows one clip rather than
-    /// every clip at once. The stopwatch to *start* animating lives in the
-    /// inspector, beside the value it belongs to.
+    /// The clip's filters, each a group of its animatable parameters.
     var filters: [FilterNode] = []
+    /// Whether the transform group is open, and how to change that.
+    var isTransformExpanded = true
+    var toggleTransform: () -> Void = {}
+    /// Whether a filter's group is open, and how to change that.
+    var isFilterExpanded: (FilterNode.ID) -> Bool = { _ in false }
+    var toggleFilter: (FilterNode.ID) -> Void = { _ in }
     var filterDescriptor: (String) -> FilterDescriptor? = { _ in nil }
     var addFilterKeyframe: (FilterNode.ID, String, Double) -> Void = { _, _, _ in }
     var moveFilterKeyframe: (FilterNode.ID, String, Keyframe.ID, Double) -> Void = { _, _, _, _ in }
@@ -47,13 +51,11 @@ struct KeyframeRows: View {
     var setFilterEnabled: (FilterNode.ID, String, Bool) -> Void = { _, _, _ in }
     var clearFilter: (FilterNode.ID, String) -> Void = { _, _ in }
 
-    static let rowHeight: CGFloat = 20
-
-    /// One row per animated filter parameter, identified by where it lives.
+    /// One row per animatable filter parameter, identified by where it lives.
     ///
     /// A filter's id and a parameter name, because two glows on one clip can
     /// both animate intensity and the rows have to stay apart.
-    private struct FilterRow: Identifiable {
+    struct FilterRow: Identifiable {
         let id: String
         let filterID: FilterNode.ID
         let parameter: String
@@ -61,112 +63,180 @@ struct KeyframeRows: View {
         let track: StoryboardCore.KeyframeTrack
     }
 
-    private var filterRows: [FilterRow] {
-        Self.rows(for: filters, descriptor: filterDescriptor)
+    /// One filter's group: its heading and the rows inside it.
+    struct FilterGroup: Identifiable {
+        let id: FilterNode.ID
+        let name: String
+        let systemImage: String
+        let rows: [FilterRow]
+
+        var animatedCount: Int { rows.filter { !$0.track.isEmpty }.count }
     }
 
-    /// The rows a clip's filters contribute, by one rule.
+    private var groups: [FilterGroup] {
+        Self.groups(for: filters, descriptor: filterDescriptor)
+    }
+
+    /// The groups a clip's filters contribute, by one rule.
     ///
     /// Shared with whoever sizes the editor: a height worked out separately
     /// from what gets drawn is a height that eventually disagrees, and this
-    /// timeline has already been bitten by a frame promising less room than its
-    /// contents needed.
-    private static func rows(
+    /// timeline has already been bitten three times by exactly that.
+    static func groups(
         for filters: [FilterNode],
         descriptor: (String) -> FilterDescriptor?,
-    ) -> [FilterRow] {
-        filters.flatMap { filter -> [FilterRow] in
-            guard let descriptor = descriptor(filter.type) else { return [] }
-            return descriptor.parameters.compactMap { parameter in
-                guard let track = filter.animations[parameter.id], !track.isEmpty
-                else { return nil }
-                return FilterRow(
-                    id: "\(filter.id)/\(parameter.id)",
-                    filterID: filter.id,
-                    parameter: parameter.id,
-                    // Named by both, since a clip can carry two of the same
-                    // filter and "Intensity" alone would not say which.
-                    title: "\(descriptor.name) · \(parameter.name)",
-                    track: track,
-                )
-            }
+    ) -> [FilterGroup] {
+        filters.compactMap { filter in
+            guard let descriptor = descriptor(filter.type) else { return nil }
+
+            // Every parameter the filter says can be animated, not only those
+            // already animated: this is where somebody starts one, and a
+            // parameter with no keys would have no row to start it on.
+            let rows = descriptor.parameters
+                .filter(\.animation.isAnimatable)
+                .map { parameter in
+                    FilterRow(
+                        id: "\(filter.id)/\(parameter.id)",
+                        filterID: filter.id,
+                        parameter: parameter.id,
+                        // Just the parameter: the group heading above already
+                        // says which filter, so repeating it costs width and
+                        // says nothing new.
+                        title: parameter.name,
+                        track: filter.animations[parameter.id] ?? KeyframeTrack(),
+                    )
+                }
+            guard !rows.isEmpty else { return nil }
+
+            return FilterGroup(
+                id: filter.id,
+                name: descriptor.name,
+                systemImage: descriptor.systemImage,
+                rows: rows,
+            )
         }
     }
 
-    /// How many rows a clip's animated filter parameters need.
-    static func animatedFilterRows(
+    /// How many rows the editor draws for a clip, headings included.
+    ///
+    /// Depends on what is folded, so the caller passes the same answers the
+    /// view will use — one of them guessing is how a height comes to disagree
+    /// with its contents.
+    static func rowCount(
         of node: EffectNode,
         descriptor: (String) -> FilterDescriptor?,
+        isTransformExpanded: Bool,
+        isFilterExpanded: (FilterNode.ID) -> Bool,
     ) -> Int {
-        rows(for: node.filters, descriptor: descriptor).count
+        let filterGroups = groups(for: node.filters, descriptor: descriptor)
+
+        // The transform heading, plus its properties when open.
+        var count = 1 + (isTransformExpanded ? TransformProperty.allCases.count : 0)
+        for group in filterGroups {
+            count += 1 + (isFilterExpanded(group.id) ? group.rows.count : 0)
+        }
+        return count
     }
 
-    /// How tall the rows are, so the timeline can make space.
-    ///
-    /// Static height is not enough once filters can add rows, so this is the
-    /// count for a clip with none — callers that know the clip use
-    /// ``height(forFilterRows:)``.
+    static let rowHeight: CGFloat = 20
+
+    /// How tall a given number of rows comes to.
+    static func height(rows: Int) -> CGFloat {
+        (rowHeight + Theme.Spacing.hair) * CGFloat(max(rows, 1))
+    }
+
+    /// The height of a clip with nothing folded away and no filters, for
+    /// callers with no clip to ask about.
     static var height: CGFloat {
-        height(forFilterRows: 0)
-    }
-
-    static func height(forFilterRows extra: Int) -> CGFloat {
-        (rowHeight + Theme.Spacing.hair)
-            * CGFloat(TransformProperty.allCases.count + extra)
+        height(rows: TransformProperty.allCases.count + 1)
     }
 
     var body: some View {
         VStack(spacing: Theme.Spacing.hair) {
-            // Every property, not only the animated ones: this is where a key
-            // gets added, and a property with none would have no row to add it
-            // on.
-            ForEach(TransformProperty.allCases, id: \.self) { property in
-                KeyframeRow(
-                    title: property.title,
-                    track: node.transform[property],
-                    nodeStart: node.startTime,
-                    scale: scale,
-                    headerWidth: headerWidth,
-                    localTime: localTime,
-                    playheadNow: playheadNow,
-                    isPlaying: isPlaying,
-                    addKeyframe: { addKeyframe(property, $0) },
-                    moveKeyframe: { moveKeyframe(property, $0, $1) },
-                    removeKeyframe: { removeKeyframe(property, $0) },
-                    setEasing: { setEasing(property, $0, $1) },
-                    setEnabled: { setEnabled(property, $0) },
-                    clear: { clear(property) },
-                    selectedKeyID: selectedKey?.property == property ? selectedKey?.id : nil,
-                    selectKey: { selectKey(property, $0) },
-                )
+            KeyframeGroupHeader(
+                title: "Transform",
+                systemImage: "move.3d",
+                animatedCount: TransformProperty.allCases
+                    .filter { !node.transform[$0].isEmpty }.count,
+                isExpanded: isTransformExpanded,
+                toggle: toggleTransform,
+            )
+
+            if isTransformExpanded {
+                // Every property, not only the animated ones: this is where a
+                // key gets added, and a property with none would have no row to
+                // add it on.
+                ForEach(TransformProperty.allCases, id: \.self) { property in
+                    KeyframeRow(
+                        title: property.title,
+                        track: node.transform[property],
+                        nodeStart: node.startTime,
+                        scale: scale,
+                        headerWidth: headerWidth,
+                        localTime: localTime,
+                        playheadNow: playheadNow,
+                        isPlaying: isPlaying,
+                        addKeyframe: { addKeyframe(property, $0) },
+                        moveKeyframe: { moveKeyframe(property, $0, $1) },
+                        removeKeyframe: { removeKeyframe(property, $0) },
+                        setEasing: { setEasing(property, $0, $1) },
+                        setEnabled: { setEnabled(property, $0) },
+                        clear: { clear(property) },
+                        selectedKeyID: selectedKey?.property == property
+                            ? selectedKey?.id : nil,
+                        selectKey: { selectKey(property, $0) },
+                    )
+                }
             }
 
-            // Then whatever the clip's filters are animating. The same row
-            // component, because a keyframe is a keyframe wherever it came
-            // from — dragging, easing and deleting all have to work the same
-            // way or the mode has two vocabularies.
-            ForEach(filterRows) { row in
-                KeyframeRow(
-                    title: row.title,
-                    track: row.track,
-                    nodeStart: node.startTime,
-                    scale: scale,
-                    headerWidth: headerWidth,
-                    localTime: localTime,
-                    playheadNow: playheadNow,
-                    isPlaying: isPlaying,
-                    addKeyframe: { addFilterKeyframe(row.filterID, row.parameter, $0) },
-                    moveKeyframe: { moveFilterKeyframe(row.filterID, row.parameter, $0, $1) },
-                    removeKeyframe: { removeFilterKeyframe(row.filterID, row.parameter, $0) },
-                    setEasing: { setFilterEasing(row.filterID, row.parameter, $0, $1) },
-                    setEnabled: { setFilterEnabled(row.filterID, row.parameter, $0) },
-                    clear: { clearFilter(row.filterID, row.parameter) },
-                    // Selecting a filter key is not wired up yet: the
-                    // inspector's key editor speaks `TransformProperty`, and
-                    // widening it is its own change.
-                    selectedKeyID: nil,
-                    selectKey: { _ in },
+            // Then one group per filter. The same row component throughout,
+            // because a keyframe is a keyframe wherever it came from —
+            // dragging, easing and deleting have to work one way or the mode
+            // has two vocabularies.
+            ForEach(groups) { group in
+                KeyframeGroupHeader(
+                    title: group.name,
+                    systemImage: group.systemImage,
+                    animatedCount: group.animatedCount,
+                    isExpanded: isFilterExpanded(group.id),
+                    toggle: { toggleFilter(group.id) },
                 )
+
+                if isFilterExpanded(group.id) {
+                    ForEach(group.rows) { row in
+                        KeyframeRow(
+                            title: row.title,
+                            track: row.track,
+                            nodeStart: node.startTime,
+                            scale: scale,
+                            headerWidth: headerWidth,
+                            localTime: localTime,
+                            playheadNow: playheadNow,
+                            isPlaying: isPlaying,
+                            addKeyframe: {
+                                addFilterKeyframe(row.filterID, row.parameter, $0)
+                            },
+                            moveKeyframe: {
+                                moveFilterKeyframe(row.filterID, row.parameter, $0, $1)
+                            },
+                            removeKeyframe: {
+                                removeFilterKeyframe(row.filterID, row.parameter, $0)
+                            },
+                            setEasing: {
+                                setFilterEasing(row.filterID, row.parameter, $0, $1)
+                            },
+                            setEnabled: {
+                                setFilterEnabled(row.filterID, row.parameter, $0)
+                            },
+                            clear: { clearFilter(row.filterID, row.parameter) },
+                            // Selecting a filter key is not wired up yet: the
+                            // inspector's key editor speaks `TransformProperty`,
+                            // and widening it is its own change.
+                            selectedKeyID: nil,
+                            selectKey: { _ in },
+                        )
+                    }
+                }
             }
         }
     }

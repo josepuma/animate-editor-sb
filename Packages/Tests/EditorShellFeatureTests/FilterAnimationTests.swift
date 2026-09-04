@@ -175,47 +175,97 @@ struct FilterKeyframeRowTests {
         return (shell, node.id, filter.id)
     }
 
+    /// Rows the editor draws, headings included and folded groups excluded.
     private func rowCount(_ shell: EditorShellModel, _ nodeID: EffectNode.ID) -> Int {
         guard let node = shell.effects[nodeID] else { return 0 }
-        return KeyframeRows.animatedFilterRows(
-            of: node, descriptor: { shell.filters.descriptor(for: $0) },
+        return KeyframeRows.rowCount(
+            of: node,
+            descriptor: { shell.filters.descriptor(for: $0) },
+            isTransformExpanded: shell.isTransformGroupExpanded,
+            isFilterExpanded: { shell.isFilterGroupExpanded($0, in: nodeID) },
         )
+    }
+
+    /// Just the filter groups' rows, so a test can talk about them without
+    /// counting the transform's nine and the headings.
+    private func filterRowCount(_ shell: EditorShellModel, _ nodeID: EffectNode.ID) -> Int {
+        guard let node = shell.effects[nodeID] else { return 0 }
+        return rowCount(shell, nodeID)
+            - 1  // the transform heading
+            - (shell.isTransformGroupExpanded ? TransformProperty.allCases.count : 0)
+            - KeyframeRows.groups(
+                for: node.filters, descriptor: { shell.filters.descriptor(for: $0) },
+            ).count  // one heading each
     }
 
     /// A filter nobody has animated adds no rows. Every animatable parameter of
     /// every filter would bury the transform's five under a dozen nobody asked
     /// for — the same reason the mode shows one clip rather than all of them.
-    @Test("an unanimated filter adds no rows")
-    func noRowsUntilAnimated() {
+    /// A filter nobody has animated is one line — its heading — rather than a
+    /// row per parameter. Fifteen rows above the nine anybody came for is what
+    /// folding exists to prevent.
+    @Test("an untouched filter is one folded heading")
+    func untouchedFilterIsOneLine() {
         let (shell, nodeID, _) = model()
-        #expect(rowCount(shell, nodeID) == 0)
+        // Nine properties, the transform heading, and the glow's heading.
+        #expect(rowCount(shell, nodeID) == TransformProperty.allCases.count + 2)
+        #expect(filterRowCount(shell, nodeID) == 0)
+    }
+
+    /// Opened, it shows every parameter it can animate — not only the animated
+    /// ones. This is where somebody starts an animation, and a parameter with
+    /// no keys would have no row to start it on.
+    @Test("an opened filter shows all its animatable parameters")
+    func openedFilterShowsAllParameters() {
+        let (shell, nodeID, filterID) = model()
+        shell.toggleFilterGroup(filterID, in: nodeID)
+
+        // Glow declares Size and Intensity animatable; Softness is not.
+        #expect(filterRowCount(shell, nodeID) == 2)
     }
 
     /// One row per animated parameter, appearing as soon as it has keys.
-    @Test("an animated parameter gets a row")
-    func animatedParameterGetsARow() {
+    /// A filter somebody is animating opens on its own: they are exactly who
+    /// wants to see its diamonds, and making them click first would hide the
+    /// thing they came back for.
+    @Test("animating a filter opens its group")
+    func animatingOpensTheGroup() {
+        let (shell, nodeID, filterID) = model()
+        #expect(!shell.isFilterGroupExpanded(filterID, in: nodeID))
+
+        shell.beginAnimatingFilter(
+            GlowFilter.Param.intensity, on: filterID, in: nodeID, at: 0,
+        )
+        #expect(shell.isFilterGroupExpanded(filterID, in: nodeID))
+    }
+
+    /// And it can still be shut. Without somewhere to record "shut anyway", the
+    /// chevron on an animated filter would appear to do nothing — which is why
+    /// the state is three-valued rather than a set of open ids.
+    @Test("an animated filter can still be folded away")
+    func animatedFilterCanBeShut() {
         let (shell, nodeID, filterID) = model()
         shell.beginAnimatingFilter(
             GlowFilter.Param.intensity, on: filterID, in: nodeID, at: 0,
         )
-        #expect(rowCount(shell, nodeID) == 1)
 
-        shell.beginAnimatingFilter(GlowFilter.Param.size, on: filterID, in: nodeID, at: 0)
-        #expect(rowCount(shell, nodeID) == 2)
+        shell.toggleFilterGroup(filterID, in: nodeID)
+        #expect(!shell.isFilterGroupExpanded(filterID, in: nodeID))
+        #expect(filterRowCount(shell, nodeID) == 0)
     }
 
     /// The height has to follow, or the rows are drawn where nothing can be
     /// seen — this timeline has already been bitten by a frame promising less
     /// room than its contents needed.
-    @Test("the editor grows by one row per animated parameter")
+    @Test("the editor grows by one row at a time")
     func heightFollowsTheRows() {
-        let bare = KeyframeRows.height(forFilterRows: 0)
-        let one = KeyframeRows.height(forFilterRows: 1)
-        let two = KeyframeRows.height(forFilterRows: 2)
+        let ten = KeyframeRows.height(rows: 10)
+        let eleven = KeyframeRows.height(rows: 11)
+        let twelve = KeyframeRows.height(rows: 12)
 
-        #expect(one > bare)
+        #expect(eleven > ten)
         // Evenly, since every row is the same height.
-        #expect(abs((two - one) - (one - bare)) < 0.001)
+        #expect(abs((twelve - eleven) - (eleven - ten)) < 0.001)
     }
 
     /// A switched-off track keeps its row: the keys are still there, and the
@@ -230,13 +280,16 @@ struct FilterKeyframeRowTests {
             false, for: GlowFilter.Param.intensity, on: filterID, in: nodeID, at: 0,
         )
 
-        #expect(rowCount(shell, nodeID) == 1)
+        // Both of the glow's animatable parameters, since the group is open.
+        #expect(filterRowCount(shell, nodeID) == 2)
     }
 
     /// Clearing takes the row with the keys — a row with nothing on it says
     /// there is an animation when there is not.
-    @Test("clearing an animation removes its row")
-    func clearingRemovesTheRow() {
+    /// Clearing takes the keys, and the group folds itself away again — there
+    /// is nothing left in it to look at.
+    @Test("clearing the last animation folds the group again")
+    func clearingFoldsTheGroup() {
         let (shell, nodeID, filterID) = model()
         shell.beginAnimatingFilter(
             GlowFilter.Param.intensity, on: filterID, in: nodeID, at: 0,
@@ -245,7 +298,7 @@ struct FilterKeyframeRowTests {
             for: GlowFilter.Param.intensity, on: filterID, in: nodeID, keeping: 0,
         )
 
-        #expect(rowCount(shell, nodeID) == 0)
+        #expect(!shell.isFilterGroupExpanded(filterID, in: nodeID))
     }
 
     /// Removing the last key removes the animation, not just the key: an empty
@@ -276,7 +329,6 @@ struct FilterKeyframeRowTests {
         #expect(shell.filterAnimation(
             GlowFilter.Param.intensity, on: filterID, in: nodeID,
         ) == nil)
-        #expect(rowCount(shell, nodeID) == 0)
     }
 
     /// Dragging a key moves it, and the move is clamped into the clip the same
@@ -341,10 +393,10 @@ struct TimelineHeightTests {
     @Test("the keyframe editor is not sized by the lane count")
     func keyframeEditorIgnoresLaneCount() {
         let twoLanes = TrackTimelineView.rowsHeight(
-            trackCount: 2, isEditingKeyframes: true,
+            trackCount: 2, isEditingKeyframes: true, keyframeRows: 10,
         )
         let tenLanes = TrackTimelineView.rowsHeight(
-            trackCount: 10, isEditingKeyframes: true,
+            trackCount: 10, isEditingKeyframes: true, keyframeRows: 10,
         )
         #expect(twoLanes == tenLanes)
     }
@@ -354,19 +406,19 @@ struct TimelineHeightTests {
     @Test("the keyframe editor fits all of its rows")
     func keyframeEditorFitsItsRows() {
         let height = TrackTimelineView.rowsHeight(
-            trackCount: 2, isEditingKeyframes: true,
+            trackCount: 2, isEditingKeyframes: true, keyframeRows: 10,
         )
-        #expect(height >= KeyframeRows.height(forFilterRows: 0))
+        #expect(height >= KeyframeRows.height(rows: 10))
     }
 
     /// Filter rows make it taller, or they are drawn where nothing can see them.
     @Test("animated filter rows add height")
     func filterRowsAddHeight() {
         let bare = TrackTimelineView.rowsHeight(
-            trackCount: 2, isEditingKeyframes: true, filterRows: 0,
+            trackCount: 2, isEditingKeyframes: true, keyframeRows: 10,
         )
         let withFilters = TrackTimelineView.rowsHeight(
-            trackCount: 2, isEditingKeyframes: true, filterRows: 3,
+            trackCount: 2, isEditingKeyframes: true, keyframeRows: 13,
         )
         #expect(withFilters > bare)
     }
@@ -379,13 +431,13 @@ struct TimelineHeightTests {
         for isEditing in [true, false] {
             for lanes in [1, 2, 6, 20] {
                 let rows = TrackTimelineView.rowsHeight(
-                    trackCount: lanes, isEditingKeyframes: isEditing, filterRows: 2,
+                    trackCount: lanes, isEditingKeyframes: isEditing, keyframeRows: 11,
                 )
                 let stack = TrackTimelineView.stackHeight(
-                    trackCount: lanes, isEditingKeyframes: isEditing, filterRows: 2,
+                    trackCount: lanes, isEditingKeyframes: isEditing, keyframeRows: 11,
                 )
                 let panel = TrackTimelineView.height(
-                    trackCount: lanes, isEditingKeyframes: isEditing, filterRows: 2,
+                    trackCount: lanes, isEditingKeyframes: isEditing, keyframeRows: 11,
                 )
                 // The stack is the rows plus the ruler; the panel is that plus
                 // its own inset. Neither may be less than what it contains.
