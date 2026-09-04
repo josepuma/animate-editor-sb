@@ -322,3 +322,85 @@ struct FilterKeyframeRowTests {
         )?.keyframes.first?.easing == .quadOut)
     }
 }
+
+/// How tall the timeline makes itself.
+///
+/// Three functions answer this — the panel's frame, the inner stack's, and the
+/// scroll view's — and they have to agree exactly. Given less than it needs, a
+/// stack does not scroll: it *compresses*, and rows are shaved or cut off with
+/// nowhere to scroll to. This project has been bitten by that twice.
+@MainActor
+@Suite("Timeline height")
+struct TimelineHeightTests {
+    /// The bug from the screenshot: with two lanes, the keyframe editor was
+    /// given the room for two lanes while drawing nine properties, so five of
+    /// them were cut off the top with nothing to scroll.
+    ///
+    /// The mode replaces the lanes rather than sitting under them, so the lane
+    /// count has nothing to say about how tall it is.
+    @Test("the keyframe editor is not sized by the lane count")
+    func keyframeEditorIgnoresLaneCount() {
+        let twoLanes = TrackTimelineView.rowsHeight(
+            trackCount: 2, isEditingKeyframes: true,
+        )
+        let tenLanes = TrackTimelineView.rowsHeight(
+            trackCount: 10, isEditingKeyframes: true,
+        )
+        #expect(twoLanes == tenLanes)
+    }
+
+    /// And it is tall enough for every property it draws, which is what the
+    /// screenshot was missing.
+    @Test("the keyframe editor fits all of its rows")
+    func keyframeEditorFitsItsRows() {
+        let height = TrackTimelineView.rowsHeight(
+            trackCount: 2, isEditingKeyframes: true,
+        )
+        #expect(height >= KeyframeRows.height(forFilterRows: 0))
+    }
+
+    /// Filter rows make it taller, or they are drawn where nothing can see them.
+    @Test("animated filter rows add height")
+    func filterRowsAddHeight() {
+        let bare = TrackTimelineView.rowsHeight(
+            trackCount: 2, isEditingKeyframes: true, filterRows: 0,
+        )
+        let withFilters = TrackTimelineView.rowsHeight(
+            trackCount: 2, isEditingKeyframes: true, filterRows: 3,
+        )
+        #expect(withFilters > bare)
+    }
+
+    /// All three heights derive from one rule, so the frame and the content
+    /// cannot disagree. Two of them once did, and the difference is what got
+    /// cut off.
+    @Test("the three heights agree")
+    func heightsAgree() {
+        for isEditing in [true, false] {
+            for lanes in [1, 2, 6, 20] {
+                let rows = TrackTimelineView.rowsHeight(
+                    trackCount: lanes, isEditingKeyframes: isEditing, filterRows: 2,
+                )
+                let stack = TrackTimelineView.stackHeight(
+                    trackCount: lanes, isEditingKeyframes: isEditing, filterRows: 2,
+                )
+                let panel = TrackTimelineView.height(
+                    trackCount: lanes, isEditingKeyframes: isEditing, filterRows: 2,
+                )
+                // The stack is the rows plus the ruler; the panel is that plus
+                // its own inset. Neither may be less than what it contains.
+                #expect(stack > rows)
+                #expect(panel > stack)
+            }
+        }
+    }
+
+    /// The ceiling still holds: a project with twenty lanes cannot push the
+    /// canvas — the thing the editor exists for — off the window.
+    @Test("many lanes still scroll rather than growing without limit")
+    func theCeilingHolds() {
+        let six = TrackTimelineView.rowsHeight(trackCount: 6)
+        let twenty = TrackTimelineView.rowsHeight(trackCount: 20)
+        #expect(twenty == six)
+    }
+}

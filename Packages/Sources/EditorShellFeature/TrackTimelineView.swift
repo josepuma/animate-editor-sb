@@ -182,14 +182,16 @@ struct TrackTimelineView: View {
         isEditingKeyframes: Bool = false,
         filterRows: Int = 0,
     ) -> CGFloat {
-        let rows = isEditingKeyframes
-            ? KeyframeRows.height(forFilterRows: filterRows)
-            : (trackHeight + Theme.Spacing.tight) * CGFloat(max(trackCount, 1))
+        let rows = rowsHeight(
+            trackCount: trackCount,
+            isEditingKeyframes: isEditingKeyframes,
+            filterRows: filterRows,
+        )
 
         return rulerHeight
             // The gap the stack puts between the ruler and the first row.
             + Theme.Spacing.snug
-            + min(rows, maximumRowsHeight)
+            + rows
             // The panel's own inset, top and bottom.
             //
             // Counted once here and once by the padding around the stack, the
@@ -200,10 +202,28 @@ struct TrackTimelineView: View {
             + Theme.Spacing.compact * 2
     }
 
-    /// The room the lanes actually get, once the ruler and the insets have
+    /// The room the rows actually get, once the ruler and the insets have
     /// taken theirs.
-    static func rowsHeight(trackCount: Int) -> CGFloat {
-        min((trackHeight + Theme.Spacing.tight) * CGFloat(max(trackCount, 1)), maximumRowsHeight)
+    ///
+    /// The keyframe editor replaces the lanes rather than sitting under them,
+    /// so its height is its own — nine properties plus whatever the clip's
+    /// filters animate, none of which has anything to do with how many lanes
+    /// the project has. Sized by the lane count while the editor was open, a
+    /// two-lane project gave nine rows the room for two and cut the rest off
+    /// with nowhere to scroll to.
+    ///
+    /// Every one of the three heights has to ask the same question, which is
+    /// why they all take the same two arguments: one of them not knowing about
+    /// the mode is exactly how they came to disagree.
+    static func rowsHeight(
+        trackCount: Int,
+        isEditingKeyframes: Bool = false,
+        filterRows: Int = 0,
+    ) -> CGFloat {
+        let rows = isEditingKeyframes
+            ? KeyframeRows.height(forFilterRows: filterRows)
+            : (trackHeight + Theme.Spacing.tight) * CGFloat(max(trackCount, 1))
+        return min(rows, maximumRowsHeight)
     }
 
     /// Rows plus the ruler and the gap between them, which is everything the
@@ -217,10 +237,11 @@ struct TrackTimelineView: View {
         isEditingKeyframes: Bool,
         filterRows: Int = 0,
     ) -> CGFloat {
-        let rows = isEditingKeyframes
-            ? KeyframeRows.height(forFilterRows: filterRows)
-            : rowsHeight(trackCount: trackCount)
-        return rulerHeight + Theme.Spacing.snug + rows
+        return rulerHeight + Theme.Spacing.snug + rowsHeight(
+            trackCount: trackCount,
+            isEditingKeyframes: isEditingKeyframes,
+            filterRows: filterRows,
+        )
     }
 
     /// Ceiling on the space the effect rows take, after which they scroll.
@@ -1012,7 +1033,11 @@ struct TrackTimelineView: View {
                 // to scroll — six lanes of 336pt drawn inside a view that had
                 // grown to 336pt. Told exactly how tall to be, it keeps the
                 // overflow and scrolls it.
-                .frame(height: Self.rowsHeight(trackCount: shell.effects.tracks.count))
+                .frame(height: Self.rowsHeight(
+                    trackCount: shell.effects.tracks.count,
+                    isEditingKeyframes: shell.keyframeNode != nil,
+                    filterRows: animatedFilterRowCount,
+                ))
 
                 // No audio row.
                 //
@@ -1037,7 +1062,11 @@ struct TrackTimelineView: View {
                     seek(scale.time(atX: value.location.x - Self.contentOrigin))
                 },
         )
-        .frame(height: Self.rowsHeight(trackCount: shell.effects.tracks.count))
+        .frame(height: Self.rowsHeight(
+                    trackCount: shell.effects.tracks.count,
+                    isEditingKeyframes: shell.keyframeNode != nil,
+                    filterRows: animatedFilterRowCount,
+                ))
     }
 
     /// Whether break and kiai bands are painted across the tracks.
