@@ -1147,8 +1147,16 @@ public final class EditorShellModel {
     /// `@State` tuple in a `View` struct does not survive between them — so
     /// every frame re-read the value it had just written, compounding each step
     /// until moving cancelled itself out and scaling ran away backwards.
+    /// **It carries the node it belongs to.**
+    ///
+    /// Without that, a gesture that ends without a finished event — or simply a
+    /// different clip selected next — leaves the previous clip's position
+    /// cached, and the next drag measures from there. Logged on a duplicated
+    /// shape sitting at x 720: the baseline came back as −108, the original's
+    /// position, so the copy jumped somewhere neither the hand nor the
+    /// inspector had asked for.
     @ObservationIgnored private var canvasDragOrigin: (
-        x: Double, y: Double, scaleX: Double, scaleY: Double
+        node: EffectNode.ID, x: Double, y: Double, scaleX: Double, scaleY: Double
     )?
 
     /// Records where a canvas drag began, once per gesture.
@@ -1179,7 +1187,14 @@ public final class EditorShellModel {
     private func canvasDragBaseline(for node: EffectNode, at time: Double) -> (
         x: Double, y: Double, scaleX: Double, scaleY: Double
     ) {
-        if let canvasDragOrigin { return canvasDragOrigin }
+        // Only this node's. A baseline belonging to another clip is worse than
+        // none: it measures the drag from a place the clip has never been.
+        if let canvasDragOrigin, canvasDragOrigin.node == node.id {
+            return (
+                x: canvasDragOrigin.x, y: canvasDragOrigin.y,
+                scaleX: canvasDragOrigin.scaleX, scaleY: canvasDragOrigin.scaleY
+            )
+        }
         let local = min(max(0, time - node.startTime), node.duration)
         let origin = (
             x: node.transform.value(.x, at: local),
@@ -1187,7 +1202,10 @@ public final class EditorShellModel {
             scaleX: node.transform.value(.scaleX, at: local),
             scaleY: node.transform.value(.scaleY, at: local)
         )
-        canvasDragOrigin = origin
+        canvasDragOrigin = (
+            node: node.id,
+            x: origin.x, y: origin.y, scaleX: origin.scaleX, scaleY: origin.scaleY
+        )
         return origin
     }
 
