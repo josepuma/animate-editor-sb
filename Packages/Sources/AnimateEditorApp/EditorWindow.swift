@@ -326,6 +326,11 @@ struct EditorWindow: View {
                 }
             }
 
+            // The clock lives in the playback feature and features do not
+            // import each other, so the window joins them — the same seam that
+            // already carries export, thumbnails and the selection bounds.
+            shell.seekHandler = { playback.seek(to: $0) }
+
             shell.exportHandler = { sprites, projectFolder in
                 let prepared = StoryboardExport.prepareUsingAppImages(sprites) { path in
                     // Read straight off the folder being edited. A sprite path

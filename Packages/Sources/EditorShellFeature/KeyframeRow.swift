@@ -43,6 +43,8 @@ struct KeyframeRows: View {
     /// Whether a filter's group is open, and how to change that.
     var isFilterExpanded: (FilterNode.ID) -> Bool = { _ in false }
     var toggleFilter: (FilterNode.ID) -> Void = { _ in }
+    /// Moves the playhead to a moment inside the clip.
+    var goToTime: (Double) -> Void = { _ in }
     var filterDescriptor: (String) -> FilterDescriptor? = { _ in nil }
     var addFilterKeyframe: (FilterNode.ID, String, Double) -> Void = { _, _, _ in }
     var moveFilterKeyframe: (FilterNode.ID, String, Keyframe.ID, Double) -> Void = { _, _, _, _ in }
@@ -185,6 +187,7 @@ struct KeyframeRows: View {
                         selectedKeyID: selectedKey?.property == property
                             ? selectedKey?.id : nil,
                         selectKey: { selectKey(property, $0) },
+                        goToTime: goToTime,
                     )
                 }
             }
@@ -234,6 +237,7 @@ struct KeyframeRows: View {
                             // and widening it is its own change.
                             selectedKeyID: nil,
                             selectKey: { _ in },
+                            goToTime: goToTime,
                         )
                     }
                 }
@@ -272,6 +276,9 @@ struct KeyframeRow: View {
     /// The key the inspector is editing, if it is on this row.
     let selectedKeyID: Keyframe.ID?
     let selectKey: (Keyframe.ID) -> Void
+    /// Moves the playhead to a moment in the clip, for the arrows beside the
+    /// diamond. Defaulted so a row can still be built without one.
+    var goToTime: (Double) -> Void = { _ in }
 
     /// The key being dragged, and where it has reached.
     @State private var draft: (id: Keyframe.ID, time: Double)?
@@ -283,6 +290,19 @@ struct KeyframeRow: View {
     /// Whether there is a key at the playhead right now.
     private var isOnAKey: Bool {
         track.keyframes.contains { abs($0.time - localTime) < 1 }
+    }
+
+    /// The nearest key before the playhead, if any.
+    ///
+    /// Strictly before, and by the same tolerance the diamond uses to call
+    /// itself filled — otherwise standing on a key would offer to jump to
+    /// itself, which looks like a broken button.
+    private var previousKey: Keyframe? {
+        track.keyframes.last { $0.time < localTime - 1 }
+    }
+
+    private var nextKey: Keyframe? {
+        track.keyframes.first { $0.time > localTime + 1 }
     }
 
     private var stopwatchHelp: String {
@@ -329,6 +349,29 @@ struct KeyframeRow: View {
                 // somewhere else by the time the click registers — the keys end
                 // up scattered along the clip with no relation to where anyone
                 // meant to put them. Every editor pauses to keyframe.
+                // Jump to the previous key, then the diamond, then the next —
+                // the arrangement After Effects uses, and worth copying because
+                // it puts the two navigation controls either side of the thing
+                // they navigate between.
+                //
+                // Without them the only way to land exactly on a key is to drag
+                // the playhead onto it by eye, and a key a pixel away is a key
+                // that edits nothing when you type a value.
+                IconButton(
+                    systemImage: "arrowtriangle.left.fill",
+                    size: Theme.Size.controlTiny,
+                    help: previousKey == nil
+                        ? "No earlier keyframe"
+                        : "Go to previous keyframe",
+                ) {
+                    previousKey.map { goToTime($0.time) }
+                }
+                // Dimmed rather than hidden at the ends: a control that vanishes
+                // moves the diamond under the pointer, so the next click lands
+                // on something else.
+                .disabled(previousKey == nil)
+                .opacity(previousKey == nil ? 0.35 : 1)
+
                 IconButton(
                     systemImage: isOnAKey ? "diamond.fill" : "diamond",
                     size: Theme.Size.controlTiny,
@@ -340,6 +383,16 @@ struct KeyframeRow: View {
                     addKeyframe(playheadNow())
                 }
                 .disabled(isPlaying)
+
+                IconButton(
+                    systemImage: "arrowtriangle.right.fill",
+                    size: Theme.Size.controlTiny,
+                    help: nextKey == nil ? "No later keyframe" : "Go to next keyframe",
+                ) {
+                    nextKey.map { goToTime($0.time) }
+                }
+                .disabled(nextKey == nil)
+                .opacity(nextKey == nil ? 0.35 : 1)
             }
             // The inset goes inside the fixed width, not around it.
             //

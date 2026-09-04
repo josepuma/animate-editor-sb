@@ -153,6 +153,10 @@ struct InspectorView: View {
                                 keeping: localTime(in: node),
                             )
                         },
+                        // Keyframe times are local to the clip; a seek is song
+                        // time. Without the clip's start added back, every jump
+                        // would land near the top of the song.
+                        goToTime: { shell.seekHandler?(node.startTime + $0) },
                     )
                 }
             }
@@ -797,6 +801,8 @@ private struct FilterCard: View {
     var setAnimationEnabled: (String, Bool) -> Void = { _, _ in }
     var addKeyframe: (String, Double) -> Void = { _, _ in }
     var clearAnimation: (String) -> Void = { _ in }
+    /// Moves the playhead to a clip-local moment, for the keyframe arrows.
+    var goToTime: (Double) -> Void = { _ in }
 
     @State private var isExpanded = true
 
@@ -885,6 +891,7 @@ private struct FilterCard: View {
                                     )
                                 },
                                 clear: { clearAnimation(parameter.id) },
+                                goToTime: goToTime,
                             )
                         }
                     }

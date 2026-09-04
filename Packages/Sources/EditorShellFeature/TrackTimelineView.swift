@@ -847,6 +847,11 @@ struct TrackTimelineView: View {
             toggleTransform: { shell.isTransformGroupExpanded.toggle() },
             isFilterExpanded: { shell.isFilterGroupExpanded($0, in: node.id) },
             toggleFilter: { shell.toggleFilterGroup($0, in: node.id) },
+            // Keyframe times are local to the clip and `seek` speaks song
+            // time, so the clip's own start has to be added back — without it
+            // every jump lands at the top of the song for a clip that does not
+            // start there.
+            goToTime: { seek(node.startTime + $0) },
             filterDescriptor: { shell.filters.descriptor(for: $0) },
             addFilterKeyframe: { filterID, parameter, time in
                 guard let value = shell.filterValue(

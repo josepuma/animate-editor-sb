@@ -156,6 +156,17 @@ public final class EditorShellModel {
     /// frame that draws the selection box could not run until that hop landed.
     @ObservationIgnored public var onSelectionChanged: ((EffectNode.ID?) -> Void)?
 
+    /// Moves the playhead, for controls that navigate between keyframes.
+    ///
+    /// A seam like `exportHandler`: the clock lives in the playback feature and
+    /// features do not import each other, so the app connects the two. Optional
+    /// so the shell runs without it — the arrows simply do nothing, which is
+    /// better than a shell that cannot be built.
+    ///
+    /// Takes **song** time, since that is what a seek means everywhere else;
+    /// callers holding a clip-local keyframe time add the clip's start.
+    @ObservationIgnored public var seekHandler: ((Double) -> Void)?
+
     /// The keyframe being edited, if any.
     ///
     /// Selected rather than only draggable: a key's easing and its exact time

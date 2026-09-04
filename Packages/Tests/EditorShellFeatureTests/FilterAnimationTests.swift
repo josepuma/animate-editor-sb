@@ -456,3 +456,87 @@ struct TimelineHeightTests {
         #expect(twenty == six)
     }
 }
+
+/// Jumping between keyframes.
+///
+/// The arrows either side of the diamond, which is how After Effects lays them
+/// out — and worth copying, because without them the only way to land exactly
+/// on a key is to drag the playhead onto it by eye, and a key a pixel away is a
+/// key that edits nothing when you type a value.
+@MainActor
+@Suite("Keyframe navigation")
+struct KeyframeNavigationTests {
+    private func track() -> StoryboardCore.KeyframeTrack {
+        StoryboardCore.KeyframeTrack([
+            Keyframe(time: 0, value: 0),
+            Keyframe(time: 500, value: 1),
+            Keyframe(time: 1000, value: 2),
+        ])
+    }
+
+    /// The same rule both control clusters use: strictly before and after, by
+    /// the tolerance the diamond uses to call itself filled.
+    private func previous(_ t: StoryboardCore.KeyframeTrack, from time: Double) -> Keyframe? {
+        t.keyframes.last { $0.time < time - 1 }
+    }
+
+    private func next(_ t: StoryboardCore.KeyframeTrack, from time: Double) -> Keyframe? {
+        t.keyframes.first { $0.time > time + 1 }
+    }
+
+    @Test("the arrows reach the neighbouring keys")
+    func arrowsFindNeighbours() {
+        let t = track()
+        #expect(next(t, from: 0)?.time == 500)
+        #expect(next(t, from: 500)?.time == 1000)
+        #expect(previous(t, from: 1000)?.time == 500)
+        #expect(previous(t, from: 500)?.time == 0)
+    }
+
+    /// Standing on a key must not offer to jump to itself — a button that moves
+    /// nothing looks broken, and the diamond beside it already says you are
+    /// there.
+    @Test("standing on a key does not jump to it")
+    func noSelfJump() {
+        let t = track()
+        // Exactly on the middle key.
+        #expect(previous(t, from: 500)?.time == 0)
+        #expect(next(t, from: 500)?.time == 1000)
+    }
+
+    /// At the ends there is nowhere to go, and the arrow says so by being
+    /// disabled rather than by disappearing: a control that vanishes shifts the
+    /// diamond under the pointer, so the next click lands on something else.
+    @Test("the ends have no neighbour")
+    func endsAreEmpty() {
+        let t = track()
+        #expect(previous(t, from: 0) == nil)
+        #expect(next(t, from: 1000) == nil)
+    }
+
+    /// The tolerance matters: a playhead a fraction off a key is standing on
+    /// it as far as the diamond is concerned, so the arrows have to agree or
+    /// the two controls contradict each other.
+    @Test("a near-miss counts as standing on the key")
+    func toleranceMatchesTheDiamond() {
+        let t = track()
+        #expect(previous(t, from: 500.4)?.time == 0)
+        #expect(next(t, from: 499.6)?.time == 1000)
+    }
+
+    /// A seek is song time while keyframes are clip-local, so a clip that does
+    /// not start at zero has to have its own start added back — otherwise every
+    /// jump lands near the top of the song.
+    @Test("a jump accounts for where the clip starts")
+    func jumpsAreInSongTime() {
+        var sought: Double?
+        let shell = EditorShellModel()
+        shell.seekHandler = { sought = $0 }
+
+        let node = shell.addEffect(EmitterEffect.descriptor, at: 8000, duration: 2000)
+        // What the inspector does with a key at 500ms into the clip.
+        shell.seekHandler?(node.startTime + 500)
+
+        #expect(sought == 8500)
+    }
+}

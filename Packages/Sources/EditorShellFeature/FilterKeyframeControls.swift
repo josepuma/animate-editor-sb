@@ -25,12 +25,25 @@ struct FilterKeyframeControls: View {
     let setEnabled: (Bool) -> Void
     let addKey: () -> Void
     let clear: () -> Void
+    /// Moves the playhead to a moment in the clip, for the arrows either side
+    /// of the diamond.
+    var goToTime: (Double) -> Void = { _ in }
 
     private var hasKeys: Bool { !(track?.isEmpty ?? true) }
     private var isAnimating: Bool { track?.isActive ?? false }
 
     private var isOnAKey: Bool {
         track?.keyframes.contains { abs($0.time - keyTime) < 1 } ?? false
+    }
+
+    /// Strictly before and after, by the same tolerance the diamond uses to
+    /// call itself filled — standing on a key must not offer to jump to itself.
+    private var previousKey: StoryboardCore.Keyframe? {
+        track?.keyframes.last { $0.time < keyTime - 1 }
+    }
+
+    private var nextKey: StoryboardCore.Keyframe? {
+        track?.keyframes.first { $0.time > keyTime + 1 }
     }
 
     private var stopwatchHelp: String {
@@ -54,9 +67,29 @@ struct FilterKeyframeControls: View {
             }
 
             // A key at the playhead, so the field is not the only way to plant
-            // one. Hidden until animating, because before that there is nothing
-            // for it to add to.
+            // one — with an arrow either side to reach the neighbouring keys.
+            // The same arrangement the timeline rows use, and After Effects
+            // before them: navigation sits either side of the thing it moves
+            // between.
+            //
+            // Hidden until animating, because before that there is nothing for
+            // them to add to or move between.
             if isAnimating {
+                IconButton(
+                    systemImage: "arrowtriangle.left.fill",
+                    size: Theme.Size.controlTiny,
+                    help: previousKey == nil
+                        ? "No earlier keyframe"
+                        : "Go to previous keyframe",
+                ) {
+                    previousKey.map { goToTime($0.time) }
+                }
+                // Dimmed rather than hidden at the ends: a control that
+                // disappears shifts the diamond under the pointer, so the next
+                // click lands on something else.
+                .disabled(previousKey == nil)
+                .opacity(previousKey == nil ? 0.35 : 1)
+
                 IconButton(
                     systemImage: isOnAKey ? "diamond.fill" : "diamond",
                     size: Theme.Size.controlTiny,
@@ -64,6 +97,16 @@ struct FilterKeyframeControls: View {
                     help: isOnAKey ? "On a keyframe" : "Add a keyframe here",
                     action: addKey,
                 )
+
+                IconButton(
+                    systemImage: "arrowtriangle.right.fill",
+                    size: Theme.Size.controlTiny,
+                    help: nextKey == nil ? "No later keyframe" : "Go to next keyframe",
+                ) {
+                    nextKey.map { goToTime($0.time) }
+                }
+                .disabled(nextKey == nil)
+                .opacity(nextKey == nil ? 0.35 : 1)
             }
         }
         .contextMenu {
