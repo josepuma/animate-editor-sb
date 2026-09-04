@@ -162,24 +162,36 @@ public struct BlurFilter: SpriteFilter {
     /// subject was gone.
     private func gated(
         _ commands: [Command],
-        toLevel radius: Int,
+        toLevel level: Int,
         of levels: [Int],
         birth: Double,
         death: Double,
         opacity: Double,
         in context: FilterContext,
     ) -> [Command] {
+        let radius = { context.number(Param.radius, at: $0) }
         let step = DerivedSprite.quantumStep
-        // Cut wherever the radius changes, so a gate can turn within a command
-        // the sprite was already drawing.
-        let cuts = context.keyTimes(of: [Param.radius])
+
+        // Cut where the radius crosses **this level's own band**, not only at
+        // its keyframes.
+        //
+        // A keyframe is where the value changes *direction*; a level turns on
+        // and off wherever the radius passes it, which is somewhere else
+        // entirely. With only keyframe cuts, a run from 0 to 20 across one
+        // command gave every intermediate level a single span whose two ends
+        // both sit outside its band — so all nine came out at opacity zero and
+        // the blur jumped from sharp straight to full. Measured on a text clip:
+        // eleven levels, nine of them invisible.
+        let cuts = (context.keyTimes(of: [Param.radius]) + crossings(
+            of: radius, over: commands, level: level, step: step,
+        )).sorted()
 
         return AnimatedFactor.apply(to: commands, cutAt: cuts) { command in
             guard case let .fade(start, end) = command.payload else { return command }
 
             func weight(at time: Double) -> Double {
                 let actual = context.number(Param.radius, at: time)
-                let distance = abs(actual - Double(radius))
+                let distance = abs(actual - Double(level))
                 guard distance < step else { return 0 }
                 // Linear across one step: at the level itself this is 1, at its
                 // neighbour 0, and the two always sum to 1 in between — so the
@@ -193,8 +205,8 @@ public struct BlurFilter: SpriteFilter {
             // sample.
             func clampedWeight(at time: Double) -> Double {
                 let actual = context.number(Param.radius, at: time)
-                if radius == levels.first, actual <= Double(radius) { return 1 }
-                if radius == levels.last, actual >= Double(radius) { return 1 }
+                if level == levels.first, actual <= Double(level) { return 1 }
+                if level == levels.last, actual >= Double(level) { return 1 }
                 return weight(at: time)
             }
 
@@ -206,6 +218,64 @@ public struct BlurFilter: SpriteFilter {
                 ),
             )
         }
+    }
+
+    /// The moments the radius enters or leaves one level's band.
+    ///
+    /// Sampled rather than solved, because the radius follows whatever easing
+    /// its keyframes carry and there is no closed form for "where does this
+    /// curve cross this value". Sampling finely enough is both simpler and
+    /// exact enough: a level is a two-pixel band, and a cut a few milliseconds
+    /// early or late is invisible against a cross-fade.
+    private func crossings(
+        of radius: (Double) -> Double,
+        over commands: [Command],
+        level: Int,
+        step: Double,
+    ) -> [Double] {
+        let starts = commands.map(\.startTime)
+        let ends = commands.map(\.endTime)
+        guard let first = starts.min(), let last = ends.max(), last > first else { return [] }
+
+        // Enough samples to catch a band crossing without writing a command per
+        // sample: the cuts these produce are bounded by how many times the
+        // radius can cross one band, not by the sample count.
+        let samples = 240
+        let interval = (last - first) / Double(samples)
+
+        var times: [Double] = []
+        var wasInside = false
+        var closest: (time: Double, distance: Double)?
+
+        for index in 0 ... samples {
+            let time = first + interval * Double(index)
+            let distance = abs(radius(time) - Double(level))
+            let inside = distance < step
+
+            if inside != wasInside {
+                if index > 0 { times.append(time) }
+                // Leaving the band closes off the pass just measured, so its
+                // nearest approach is recorded before the next one starts.
+                if !inside, let peak = closest { times.append(peak.time) }
+                closest = nil
+            }
+            if inside, closest == nil || distance < closest!.distance {
+                closest = (time, distance)
+            }
+            wasInside = inside
+        }
+        // A pass still open at the end has its peak recorded too.
+        if wasInside, let peak = closest { times.append(peak.time) }
+
+        // The nearest approach as well as the edges.
+        //
+        // Cutting only where a level's band starts and ends leaves one command
+        // spanning the whole pass — and the weight at *both* of its ends is
+        // zero, because that is what being on the edge of a band means. The
+        // level then fades in to nothing and out again: measured, every
+        // intermediate level peaked at 0.08 instead of 1.00, so a blur running
+        // 0→20 was very nearly invisible in between.
+        return times.sorted()
     }
 
     /// One sprite per blur level the radius passes through.

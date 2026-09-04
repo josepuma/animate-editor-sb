@@ -25,6 +25,19 @@ struct TrackTimelineView: View {
     /// separately from what gets drawn is a height that eventually disagrees,
     /// and this timeline has already been bitten by a frame that promised less
     /// room than its contents needed.
+    /// The header in force, so every measurement in this view agrees on it.
+    private var contentOrigin: CGFloat {
+        Self.contentOrigin(isEditingKeyframes: shell.keyframeNode != nil)
+    }
+
+    /// Where the playhead sits inside a clip, clamped to it.
+    ///
+    /// From `playheadTime` — the unobserved copy — because the rows must not
+    /// rebuild with the clock.
+    private func localKeyTime(in node: EffectNode) -> Double {
+        min(max(0, shell.playheadTime - node.startTime), node.duration)
+    }
+
     private var keyframeRowCount: Int {
         guard let node = shell.keyframeNode else { return 0 }
         return KeyframeRows.rowCount(
@@ -147,6 +160,23 @@ struct TrackTimelineView: View {
 
     /// Width of the track headers.
     static let headerWidth: CGFloat = 132
+
+    /// The header the keyframe editor gets, which is wider.
+    ///
+    /// Not the same number in both modes, because it holds different things. A
+    /// lane's header carries a track name — short by definition. A keyframe row
+    /// carries a stopwatch, a title, three navigation controls **and** the
+    /// value, which is twice the content in the same space: titles came out as
+    /// `Pos…` and `Int…`, and a value field squeezed down to its own stepper
+    /// with no room to read or type a number.
+    ///
+    /// Widening costs nothing here. The editor shows **one clip**, so the area
+    /// the diamonds are drawn in is not competing with anything.
+    static let keyframeHeaderWidth: CGFloat = 224
+
+    static func headerWidth(isEditingKeyframes: Bool) -> CGFloat {
+        isEditingKeyframes ? keyframeHeaderWidth : headerWidth
+    }
     private static let rulerHeight: CGFloat = 32
     /// Tall enough for a clip pill to carry a thumbnail and a label.
     /// How tall one lane is.
@@ -169,8 +199,18 @@ struct TrackTimelineView: View {
     }
 
     /// Where that content starts, measured from the panel's own edge.
+    ///
+    /// Derived from whichever header is in force. The ruler, the playhead and
+    /// the scrub all measure from here, so a header that changed without this
+    /// following would put the playhead beside the mark it is passing — the
+    /// same class of bug as the four places the ruler inset already feeds.
+    static func contentOrigin(isEditingKeyframes: Bool) -> CGFloat {
+        headerWidth(isEditingKeyframes: isEditingKeyframes) + Theme.Spacing.snug
+    }
+
+    /// The lane-mode origin, for callers with no mode to speak of.
     static var contentOrigin: CGFloat {
-        headerWidth + Theme.Spacing.snug
+        contentOrigin(isEditingKeyframes: false)
     }
 
     /// Total height for `trackCount` rows, so the shell can size the workspace
@@ -265,7 +305,7 @@ struct TrackTimelineView: View {
         // content actually gets. Inside, the reader still reports the full
         // panel and every span measured from it runs long.
         GeometryReader { proxy in
-            let contentWidth = Self.contentWidth(in: proxy.size.width)
+            let contentWidth = proxy.size.width - contentOrigin
 
             ZStack(alignment: .topLeading) {
                 // The ruler is a band of its own, so it needs more room beneath
@@ -310,7 +350,7 @@ struct TrackTimelineView: View {
                 // Drawn over both, so the line runs unbroken from the ruler
                 // down through every track.
                 playhead(width: contentWidth, height: proxy.size.height)
-                    .offset(x: Self.contentOrigin)
+                    .offset(x: contentOrigin)
                     .allowsHitTesting(false)
             }
         }
@@ -774,7 +814,7 @@ struct TrackTimelineView: View {
         KeyframeRows(
             node: node,
             scale: TimelineScale(range: visibleRange, width: contentWidth),
-            headerWidth: Self.headerWidth,
+            headerWidth: Self.keyframeHeaderWidth,
             // Clamped into the clip.
             //
             // The playhead is brought inside when the mode opens, but that runs
@@ -875,6 +915,44 @@ struct TrackTimelineView: View {
                     nodeID: node.id, filterID: filterID,
                     parameter: parameter, keyframeID: keyID,
                 )
+            },
+            transformValue: { node.transform.value($0, at: localKeyTime(in: node)) },
+            setTransformValue: { property, value in
+                // The rule the inspector already follows: with animation on, a
+                // typed number plants a key; with it off, it moves the resting
+                // value. One edit must not mean two things in two places.
+                if node.transform[property].isActive {
+                    shell.setKeyframe(
+                        value, for: property, at: localKeyTime(in: node), on: node.id,
+                    )
+                } else {
+                    shell.setTransformValue(value, for: property, on: node.id)
+                }
+            },
+            filterValue: { filterID, parameter in
+                shell.filterValue(
+                    parameter, on: filterID, in: node.id, at: localKeyTime(in: node),
+                )
+            },
+            setFilterValue: { filterID, parameter, value in
+                if shell.filterAnimation(
+                    parameter, on: filterID, in: node.id,
+                )?.isActive == true {
+                    shell.setFilterKeyframe(
+                        value, for: parameter, on: filterID, in: node.id,
+                        at: localKeyTime(in: node),
+                    )
+                } else {
+                    shell.setFilterValue(
+                        .number(value), for: parameter, on: filterID, in: node.id,
+                    )
+                }
+            },
+            filterParameter: { filterID, parameter in
+                guard let filter = node.filters.first(where: { $0.id == filterID }),
+                      let descriptor = shell.filters.descriptor(for: filter.type)
+                else { return nil }
+                return descriptor.parameter(parameter)
             },
             filterDescriptor: { shell.filters.descriptor(for: $0) },
             addFilterKeyframe: { filterID, parameter, time in
@@ -1086,7 +1164,7 @@ struct TrackTimelineView: View {
             // over the stack rather than inside each one.
             if Self.showsRegions {
                 regionOverlay(width: contentWidth)
-                    .offset(x: Self.contentOrigin)
+                    .offset(x: contentOrigin)
                     .allowsHitTesting(false)
             }
         }
@@ -1095,7 +1173,7 @@ struct TrackTimelineView: View {
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
                     let scale = TimelineScale(range: visibleRange, width: contentWidth)
-                    seek(scale.time(atX: value.location.x - Self.contentOrigin))
+                    seek(scale.time(atX: value.location.x - contentOrigin))
                 },
         )
         .frame(height: Self.rowsHeight(

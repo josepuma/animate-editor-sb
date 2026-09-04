@@ -94,7 +94,19 @@ public enum AnimatedFactor {
             payload: perturbed(command.payload),
         )
         guard let result = transform(probe) else { return true }
-        return !samePayload(result.payload, probe.payload)
+        if !samePayload(result.payload, probe.payload) { return true }
+
+        // Probed again at a **different moment**, because a factor of exactly
+        // one leaves the numbers alone: a glow whose size rests at 1 looked
+        // like a filter that only copies, so its animated size never got the
+        // cuts it needed and never travelled. What matters is whether the
+        // output depends on *when* it is asked, not on whether one sample
+        // happens to change anything.
+        var later = probe
+        later.timing.startTime = probe.startTime + 1
+        later.timing.endTime = probe.endTime + 1
+        guard let shifted = transform(later) else { return true }
+        return !samePayload(shifted.payload, later.payload)
     }
 
     /// The same kind of payload with distinctive values in it.

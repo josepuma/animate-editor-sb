@@ -249,9 +249,21 @@ public struct FilterContext: Sendable {
         // value the same parameter refuses when typed.
         var tracks: [String: KeyframeTrack] = [:]
         for parameter in descriptor.parameters {
-            guard parameter.animation.isAnimatable,
-                  let track = node.animations[parameter.id], track.isActive
-            else { continue }
+            guard parameter.animation.isAnimatable else { continue }
+
+            if parameter.kind == .color {
+                // A colour animates as three channel tracks under derived keys,
+                // which are not declared parameters — so they are clamped to
+                // the channel range rather than to the parameter's own.
+                let keys = Self.channelKeys(of: parameter.id)
+                for key in [keys.r, keys.g, keys.b] {
+                    guard let track = node.animations[key], track.isActive else { continue }
+                    tracks[key] = track
+                }
+                continue
+            }
+
+            guard let track = node.animations[parameter.id], track.isActive else { continue }
             tracks[parameter.id] = parameter.clampingTrack(track)
         }
         animations = tracks
@@ -338,6 +350,49 @@ public struct FilterContext: Sendable {
     public func color(_ id: String) -> EffectColor {
         if case let .color(value) = values[id] { return value }
         return .white
+    }
+
+    /// The channel keys a colour parameter animates under.
+    ///
+    /// Three tracks rather than one, exactly as ``Transform`` splits colour into
+    /// `red`, `green` and `blue`: a keyframe holds a `Double`, and the format
+    /// already breaks a colour into three numbers when it writes `_C`. The
+    /// alternative — a keyframe able to hold any type — would touch every piece
+    /// of code that reads one, for the one parameter that needs it.
+    ///
+    /// Presented as a single colour well with a single stopwatch; the three
+    /// move together.
+    public static func channelKeys(of id: String) -> (r: String, g: String, b: String) {
+        ("\(id).r", "\(id).g", "\(id).b")
+    }
+
+    /// A colour parameter at a moment, following its channel tracks when they
+    /// are animated and its resting value when they are not.
+    public func color(_ id: String, at time: Double) -> EffectColor {
+        let resting = color(id)
+        let keys = Self.channelKeys(of: id)
+        guard animations[keys.r]?.isActive == true
+            || animations[keys.g]?.isActive == true
+            || animations[keys.b]?.isActive == true
+        else { return resting }
+
+        // A channel nobody animated holds the resting value, so animating one
+        // of the three does not drag the other two to zero.
+        func channel(_ key: String, _ fallback: Double) -> Double {
+            guard let track = animations[key], track.isActive else { return fallback }
+            return min(255, max(0, track.value(at: time)))
+        }
+        return EffectColor(
+            r: channel(keys.r, resting.r),
+            g: channel(keys.g, resting.g),
+            b: channel(keys.b, resting.b),
+        )
+    }
+
+    /// Whether a colour parameter is being animated on any channel.
+    public func isColorAnimated(_ id: String) -> Bool {
+        let keys = Self.channelKeys(of: id)
+        return [keys.r, keys.g, keys.b].contains { animations[$0]?.isAnimated == true }
     }
 
     public func text(_ id: String) -> String {

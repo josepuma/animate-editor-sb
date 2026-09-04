@@ -52,6 +52,18 @@ struct KeyframeRows: View {
     /// Picks a filter key, so clicking its diamond does what clicking a
     /// transform one does.
     var selectFilterKey: (FilterNode.ID, String, Keyframe.ID) -> Void = { _, _, _ in }
+
+    /// What each property is worth at the playhead, and how to change it.
+    ///
+    /// Shown in the row rather than only in the inspector, which is where After
+    /// Effects puts it: crossing the window to change a number you are already
+    /// looking at is friction, and a value is half of what a keyframe is.
+    var transformValue: (TransformProperty) -> Double = { _ in 0 }
+    var setTransformValue: (TransformProperty, Double) -> Void = { _, _ in }
+    var filterValue: (FilterNode.ID, String) -> Double? = { _, _ in nil }
+    var setFilterValue: (FilterNode.ID, String, Double) -> Void = { _, _, _ in }
+    /// The declaration behind a filter parameter, for its unit, step and range.
+    var filterParameter: (FilterNode.ID, String) -> EffectParameter? = { _, _ in nil }
     var filterDescriptor: (String) -> FilterDescriptor? = { _ in nil }
     var addFilterKeyframe: (FilterNode.ID, String, Double) -> Void = { _, _, _ in }
     var moveFilterKeyframe: (FilterNode.ID, String, Keyframe.ID, Double) -> Void = { _, _, _, _ in }
@@ -203,6 +215,11 @@ struct KeyframeRows: View {
                             ? selectedKey?.id : nil,
                         selectKey: { selectKey(property, $0) },
                         goToKey: { goToKey(property, $0) },
+                        value: transformValue(property),
+                        setValue: { setTransformValue(property, $0) },
+                        unit: property.unit,
+                        step: property.step,
+                        range: property.range,
                     )
                 }
             }
@@ -253,6 +270,11 @@ struct KeyframeRows: View {
                             selectedKeyID: selectedFilterKeyID(row),
                             selectKey: { selectFilterKey(row.filterID, row.parameter, $0) },
                             goToKey: { goToFilterKey(row.filterID, row.parameter, $0) },
+                            value: filterValue(row.filterID, row.parameter),
+                            setValue: { setFilterValue(row.filterID, row.parameter, $0) },
+                            unit: filterParameter(row.filterID, row.parameter)?.unit,
+                            step: filterParameter(row.filterID, row.parameter)?.step ?? 1,
+                            range: filterParameter(row.filterID, row.parameter)?.range,
                         )
                     }
                 }
@@ -297,6 +319,15 @@ struct KeyframeRow: View {
     /// without selecting leaves the inspector describing something else — the
     /// arrow lands on a key the panel then declines to talk about.
     var goToKey: (Keyframe) -> Void = { _ in }
+
+    /// What this property is worth at the playhead, and how to change it.
+    ///
+    /// `nil` for a row with no editable number behind it.
+    var value: Double?
+    var setValue: (Double) -> Void = { _ in }
+    var unit: String?
+    var step: Double = 1
+    var range: ClosedRange<Double>?
 
     /// The key being dragged, and where it has reached.
     @State private var draft: (id: Keyframe.ID, time: Double)?
@@ -411,6 +442,24 @@ struct KeyframeRow: View {
                 }
                 .disabled(nextKey == nil)
                 .opacity(nextKey == nil ? 0.35 : 1)
+
+                if let value {
+                    NumberField(
+                        value: Binding(
+                            get: { value },
+                            // With animation on this plants a key at the
+                            // playhead, exactly as the inspector's field does —
+                            // one edit must not mean two different things in
+                            // two places.
+                            set: setValue,
+                        ),
+                        unit: unit,
+                        step: step,
+                        range: range ?? -.greatestFiniteMagnitude...(.greatestFiniteMagnitude),
+                        format: step < 1 ? "%.2f" : "%.0f",
+                    )
+                    .frame(width: 64)
+                }
             }
             // The inset goes inside the fixed width, not around it.
             //

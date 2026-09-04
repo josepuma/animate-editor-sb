@@ -37,6 +37,7 @@ public struct ChromaticFilter: SpriteFilter {
                 range: 0...40,
                 step: 1,
                 unit: "px",
+                animation: .commands,
             ),
             EffectParameter(
                 id: Param.angle,
@@ -46,6 +47,7 @@ public struct ChromaticFilter: SpriteFilter {
                 range: 0...360,
                 step: 5,
                 unit: "°",
+                animation: .commands,
             ),
             EffectParameter(
                 id: Param.intensity,
@@ -55,6 +57,7 @@ public struct ChromaticFilter: SpriteFilter {
                 range: 0...1,
                 step: 0.05,
                 presentation: .slider,
+                animation: .commands,
             ),
             // How much the split jumps about during the clip.
             //
@@ -71,6 +74,7 @@ public struct ChromaticFilter: SpriteFilter {
                 range: 0...1,
                 step: 0.05,
                 presentation: .slider,
+                animation: .commands,
             ),
             EffectParameter(
                 id: Param.rate,
@@ -110,9 +114,11 @@ public struct ChromaticFilter: SpriteFilter {
         of sprite: StoryboardSprite,
         from first: Double,
         to last: Double,
-        dx: Double,
-        dy: Double,
-        reach: Double,
+        // Functions of time, because the split they express can travel: read
+        // once, a channel animated apart would jitter around where it began.
+        dx: (Double) -> Double,
+        dy: (Double) -> Double,
+        reach: (Double) -> Double,
         rate: Double,
         rng: inout EffectRandom,
     ) -> [Command] {
@@ -132,8 +138,8 @@ public struct ChromaticFilter: SpriteFilter {
 
             // Where the subject itself is over this step, which the jitter
             // rides on rather than replacing.
-            let from = placement(of: sprite, at: at, dx: dx, dy: dy)
-            let to = placement(of: sprite, at: until, dx: dx, dy: dy)
+            let from = placement(of: sprite, at: at, dx: dx(at), dy: dy(at))
+            let to = placement(of: sprite, at: until, dx: dx(until), dy: dy(until))
 
             // Most steps sit still: a glitch firing on every one is static,
             // and what reads as breaking up is that the calm between bursts
@@ -143,8 +149,9 @@ public struct ChromaticFilter: SpriteFilter {
             // now the sprite's only movement — a skipped one would leave a
             // gap where nothing says where it is.
             let jumps = rng.unit() < 0.45
-            let offsetX = jumps ? rng.symmetric(reach) : 0
-            let offsetY = jumps ? rng.symmetric(reach) : 0
+            let spread = reach(at)
+            let offsetX = jumps ? rng.symmetric(spread) : 0
+            let offsetY = jumps ? rng.symmetric(spread) : 0
 
             written.append(Command(
                 easing: .linear,
@@ -203,14 +210,23 @@ public struct ChromaticFilter: SpriteFilter {
     }
 
     public func apply(to sprites: [StoryboardSprite], in context: FilterContext) -> [StoryboardSprite] {
-        let offset = context.number(Param.offset)
-        let angle = context.number(Param.angle) * .pi / 180
-        let intensity = context.number(Param.intensity)
+        // Read at a moment, so a split that opens over the clip goes on opening
+        // rather than freezing at whatever it was when each sprite was born.
+        let cuts = context.keyTimes(of: [Param.offset, Param.angle, Param.intensity])
+        let offsetAt = { context.number(Param.offset, at: $0) }
+        let angleAt = { context.number(Param.angle, at: $0) * .pi / 180 }
+        let intensityAt = { context.number(Param.intensity, at: $0) }
+
         let keepsOriginal = context.toggle(Param.keepsOriginal)
         let jitter = context.number(Param.jitter)
         let rate = max(1, context.number(Param.rate))
 
-        guard offset > 0, intensity > 0 else { return sprites }
+        // A split animated up from zero still tears the image wherever its keys
+        // take it, so a resting zero only means "nothing to do" when nothing is
+        // animating it.
+        let splits = context.isAnimated(Param.offset) || context.number(Param.offset) > 0
+        let shows = context.isAnimated(Param.intensity) || context.number(Param.intensity) > 0
+        guard splits, shows else { return sprites }
 
         // Red one way, blue the other, green in the middle: that ordering is
         // what a lens does, and reversing it looks wrong to anyone who has seen
@@ -225,8 +241,14 @@ public struct ChromaticFilter: SpriteFilter {
         result.reserveCapacity(sprites.count * (keepsOriginal ? 4 : 3))
 
         for channel in channels {
-            let dx = cos(angle) * offset * channel.shift
-            let dy = sin(angle) * offset * channel.shift
+            // The displacement at a moment, since both the angle and the
+            // distance can travel.
+            func dx(_ time: Double) -> Double {
+                cos(angleAt(time)) * offsetAt(time) * channel.shift
+            }
+            func dy(_ time: Double) -> Double {
+                sin(angleAt(time)) * offsetAt(time) * channel.shift
+            }
 
             for (index, sprite) in sprites.enumerated() {
                 // A stream per channel per sprite, so every copy jumps on its
@@ -236,37 +258,52 @@ public struct ChromaticFilter: SpriteFilter {
                     .stream(index)
                 var copy = sprite
                 copy.id = "\(context.idPrefix)/c\(channel.name)-\(index)"
-                copy.defaultX += dx
-                copy.defaultY += dy
+                let birth = sprite.commands.map(\.startTime).min() ?? 0
+                copy.defaultX += dx(birth)
+                copy.defaultY += dy(birth)
 
-                copy.commands = sprite.commands.compactMap { command in
+                copy.commands = AnimatedFactor.apply(
+                    to: sprite.commands, cutAt: cuts,
+                ) { command in
+                    let atStart = command.startTime
+                    let atEnd = command.endTime
+
                     switch command.payload {
                     case let .move(startX, startY, endX, endY):
-                        Command(
+                        return Command(
                             timing: command.timing,
                             payload: .move(
-                                startX: startX + dx, startY: startY + dy,
-                                endX: endX + dx, endY: endY + dy,
+                                startX: startX + dx(atStart), startY: startY + dy(atStart),
+                                endX: endX + dx(atEnd), endY: endY + dy(atEnd),
                             ),
                         )
 
                     case let .moveX(start, end):
-                        Command(timing: command.timing, payload: .moveX(start: start + dx, end: end + dx))
+                        return Command(
+                            timing: command.timing,
+                            payload: .moveX(start: start + dx(atStart), end: end + dx(atEnd)),
+                        )
 
                     case let .moveY(start, end):
-                        Command(timing: command.timing, payload: .moveY(start: start + dy, end: end + dy))
+                        return Command(
+                            timing: command.timing,
+                            payload: .moveY(start: start + dy(atStart), end: end + dy(atEnd)),
+                        )
 
                     case let .fade(start, end):
-                        Command(
+                        return Command(
                             timing: command.timing,
-                            payload: .fade(start: start * intensity, end: end * intensity),
+                            payload: .fade(
+                                start: start * intensityAt(atStart),
+                                end: end * intensityAt(atEnd),
+                            ),
                         )
 
                     case .color:
                         // Replaced, not multiplied: this copy *is* the channel,
                         // and a red copy of a blue sprite has to come out red
                         // rather than black.
-                        Command(
+                        return Command(
                             timing: command.timing,
                             payload: .color(
                                 startR: channel.colour.r,
@@ -283,10 +320,10 @@ public struct ChromaticFilter: SpriteFilter {
                         // trick is that three channels sum back to white where
                         // they overlap. Dropped here and re-added below so a
                         // sprite that was not additive becomes one.
-                        nil
+                        return nil
 
                     default:
-                        command
+                        return command
                     }
                 }
 
@@ -333,7 +370,7 @@ public struct ChromaticFilter: SpriteFilter {
                         of: sprite,
                         from: first, to: last,
                         dx: dx, dy: dy,
-                        reach: offset * jitter * 3,
+                        reach: { offsetAt($0) * jitter * 3 },
                         rate: rate,
                         rng: &rng,
                     )

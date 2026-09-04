@@ -935,7 +935,14 @@ private struct FilterCard: View {
                     descriptor.parameters.filter { $0.shownWhen?.holds(in: filter.values) ?? true },
                     id: \.id,
                 ) { parameter in
-                    HStack(spacing: Theme.Spacing.tight) {
+                    // The keyframe controls go *under* the field, not beside it.
+                    //
+                    // A `PropertyRow` is the width of one control, and three
+                    // buttons alongside it squeezed a number field down to its
+                    // own stepper — no room left to read or type the value.
+                    // The same lesson `ColorField` already taught with three
+                    // controls in one row, and the alignment buttons after it.
+                    VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
                         ParameterControl(
                             parameter: parameter,
                             // While animating, the field shows the value at the
@@ -962,6 +969,9 @@ private struct FilterCard: View {
                         )
 
                         if parameter.animation.isAnimatable {
+                            // Indented to the field it belongs to, so a column
+                            // of parameters does not read as a column of
+                            // unattached buttons.
                             FilterKeyframeControls(
                                 track: animation(parameter.id),
                                 keyTime: keyTime,
@@ -980,6 +990,7 @@ private struct FilterCard: View {
                                 clear: { clearAnimation(parameter.id) },
                                 goToTime: goToTime,
                             )
+                            .padding(.leading, Theme.Spacing.compact)
                         }
                     }
                 }
