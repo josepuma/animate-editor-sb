@@ -294,13 +294,15 @@ public struct EmitterEffect: Effect {
         _ offset: (x: Double, y: Double, phase: Double, tilt: Double),
         halfWidth: Double,
         halfHeight: Double,
-    ) -> Double {
+    ) -> Double? {
         let nx = halfWidth > 0 ? offset.x / (halfWidth * halfWidth) : offset.x
         let ny = halfHeight > 0 ? offset.y / (halfHeight * halfHeight) : offset.y
 
-        // A particle exactly at the centre has no outward direction, so it gets
-        // one at random rather than all of them piling onto the same axis.
-        guard nx != 0 || ny != 0 else { return 0 }
+        // A particle exactly at the centre has no outward direction: every way
+        // is equally away. This returns nothing rather than picking, because
+        // the choice needs the particle's own random stream and this is a pure
+        // function of the offset — the caller spreads them around the circle.
+        guard nx != 0 || ny != 0 else { return nil }
 
         // Quarter turn back, because Direction is not the mathematical angle.
         //
@@ -886,7 +888,15 @@ public struct EmitterEffect: Effect {
                 // Swirl rides on the outward angle, because the tangent is
                 // defined against it: without a centre to be "out" from, there
                 // is nothing to turn a quarter of the way from either.
-                Self.outwardAngle(offset, halfWidth: halfWidth, halfHeight: leanHeight)
+                //
+                // A particle born at the centre — every particle, on a Point —
+                // has no outward direction of its own, so it draws one from
+                // its own stream. Without this a radial Point emitter fires
+                // every particle along Direction: a single jet, which is the
+                // opposite of what the toggle says, and Point + Radial is the
+                // most natural way to ask for a burst.
+                (Self.outwardAngle(offset, halfWidth: halfWidth, halfHeight: leanHeight)
+                    ?? particle.between(0, 360))
                     + direction + swirl
             } else {
                 direction

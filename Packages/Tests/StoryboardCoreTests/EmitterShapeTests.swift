@@ -99,7 +99,12 @@ struct EmitterShapeTests {
         arguments: [(100.0, 0.0, 90.0), (0.0, 100.0, 180.0), (-100.0, 0.0, 270.0), (0.0, -100.0, 0.0)],
     )
     func outwardOnACircle(x: Double, y: Double, expected: Double) {
-        let angle = EmitterEffect.outwardAngle((x: x, y: y, phase: 0, tilt: 0), halfWidth: 100, halfHeight: 100)
+        guard let angle = EmitterEffect.outwardAngle(
+            (x: x, y: y, phase: 0, tilt: 0), halfWidth: 100, halfHeight: 100,
+        ) else {
+            Issue.record("a point off the centre has an outward direction")
+            return
+        }
         // Compared around the circle: 270 and −90 are the same heading.
         let difference = abs((angle - expected).truncatingRemainder(dividingBy: 360))
         #expect(min(difference, 360 - difference) < 0.001)
@@ -109,7 +114,7 @@ struct EmitterShapeTests {
     /// line back to the centre. Use the latter and a wide, shallow ring sprays
     /// along its own edge instead of away from it.
     @Test("outward follows the normal on a stretched ring")
-    func outwardUsesTheNormal() {
+    func outwardUsesTheNormal() throws {
         // A point most of the way along a wide, shallow ellipse.
         var rng = EffectRandom(seed: 1)
         _ = rng.unit()
@@ -119,7 +124,9 @@ struct EmitterShapeTests {
         let t = Double.pi / 4
         let point = (x: cos(t) * halfWidth, y: sin(t) * halfHeight, phase: t, tilt: 0.0)
 
-        let normal = EmitterEffect.outwardAngle(point, halfWidth: halfWidth, halfHeight: halfHeight)
+        let normal = try #require(
+            EmitterEffect.outwardAngle(point, halfWidth: halfWidth, halfHeight: halfHeight),
+        )
         let toCentre = atan2(point.y, point.x) * 180 / .pi
 
         // On a stretched ellipse the two genuinely differ, and the normal is
@@ -128,10 +135,56 @@ struct EmitterShapeTests {
         #expect(normal > toCentre)
     }
 
-    @Test("a particle at the centre still gets a direction")
-    func centreHasADirection() {
-        let angle = EmitterEffect.outwardAngle((x: 0.0, y: 0.0, phase: 0.0, tilt: 0.0), halfWidth: 100, halfHeight: 100)
-        #expect(angle.isFinite)
+    /// **This test used to pass with the bug in it.** It asserted `isFinite`,
+    /// and the old code returned `0` — finite, and the reason a radial `Point`
+    /// emitter fired every particle along `Direction` as a single jet. A test
+    /// that cannot fail is worse than no test: it reports the parameter works.
+    ///
+    /// Every way is equally away from the centre, so the honest answer is that
+    /// there is no one direction — the caller picks from the particle's own
+    /// stream, which is the only place a repeatable choice can come from.
+    @Test("a particle at the centre has no outward direction of its own")
+    func centreHasNoDirection() {
+        #expect(
+            EmitterEffect.outwardAngle(
+                (x: 0.0, y: 0.0, phase: 0.0, tilt: 0.0), halfWidth: 100, halfHeight: 100,
+            ) == nil,
+        )
+    }
+
+    /// The bug this pins: `Point` + `Radial` is the most natural way to ask for
+    /// a burst, and it was the one combination that did not work — every
+    /// particle spawns at the centre, so every outward angle came back `0` and
+    /// the fan collapsed onto `Direction`. Measured on the `warp` preset: all
+    /// twenty-four particles between −93° and −87°, which is `Spread` alone.
+    @Test("a radial point emitter fires in every direction")
+    func radialFromAPointSpreadsAround() {
+        let sprites = EffectEvaluator().evaluate(EffectNode(
+            id: "fx", type: "emitter", name: "Emitter",
+            startTime: 0, duration: 2000, seed: 7,
+            values: [
+                EmitterEffect.Param.count: .integer(80),
+                EmitterEffect.Param.shape: .choice(EmitterEffect.Shape.point.rawValue),
+                EmitterEffect.Param.radial: .toggle(true),
+                EmitterEffect.Param.spread: .number(0),
+                EmitterEffect.Param.velocity: .number(200),
+                EmitterEffect.Param.lifeRandom: .number(0),
+            ],
+        ))
+
+        // Which quadrants the particles actually travelled into. A single jet
+        // reaches one; a burst reaches all four.
+        var quadrants: Set<Int> = []
+        for sprite in sprites {
+            guard case let .move(_, _, endX, endY) = sprite.commands
+                .last(where: { $0.kind == .move })?.payload else { continue }
+            let dx = endX - sprite.defaultX
+            let dy = endY - sprite.defaultY
+            guard abs(dx) + abs(dy) > 1 else { continue }
+            quadrants.insert((dx > 0 ? 1 : 0) + (dy > 0 ? 2 : 0))
+        }
+
+        #expect(quadrants.count == 4, "a radial burst reached only \(quadrants.count) quadrants")
     }
 
     // ─── Tilt: 2D standing in for depth ──────────────────────────────────────
