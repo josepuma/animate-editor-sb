@@ -178,7 +178,29 @@ public final class EditorShellModel {
         public let keyframeID: Keyframe.ID
     }
 
-    public var selectedKeyframe: KeyframeSelection?
+    public var selectedKeyframe: KeyframeSelection? {
+        didSet { if selectedKeyframe != nil { selectedFilterKeyframe = nil } }
+    }
+
+    /// A selected key on one of a clip's filters.
+    ///
+    /// Separate from ``KeyframeSelection`` rather than folded into it: that one
+    /// names a `TransformProperty`, and a filter's parameters are strings that
+    /// belong to a particular filter node. Widening the existing type would
+    /// make every reader handle a case it does not care about.
+    public struct FilterKeyframeSelection: Equatable, Sendable {
+        public let nodeID: EffectNode.ID
+        public let filterID: FilterNode.ID
+        public let parameter: String
+        public let keyframeID: Keyframe.ID
+    }
+
+    public var selectedFilterKeyframe: FilterKeyframeSelection? {
+        // The two are one selection wearing two shapes, so picking either has
+        // to release the other — otherwise the inspector would show a
+        // transform key while a filter's diamond sits highlighted.
+        didSet { if selectedFilterKeyframe != nil { selectedKeyframe = nil } }
+    }
 
     /// The selected key itself, when there is one.
     public var selectedKeyframeValue: Keyframe? {
@@ -187,6 +209,49 @@ public final class EditorShellModel {
         else { return nil }
         return node.transform[selection.property].keyframes
             .first { $0.id == selection.keyframeID }
+    }
+
+    /// The selected filter key itself, when there is one.
+    public var selectedFilterKeyframeValue: Keyframe? {
+        guard let selection = selectedFilterKeyframe else { return nil }
+        return filterAnimation(
+            selection.parameter, on: selection.filterID, in: selection.nodeID,
+        )?.keyframes.first { $0.id == selection.keyframeID }
+    }
+
+    /// Selects the key at a moment on a transform property, if there is one.
+    ///
+    /// Jumping to a key and not selecting it leaves the inspector describing
+    /// something else — the arrow moved the playhead onto a key that the panel
+    /// then declines to talk about.
+    public func selectKeyframe(
+        at localTime: Double,
+        for property: TransformProperty,
+        on nodeID: EffectNode.ID,
+    ) {
+        guard let node = effects[nodeID],
+              let key = node.transform[property].keyframes
+                  .first(where: { abs($0.time - localTime) < 1 })
+        else { return }
+        selectedKeyframe = KeyframeSelection(
+            nodeID: nodeID, property: property, keyframeID: key.id,
+        )
+    }
+
+    /// Selects the key at a moment on a filter parameter, if there is one.
+    public func selectFilterKeyframe(
+        at localTime: Double,
+        for parameterID: String,
+        on filterID: FilterNode.ID,
+        in nodeID: EffectNode.ID,
+    ) {
+        guard let key = filterAnimation(parameterID, on: filterID, in: nodeID)?
+            .keyframes.first(where: { abs($0.time - localTime) < 1 })
+        else { return }
+        selectedFilterKeyframe = FilterKeyframeSelection(
+            nodeID: nodeID, filterID: filterID,
+            parameter: parameterID, keyframeID: key.id,
+        )
     }
 
     /// The clip whose keyframes the timeline is showing, if any.
@@ -1563,11 +1628,26 @@ public final class EditorShellModel {
     ) {
         guard var track = filterAnimation(parameterID, on: filterID, in: nodeID) else { return }
         track.remove(keyID)
+        if selectedFilterKeyframe?.keyframeID == keyID { selectedFilterKeyframe = nil }
         // An empty track is no animation, not an animation with nothing in it —
         // left behind, the row would linger with no keys on it. Dropped by
         // `EffectDocument.setFilterAnimation`, which is the one place that
         // decides it: guarding here too would be a second opinion waiting to
         // disagree.
+        effects.setFilterAnimation(track, for: parameterID, on: filterID, in: nodeID)
+        effectsChanged(node: nodeID)
+    }
+
+    /// Changes what one of a filter parameter's keys is worth.
+    public func setFilterKeyframeValue(
+        _ value: Double,
+        for keyID: Keyframe.ID,
+        on parameterID: String,
+        filterID: FilterNode.ID,
+        in nodeID: EffectNode.ID,
+    ) {
+        guard var track = filterAnimation(parameterID, on: filterID, in: nodeID) else { return }
+        track.setValue(value, for: keyID)
         effects.setFilterAnimation(track, for: parameterID, on: filterID, in: nodeID)
         effectsChanged(node: nodeID)
     }
@@ -1603,6 +1683,11 @@ public final class EditorShellModel {
             effects.setFilterValue(
                 .number(held), for: parameterID, on: filterID, in: nodeID,
             )
+        }
+        if selectedFilterKeyframe?.filterID == filterID,
+           selectedFilterKeyframe?.parameter == parameterID
+        {
+            selectedFilterKeyframe = nil
         }
         effects.setFilterAnimation(nil, for: parameterID, on: filterID, in: nodeID)
         effectsChanged(node: nodeID)

@@ -540,3 +540,117 @@ struct KeyframeNavigationTests {
         #expect(sought == 8500)
     }
 }
+
+/// Selecting a filter's keyframe, and editing it once selected.
+///
+/// A key that can be clicked and highlighted and then not edited at all is
+/// worse than one that cannot be selected: it looks like the panel is broken
+/// rather than absent. These cover the whole round trip — click, edit, delete.
+@MainActor
+@Suite("Filter keyframe selection")
+struct FilterKeyframeSelectionTests {
+    private func model() -> (EditorShellModel, EffectNode.ID, FilterNode.ID, Keyframe.ID) {
+        let shell = EditorShellModel()
+        let node = shell.addEffect(EmitterEffect.descriptor, at: 4000, duration: 2000)
+        let filter = shell.addFilter(GlowFilter.descriptor, to: node.id)!
+        shell.beginAnimatingFilter(
+            GlowFilter.Param.intensity, on: filter.id, in: node.id, at: 500,
+        )
+        let key = shell.filterAnimation(
+            GlowFilter.Param.intensity, on: filter.id, in: node.id,
+        )!.keyframes.first!
+        return (shell, node.id, filter.id, key.id)
+    }
+
+    private func select(
+        _ shell: EditorShellModel,
+        _ nodeID: EffectNode.ID, _ filterID: FilterNode.ID, _ keyID: Keyframe.ID,
+    ) {
+        shell.selectedFilterKeyframe = EditorShellModel.FilterKeyframeSelection(
+            nodeID: nodeID, filterID: filterID,
+            parameter: GlowFilter.Param.intensity, keyframeID: keyID,
+        )
+    }
+
+    @Test("a selected filter key can be read back")
+    func selectionResolves() {
+        let (shell, nodeID, filterID, keyID) = model()
+        select(shell, nodeID, filterID, keyID)
+
+        #expect(shell.selectedFilterKeyframeValue?.id == keyID)
+        #expect(shell.selectedFilterKeyframeValue?.time == 500)
+    }
+
+    /// One selection wearing two shapes: picking either has to release the
+    /// other, or the inspector describes a transform key while a filter's
+    /// diamond sits highlighted.
+    @Test("selecting one kind of key releases the other")
+    func selectionsAreExclusive() {
+        let (shell, nodeID, filterID, keyID) = model()
+        shell.selectedKeyframe = EditorShellModel.KeyframeSelection(
+            nodeID: nodeID, property: .opacity, keyframeID: "k",
+        )
+
+        select(shell, nodeID, filterID, keyID)
+        #expect(shell.selectedKeyframe == nil)
+
+        shell.selectedKeyframe = EditorShellModel.KeyframeSelection(
+            nodeID: nodeID, property: .opacity, keyframeID: "k",
+        )
+        #expect(shell.selectedFilterKeyframe == nil)
+    }
+
+    /// The three edits the inspector offers, which is the half that was missing
+    /// — a key could be highlighted and then changed in no way at all.
+    @Test("a selected filter key can be moved, revalued and re-eased")
+    func selectedKeyIsEditable() {
+        let (shell, nodeID, filterID, keyID) = model()
+        select(shell, nodeID, filterID, keyID)
+
+        shell.moveFilterKeyframe(
+            keyID, for: GlowFilter.Param.intensity,
+            on: filterID, in: nodeID, to: 900,
+        )
+        #expect(shell.selectedFilterKeyframeValue?.time == 900)
+
+        shell.setFilterKeyframeValue(
+            1.4, for: keyID, on: GlowFilter.Param.intensity,
+            filterID: filterID, in: nodeID,
+        )
+        #expect(shell.selectedFilterKeyframeValue?.value == 1.4)
+
+        shell.setFilterKeyframeEasing(
+            .quadOut, for: keyID, on: GlowFilter.Param.intensity,
+            filterID: filterID, in: nodeID,
+        )
+        #expect(shell.selectedFilterKeyframeValue?.easing == .quadOut)
+    }
+
+    /// A deleted key must not stay selected: the panel would go on describing
+    /// something that no longer exists, with fields that edit nothing.
+    @Test("deleting a key releases the selection")
+    func deletingReleasesSelection() {
+        let (shell, nodeID, filterID, keyID) = model()
+        select(shell, nodeID, filterID, keyID)
+
+        shell.removeFilterKeyframe(
+            keyID, for: GlowFilter.Param.intensity, on: filterID, in: nodeID,
+        )
+
+        #expect(shell.selectedFilterKeyframe == nil)
+        #expect(shell.selectedFilterKeyframeValue == nil)
+    }
+
+    /// And clearing the whole animation takes the selection with it.
+    @Test("clearing an animation releases the selection")
+    func clearingReleasesSelection() {
+        let (shell, nodeID, filterID, keyID) = model()
+        select(shell, nodeID, filterID, keyID)
+
+        shell.clearFilterAnimation(
+            for: GlowFilter.Param.intensity, on: filterID, in: nodeID, keeping: 0,
+        )
+
+        #expect(shell.selectedFilterKeyframe == nil)
+    }
+}

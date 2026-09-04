@@ -221,6 +221,7 @@ struct InspectorView: View {
     private func effectParameters(descriptor: EffectDescriptor, node: EffectNode) -> some View {
         timingRow(node: node)
         selectedKeyframeSection(node)
+        selectedFilterKeyframeSection(node)
         transformSection(node)
 
         ForEach(descriptor.groups, id: \.self) { group in
@@ -341,6 +342,92 @@ struct InspectorView: View {
 
                 Button("Delete Keyframe", systemImage: "trash", role: .destructive) {
                     shell.removeKeyframe(key.id, from: selection.property, on: node.id)
+                }
+                .font(Theme.Typography.micro)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    /// The selected filter key: its time, value, curve and a way to delete it.
+    ///
+    /// The same four controls the transform's selected key gets, because a
+    /// keyframe is a keyframe wherever it came from. Without this, a filter key
+    /// could be clicked and highlighted and then not edited at all — selected
+    /// and inert, which is worse than not selectable.
+    @ViewBuilder
+    private func selectedFilterKeyframeSection(_ node: EffectNode) -> some View {
+        if let selection = shell.selectedFilterKeyframe,
+           selection.nodeID == node.id,
+           let key = shell.selectedFilterKeyframeValue,
+           let filter = node.filters.first(where: { $0.id == selection.filterID }),
+           let descriptor = shell.filters.descriptor(for: filter.type),
+           let parameter = descriptor.parameter(selection.parameter)
+        {
+            FieldGroup("Keyframe · \(descriptor.name) · \(parameter.name)") {
+                PropertyRow("Time") {
+                    NumberField(
+                        value: Binding(
+                            get: { key.time },
+                            set: {
+                                shell.moveFilterKeyframe(
+                                    key.id, for: selection.parameter,
+                                    on: selection.filterID, in: node.id, to: $0,
+                                )
+                            },
+                        ),
+                        unit: "ms",
+                        step: 10,
+                        range: 0...node.duration,
+                        format: "%.0f",
+                    )
+                }
+
+                PropertyRow("Value") {
+                    NumberField(
+                        value: Binding(
+                            get: { key.value },
+                            set: {
+                                shell.setFilterKeyframeValue(
+                                    $0, for: key.id, on: selection.parameter,
+                                    filterID: selection.filterID, in: node.id,
+                                )
+                            },
+                        ),
+                        // Straight off the declaration, so a key obeys the same
+                        // bounds and step as the field that plants it.
+                        unit: parameter.unit,
+                        step: parameter.step ?? 1,
+                        // A parameter without declared bounds accepts anything,
+                        // so the field must not invent a limit the value itself
+                        // does not have.
+                        range: parameter.range ?? -.greatestFiniteMagnitude...(.greatestFiniteMagnitude),
+                        format: (parameter.step ?? 1) < 1 ? "%.2f" : "%.0f",
+                    )
+                }
+
+                PropertyRow("Easing") {
+                    MenuField(
+                        items: KeyframeEasing.allCases.map(EasingOption.init),
+                        selection: Binding(
+                            get: { EasingOption(KeyframeEasing.matching(key.easing)) },
+                            set: {
+                                shell.setFilterKeyframeEasing(
+                                    $0.curve.easing, for: key.id,
+                                    on: selection.parameter,
+                                    filterID: selection.filterID, in: node.id,
+                                )
+                            },
+                        ),
+                        label: \.title,
+                    )
+                }
+
+                Button("Delete Keyframe", systemImage: "trash", role: .destructive) {
+                    shell.removeFilterKeyframe(
+                        key.id, for: selection.parameter,
+                        on: selection.filterID, in: node.id,
+                    )
                 }
                 .font(Theme.Typography.micro)
                 .frame(maxWidth: .infinity, alignment: .leading)

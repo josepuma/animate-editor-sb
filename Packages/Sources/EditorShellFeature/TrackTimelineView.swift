@@ -847,11 +847,35 @@ struct TrackTimelineView: View {
             toggleTransform: { shell.isTransformGroupExpanded.toggle() },
             isFilterExpanded: { shell.isFilterGroupExpanded($0, in: node.id) },
             toggleFilter: { shell.toggleFilterGroup($0, in: node.id) },
-            // Keyframe times are local to the clip and `seek` speaks song
-            // time, so the clip's own start has to be added back — without it
-            // every jump lands at the top of the song for a clip that does not
-            // start there.
-            goToTime: { seek(node.startTime + $0) },
+            // Seeking and selecting together, because they are one action:
+            // landing on a key the inspector then declines to describe is the
+            // arrow doing half its job.
+            //
+            // Keyframe times are local to the clip and `seek` speaks song time,
+            // so the clip's own start has to be added back — without it every
+            // jump lands at the top of the song for a clip that starts later.
+            goToKey: { property, key in
+                seek(node.startTime + key.time)
+                shell.selectedKeyframe = EditorShellModel.KeyframeSelection(
+                    nodeID: node.id, property: property, keyframeID: key.id,
+                )
+            },
+            goToFilterKey: { filterID, parameter, key in
+                seek(node.startTime + key.time)
+                shell.selectedFilterKeyframe = EditorShellModel.FilterKeyframeSelection(
+                    nodeID: node.id, filterID: filterID,
+                    parameter: parameter, keyframeID: key.id,
+                )
+            },
+            selectedFilterKey: shell.selectedFilterKeyframe.map {
+                ($0.filterID, $0.parameter, $0.keyframeID)
+            },
+            selectFilterKey: { filterID, parameter, keyID in
+                shell.selectedFilterKeyframe = EditorShellModel.FilterKeyframeSelection(
+                    nodeID: node.id, filterID: filterID,
+                    parameter: parameter, keyframeID: keyID,
+                )
+            },
             filterDescriptor: { shell.filters.descriptor(for: $0) },
             addFilterKeyframe: { filterID, parameter, time in
                 guard let value = shell.filterValue(

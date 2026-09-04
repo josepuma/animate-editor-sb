@@ -43,8 +43,15 @@ struct KeyframeRows: View {
     /// Whether a filter's group is open, and how to change that.
     var isFilterExpanded: (FilterNode.ID) -> Bool = { _ in false }
     var toggleFilter: (FilterNode.ID) -> Void = { _ in }
-    /// Moves the playhead to a moment inside the clip.
-    var goToTime: (Double) -> Void = { _ in }
+    /// Jumps to a transform key: seeks to it and selects it.
+    var goToKey: (TransformProperty, Keyframe) -> Void = { _, _ in }
+    /// Jumps to a filter key.
+    var goToFilterKey: (FilterNode.ID, String, Keyframe) -> Void = { _, _, _ in }
+    /// The selected filter key, so its diamond can show it.
+    var selectedFilterKey: (filterID: FilterNode.ID, parameter: String, id: Keyframe.ID)?
+    /// Picks a filter key, so clicking its diamond does what clicking a
+    /// transform one does.
+    var selectFilterKey: (FilterNode.ID, String, Keyframe.ID) -> Void = { _, _, _ in }
     var filterDescriptor: (String) -> FilterDescriptor? = { _ in nil }
     var addFilterKeyframe: (FilterNode.ID, String, Double) -> Void = { _, _, _ in }
     var moveFilterKeyframe: (FilterNode.ID, String, Keyframe.ID, Double) -> Void = { _, _, _, _ in }
@@ -73,6 +80,14 @@ struct KeyframeRows: View {
         let rows: [FilterRow]
 
         var animatedCount: Int { rows.filter { !$0.track.isEmpty }.count }
+    }
+
+    /// Whether the selected filter key belongs to this row.
+    private func selectedFilterKeyID(_ row: FilterRow) -> Keyframe.ID? {
+        guard let selected = selectedFilterKey,
+              selected.filterID == row.filterID, selected.parameter == row.parameter
+        else { return nil }
+        return selected.id
     }
 
     private var groups: [FilterGroup] {
@@ -187,7 +202,7 @@ struct KeyframeRows: View {
                         selectedKeyID: selectedKey?.property == property
                             ? selectedKey?.id : nil,
                         selectKey: { selectKey(property, $0) },
-                        goToTime: goToTime,
+                        goToKey: { goToKey(property, $0) },
                     )
                 }
             }
@@ -235,9 +250,9 @@ struct KeyframeRows: View {
                             // Selecting a filter key is not wired up yet: the
                             // inspector's key editor speaks `TransformProperty`,
                             // and widening it is its own change.
-                            selectedKeyID: nil,
-                            selectKey: { _ in },
-                            goToTime: goToTime,
+                            selectedKeyID: selectedFilterKeyID(row),
+                            selectKey: { selectFilterKey(row.filterID, row.parameter, $0) },
+                            goToKey: { goToFilterKey(row.filterID, row.parameter, $0) },
                         )
                     }
                 }
@@ -276,9 +291,12 @@ struct KeyframeRow: View {
     /// The key the inspector is editing, if it is on this row.
     let selectedKeyID: Keyframe.ID?
     let selectKey: (Keyframe.ID) -> Void
-    /// Moves the playhead to a moment in the clip, for the arrows beside the
-    /// diamond. Defaulted so a row can still be built without one.
-    var goToTime: (Double) -> Void = { _ in }
+    /// Jumps to a keyframe: moves the playhead there **and** selects it.
+    ///
+    /// One callback rather than two, because they are one action. Seeking
+    /// without selecting leaves the inspector describing something else — the
+    /// arrow lands on a key the panel then declines to talk about.
+    var goToKey: (Keyframe) -> Void = { _ in }
 
     /// The key being dragged, and where it has reached.
     @State private var draft: (id: Keyframe.ID, time: Double)?
@@ -364,7 +382,7 @@ struct KeyframeRow: View {
                         ? "No earlier keyframe"
                         : "Go to previous keyframe",
                 ) {
-                    previousKey.map { goToTime($0.time) }
+                    previousKey.map(goToKey)
                 }
                 // Dimmed rather than hidden at the ends: a control that vanishes
                 // moves the diamond under the pointer, so the next click lands
@@ -389,7 +407,7 @@ struct KeyframeRow: View {
                     size: Theme.Size.controlTiny,
                     help: nextKey == nil ? "No later keyframe" : "Go to next keyframe",
                 ) {
-                    nextKey.map { goToTime($0.time) }
+                    nextKey.map(goToKey)
                 }
                 .disabled(nextKey == nil)
                 .opacity(nextKey == nil ? 0.35 : 1)
