@@ -1237,10 +1237,16 @@ private struct SpriteChoice: Hashable, Identifiable {
     /// The particle built from the three shape numbers.
     ///
     /// An entry of its own rather than the *absence* of a sprite: it is the
-    /// first thing in the list, it says what the Shape group below is for, and
-    /// it is the only way back once a file has been picked. Stored as an empty
-    /// path, which is what "nothing overrides the numbers" means.
-    static let built = SpriteChoice(id: "built", title: "Built from Shape", path: "")
+    /// first thing in the list, it says what the group below is for, and it is
+    /// the only way back once a file has been picked. Stored as an empty path,
+    /// which is what "nothing overrides the numbers" means.
+    ///
+    /// Named for what it *is* and what sets it apart, not for the machinery
+    /// behind it. "Built from Shape" promised any shape while it only ever
+    /// draws a radial gradient — and "Circle" would sit directly above Soft
+    /// Dot, Glow and Ring, which are circles too, saying nothing about the
+    /// difference. The difference is that this one is yours to dial.
+    static let built = SpriteChoice(id: "built", title: "Adjustable Dot", path: "")
 
     /// Drawn in code: soft, generic, tinted by the effect.
     private static let shapes: [SpriteChoice] = [

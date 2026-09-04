@@ -61,7 +61,7 @@ struct EffectParameterTests {
     @Test("groups come out in declaration order, without repeats")
     func groupOrder() {
         #expect(EmitterEffect.descriptor.groups == [
-            "Emission", "Shape", "Position", "Direction", "Physics",
+            "Emission", "Particle Shape", "Position", "Direction", "Physics",
             "Particle", "Appearance",
         ])
     }
@@ -289,12 +289,12 @@ struct ShapeAndSpriteTests {
         let descriptor = EmitterEffect.descriptor
         var values = descriptor.defaultValues
 
-        #expect(visibleGroups(descriptor, values).contains("Shape"))
+        #expect(visibleGroups(descriptor, values).contains("Particle Shape"))
 
         values[EmitterEffect.Param.sprite] = .text(BuiltInSprite.star)
         #expect(
-            !visibleGroups(descriptor, values).contains("Shape"),
-            "Shape has nothing to show once a file overrides it",
+            !visibleGroups(descriptor, values).contains("Particle Shape"),
+            "Particle Shape has nothing to show once a file overrides it",
         )
         // And the groups that do apply are untouched.
         #expect(visibleGroups(descriptor, values).contains("Emission"))

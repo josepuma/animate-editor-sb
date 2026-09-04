@@ -428,7 +428,11 @@ public struct EmitterEffect: Effect {
                 defaultValue: .text(""),
             ),
 
-            // ── Shape ───────────────────────────────────────────────────────
+            // ── Particle Shape ──────────────────────────────────────────────
+            //
+            // "Particle Shape" rather than "Shape": `Param.shape` above already
+            // means the *emission area's* shape, and two things with one name
+            // in one panel is a reader having to guess which is which.
             //
             // Three numbers instead of a menu of nine textures.
             //
@@ -445,7 +449,7 @@ public struct EmitterEffect: Effect {
             EffectParameter(
                 id: Param.core,
                 name: "Core",
-                group: "Shape",
+                group: "Particle Shape",
                 // Solid, which is what a plain particle is. Below one the
                 // middle dims — at zero it is a ring, and around 0.6 it is the
                 // defocused highlight a lens makes, dimmer inside than at its
@@ -459,7 +463,7 @@ public struct EmitterEffect: Effect {
             EffectParameter(
                 id: Param.edge,
                 name: "Edge",
-                group: "Shape",
+                group: "Particle Shape",
                 // Where the brightest ring sits. Near zero the particle is a
                 // point of light; near one it is a disc with a defined rim.
                 defaultValue: .number(0.35),
@@ -472,7 +476,7 @@ public struct EmitterEffect: Effect {
             EffectParameter(
                 id: Param.softness,
                 name: "Softness",
-                group: "Shape",
+                group: "Particle Shape",
                 // How much of the radius *left over* past the edge the fade
                 // uses. A fraction rather than a distance, or the two fight
                 // over the same space and a rim near the outside silently
