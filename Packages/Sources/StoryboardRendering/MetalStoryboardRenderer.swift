@@ -519,9 +519,11 @@ public final class MetalStoryboardRenderer {
             let size = entry?.pixelSize ?? SIMD2<Float>(100, 100)
 
             if let measuredClipID, ClipBounds.sprite(sprite.id, belongsTo: measuredClipID) {
-                let box = ClipBounds.around([state]) { _ in
-                    (width: Double(size.x), height: Double(size.y))
-                }
+                let box = ClipBounds.around(
+                    [state],
+                    sizeOf: { _ in (width: Double(size.x), height: Double(size.y)) },
+                    originOf: { _ in sprite.origin },
+                )
                 if let box { measured = measured.map { $0.union(box) } ?? box }
             }
 

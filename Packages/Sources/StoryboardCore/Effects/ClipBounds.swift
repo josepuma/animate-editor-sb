@@ -51,9 +51,13 @@ public struct ClipBounds: Sendable, Equatable {
     ///   renderer knows. A sprite whose size is unknown still contributes its
     ///   position, so a clip never reports an empty box just because an image
     ///   is missing.
+    /// - Parameter originOf: where the sprite's image hangs off its position.
+    ///   Defaults to `.centre`, which is what this assumed before it asked —
+    ///   and what nine origins out of ten are not.
     public static func around(
         _ states: [SpriteRenderState],
         sizeOf: (String) -> (width: Double, height: Double)?,
+        originOf: (String) -> Origin = { _ in .centre },
     ) -> ClipBounds? {
         var box: ClipBounds?
 
@@ -71,14 +75,33 @@ public struct ClipBounds: Sendable, Equatable {
                 sharedAngle = state.rotation
             }
 
+            // The anchor decides where the image hangs off the position, and
+            // this used to assume the middle. A `CentreLeft` sprite draws to
+            // the *right* of its position, so a box centred on it sat a half
+            // width to the left of the picture — the frame beside the sprite
+            // rather than around it.
+            //
+            // Same expression the vertex shader uses, so the two cannot drift:
+            // `(0.5 - anchor) * 2 * halfSize`.
+            // A mirror is a sign flip on the half-extent, and the anchor
+            // offset is computed from that signed value — so a `CentreLeft`
+            // sprite draws to the right normally and to the **left** once
+            // flipped. Reading the anchor without the sign put the frame on the
+            // opposite side of the picture from the picture.
+            let anchor = originOf(state.spriteId).anchor
+            let signedHalfWidth = halfWidth * (state.flipH ? -1 : 1)
+            let signedHalfHeight = halfHeight * (state.flipV ? -1 : 1)
+            let centreX = state.x + (0.5 - Double(anchor.x)) * 2 * signedHalfWidth
+            let centreY = state.y + (0.5 - Double(anchor.y)) * 2 * signedHalfHeight
+
             // Measured upright, about each sprite's own centre. The angle is
             // reported alongside instead of being folded in, so the frame can
             // be turned to match rather than grown to cover.
             let sprite = ClipBounds(
-                minX: state.x - halfWidth,
-                minY: state.y - halfHeight,
-                maxX: state.x + halfWidth,
-                maxY: state.y + halfHeight,
+                minX: centreX - halfWidth,
+                minY: centreY - halfHeight,
+                maxX: centreX + halfWidth,
+                maxY: centreY + halfHeight,
             )
             box = box.map { $0.union(sprite) } ?? sprite
         }
