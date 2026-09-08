@@ -1118,6 +1118,27 @@ public final class EditorShellModel {
     /// owner, and the owner asks whoever is in front of it.
     @ObservationIgnored public var runScriptHandler: (() -> Void)?
 
+    /// Takes on whatever controls the scripts declared in the pass that landed.
+    ///
+    /// Applied here rather than from inside `evaluate`, which would mutate the
+    /// document during an evaluation of that document — and would land on the
+    /// wrong actor besides.
+    ///
+    /// Written through `effects` so `EditHistory` sees it, and only when a
+    /// declaration actually changed: a `params()` call returning the same list
+    /// on every keystroke would spend an undo entry per character typed.
+    private func adoptScriptDeclarations() {
+        for node in effects.nodes where node.type == ScriptEffect.descriptor.type {
+            guard let declared = ScriptRuntime.report(for: node.id)?.declared,
+                  declared != node.scriptParameters
+            else { continue }
+
+            var updated = node
+            updated.scriptParameters = declared
+            effects[node.id] = updated
+        }
+    }
+
     /// What a script node's last run reported.
     ///
     /// A closure rather than a stored dictionary, because the ledger it reads
@@ -2355,6 +2376,7 @@ public final class EditorShellModel {
                 self.tails = measured
                 self.evaluated = sprites
                 if !self.evaluatingNodes.isEmpty { self.evaluatingNodes = [] }
+                self.adoptScriptDeclarations()
                 self.onSpritesChanged?(sprites)
             }
         }

@@ -91,6 +91,14 @@ public enum ScriptRuntime {
         public var sprites: [StoryboardSprite]
         public var diagnostics: [Diagnostic]
 
+        /// The controls the script declared, if it declared any.
+        ///
+        /// `nil` when the script never called `params()`, which is different
+        /// from an empty list: a script that declares nothing should keep
+        /// whatever the inspector already had rather than have it cleared by a
+        /// run that never mentioned it.
+        public var declared: [EffectParameter]?
+
         /// What the script printed, in order.
         ///
         /// `console.log` was installed as a no-op so a script reaching for it
@@ -103,10 +111,12 @@ public enum ScriptRuntime {
             sprites: [StoryboardSprite],
             diagnostics: [Diagnostic],
             logs: [LogLine] = [],
+            declared: [EffectParameter]? = nil,
         ) {
             self.sprites = sprites
             self.diagnostics = diagnostics
             self.logs = logs
+            self.declared = declared
         }
     }
 
@@ -130,12 +140,27 @@ public enum ScriptRuntime {
         public var diagnostics: [Diagnostic]
         public var logs: [LogLine]
 
-        public init(diagnostics: [Diagnostic], logs: [LogLine]) {
+        /// The controls the run declared, if it declared any.
+        ///
+        /// Carried here rather than written onto the node during `evaluate`:
+        /// mutating the document from inside an evaluation of that document is
+        /// how a pass ends up reading state its own run just changed. The shell
+        /// picks it up after the pass lands.
+        public var declared: [EffectParameter]?
+
+        public init(
+            diagnostics: [Diagnostic],
+            logs: [LogLine],
+            declared: [EffectParameter]? = nil,
+        ) {
             self.diagnostics = diagnostics
             self.logs = logs
+            self.declared = declared
         }
 
-        public var isEmpty: Bool { diagnostics.isEmpty && logs.isEmpty }
+        public var isEmpty: Bool {
+            diagnostics.isEmpty && logs.isEmpty && declared == nil
+        }
     }
 
     /// Records what a node's run reported.

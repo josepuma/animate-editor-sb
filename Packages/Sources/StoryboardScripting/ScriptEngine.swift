@@ -94,7 +94,14 @@ public struct ScriptEngine: Sendable {
 
         let collector = SpriteCollector(idPrefix: request.idPrefix)
         let logs = LogCollector()
-        install(into: context, request: request, collector: collector, logs: logs)
+        let declarations = DeclarationCollector()
+        install(
+            into: context,
+            request: request,
+            collector: collector,
+            logs: logs,
+            declarations: declarations,
+        )
 
         if instrumentsLoops {
             context.evaluateScript(LoopInstrumenter.preamble)
@@ -111,6 +118,7 @@ public struct ScriptEngine: Sendable {
                 sprites: [],
                 diagnostics: [.runtimeFailed(thrown)],
                 logs: logs.lines(),
+                declared: declarations.parameters(),
             )
         }
 
@@ -125,6 +133,7 @@ public struct ScriptEngine: Sendable {
                     "a value passed to a sprite command does not exist — check a name like Ease.quadOut",
                 )],
                 logs: logs.lines(),
+                declared: declarations.parameters(),
             )
         }
 
@@ -140,6 +149,7 @@ public struct ScriptEngine: Sendable {
             sprites: clamped.sprites,
             diagnostics: diagnostics,
             logs: logs.lines(),
+            declared: declarations.parameters(),
         )
     }
 
@@ -150,6 +160,7 @@ public struct ScriptEngine: Sendable {
         request: ScriptRuntime.Request,
         collector: SpriteCollector,
         logs: LogCollector,
+        declarations: DeclarationCollector,
     ) {
         remove(Self.removedGlobals, from: context)
         lockRandom(in: context, seed: request.seed)
@@ -162,7 +173,7 @@ public struct ScriptEngine: Sendable {
         context.setObject(LayerConstants.originTable, forKeyedSubscript: "Origin" as NSString)
 
         installRandom(in: context, seed: request.seed)
-        installParameters(in: context, values: request.values)
+        installParameters(in: context, values: request.values, declarations: declarations)
         collector.install(in: context)
     }
 
@@ -241,27 +252,56 @@ public struct ScriptEngine: Sendable {
     }
 
     /// `param(id)` — the values behind the controls the script declared.
-    private func installParameters(in context: JSContext, values: [String: EffectValue]) {
-        let resolved: [String: Any] = values.compactMapValues { value in
-            switch value {
-            case let .number(number): number
-            case let .integer(number): Double(number)
-            case let .toggle(on): on
-            case let .choice(option): option
-            case let .text(text): text
-            case let .color(colour): ["r": colour.r, "g": colour.g, "b": colour.b]
-            case .path: nil
-            }
-        }
+    private func installParameters(
+        in context: JSContext,
+        values: [String: EffectValue],
+        declarations: DeclarationCollector,
+    ) {
+        let resolved: [String: Any] = values.compactMapValues { Self.javaScriptValue(of: $0) }
 
-        let lookup: @convention(block) (String) -> Any? = { resolved[$0] }
+        // The declared default answers when nothing is stored yet.
+        //
+        // A freshly placed clip has a declaration and no values — the
+        // inspector fills those in on the next pass — so `param('count')`
+        // returned 0 and the template drew nothing at all. Caught by the test
+        // that asserts the template draws, which is exactly the claim it
+        // exists to make.
+        let lookup: @convention(block) (String) -> Any? = { [weak declarations] id in
+            if let stored = resolved[id] { return stored }
+            guard let declared = declarations?.parameters()?.first(where: { $0.id == id }) else {
+                return nil
+            }
+            return Self.javaScriptValue(of: declared.defaultValue)
+        }
         context.setObject(lookup, forKeyedSubscript: "param" as NSString)
 
-        // Declarations are collected by the compile pass, not here. At
-        // evaluation time the controls already exist, so `params` has to be
-        // present and do nothing — absent, every script that declares controls
-        // would throw on its first line.
-        context.evaluateScript("globalThis.params = function () {}")
+        // `params` records what it is handed.
+        //
+        // It was a no-op, so a script could declare controls and nothing read
+        // them — the inspector had nothing to draw and `param(id)` always fell
+        // back to a default. Declared and unreachable is the worst of the
+        // three states.
+        let declare: @convention(block) (JSValue) -> Void = { [weak declarations] value in
+            declarations?.record(value)
+        }
+        context.setObject(declare, forKeyedSubscript: "params" as NSString)
+    }
+
+    /// One `EffectValue` as JavaScript sees it.
+    ///
+    /// Shared by the stored path and the declared-default path, so a control
+    /// reads the same either way — two conversions is how a colour arrives as
+    /// channels from the inspector and as a string from its own default.
+    static func javaScriptValue(of value: EffectValue) -> Any? {
+        switch value {
+        case let .number(number): number
+        case let .integer(number): Double(number)
+        case let .toggle(on): on
+        case let .choice(option): option
+        case let .text(text): text
+        case let .color(colour): ["r": colour.r, "g": colour.g, "b": colour.b]
+        case .path: nil
+        }
     }
 
     /// `console.log`, which goes nowhere yet.

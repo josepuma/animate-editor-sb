@@ -26,7 +26,14 @@ public struct ScriptEffect: Effect {
     // A script is a clip: it generates over 0...duration in local time, and
     // the timeline moves it. Everything below is yours to change.
 
-    const count = 24
+    // Declared controls show up in the inspector, and param() reads them.
+    params({
+      count: { type: 'integer', default: 24, range: [1, 200] },
+      radius: { type: 'number', default: 160, range: [10, 400], unit: 'px' },
+    })
+
+    const count = param('count')
+    const radius = param('radius')
 
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2
@@ -35,8 +42,8 @@ public struct ScriptEffect: Effect {
       sprite(Image.soft)
         .move(Ease.quadOut, born, born + 900,
               320, 240,
-              320 + Math.cos(angle) * 160,
-              240 + Math.sin(angle) * 160)
+              320 + Math.cos(angle) * radius,
+              240 + Math.sin(angle) * radius)
         .fade(born, born + 150, 0, 1)
         .fade(born + 700, born + 900, 1, 0)
         .scale(born, born + 900, 0.4, 0.1)
@@ -88,7 +95,15 @@ public struct ScriptEffect: Effect {
         // a failure that stops the rest of the document evaluating — so what it
         // had to say travels in a ledger the UI reads after the pass lands.
         ScriptRuntime.record(
-            ScriptRuntime.Report(diagnostics: outcome.diagnostics, logs: outcome.logs),
+            ScriptRuntime.Report(
+                diagnostics: outcome.diagnostics,
+                logs: outcome.logs,
+                // Only when they changed, so the shell is not asked to write
+                // the same list back on every keystroke.
+                declared: outcome.declared == context.node.scriptParameters
+                    ? nil
+                    : outcome.declared,
+            ),
             for: context.node.id,
         )
 
