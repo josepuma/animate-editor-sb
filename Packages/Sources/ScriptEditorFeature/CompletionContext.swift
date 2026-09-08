@@ -64,6 +64,51 @@ enum CompletionContext: Equatable {
         return .none
     }
 
+    /// The whole word at `location`, and where it starts.
+    ///
+    /// Reads in both directions, unlike the completion context, which only
+    /// looks behind: a cursor hovering `sprite` sits in the middle of the word,
+    /// not at its end.
+    static func word(at location: Int, in text: String) -> (word: String, range: NSRange)? {
+        guard let cursor = index(at: location, in: text) else { return nil }
+
+        func isIdentifier(_ character: Character) -> Bool {
+            character.isLetter || character.isNumber || character == "_" || character == "$"
+        }
+
+        var start = cursor
+        while start > text.startIndex {
+            let previous = text.index(before: start)
+            guard isIdentifier(text[previous]) else { break }
+            start = previous
+        }
+
+        var end = cursor
+        while end < text.endIndex, isIdentifier(text[end]) {
+            end = text.index(after: end)
+        }
+
+        guard start < end else { return nil }
+
+        let word = String(text[start..<end])
+        let offset = text.utf16.distance(from: text.utf16.startIndex, to: start.samePosition(in: text.utf16)!)
+        return (word, NSRange(location: offset, length: word.utf16.count))
+    }
+
+    /// The receiver immediately before the word at `location`, if any.
+    ///
+    /// So `soft` in `Image.soft` is looked up among the images rather than
+    /// among the globals, where it does not exist.
+    static func receiver(before range: NSRange, in text: String) -> String? {
+        guard range.location > 0,
+              let dot = index(at: range.location - 1, in: text),
+              text[dot] == "."
+        else { return nil }
+
+        let namespace = trailingWord(text[text.startIndex..<dot])
+        return namespace.isEmpty ? nil : namespace
+    }
+
     // MARK: - Reading backwards
 
     private static func index(at location: Int, in text: String) -> String.Index? {

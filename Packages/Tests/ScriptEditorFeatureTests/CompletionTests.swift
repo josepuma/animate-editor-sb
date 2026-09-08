@@ -31,7 +31,12 @@ struct CompletionTests {
         let names = try await completions(after: "  .move(Ease.")
 
         #expect(names.count == 35, "the format has 35 curves; got \(names.count)")
-        #expect(names.contains("outQuad"))
+        // The enum's own spelling. A hand-written table had all thirty-five
+        // backwards — `outQuad` where `Easing` says `quadOut` — so completion
+        // offered names the runtime rejects. The list is derived from
+        // `Easing.allCases` now, and this asserts the spelling that ships.
+        #expect(names.contains("quadOut"))
+        #expect(!names.contains("outQuad"), "that spelling does not exist in Easing")
     }
 
     @Test("a partial member narrows the list")
@@ -47,9 +52,9 @@ struct CompletionTests {
     /// list where the answer is buried.
     @Test("matching is by prefix, not substring")
     func prefixNotSubstring() async throws {
-        let names = try await completions(after: "  .move(Ease.out")
+        let names = try await completions(after: "  .move(Ease.quad")
 
-        #expect(names.allSatisfy { $0.hasPrefix("out") })
+        #expect(names.allSatisfy { $0.hasPrefix("quad") })
         #expect(!names.contains("inOutQuad"), "a substring match would have included this")
     }
 
@@ -103,19 +108,58 @@ struct CompletionTests {
 
     // MARK: - Insertion
 
-    /// Choosing a completion must replace what was typed, not append to it.
-    @Test("a partial word is replaced, not appended to")
-    func partialIsReplaced() async throws {
+    /// The reported bug: choosing `out` after `Ease.` left only `out`.
+    ///
+    /// `NSTextView` counts the dot as part of the word — measured, with the
+    /// caret after `Ease.out` it reports the whole eight characters — and the
+    /// library anchors and falls back to that range. So the inserted text has
+    /// to carry the receiver, or the namespace is eaten.
+    ///
+    /// Asserted as *what the document becomes*, not as a range and a string
+    /// separately: the two have to agree, and checking them apart is how the
+    /// original passed while the editor ate `Ease.`.
+    @Test("choosing a member keeps its namespace", arguments: [
+        ("  .move(Ease.qu", "quadOut", "  .move(Ease.quadOut"),
+        ("  .move(Ease.", "quadOut", "  .move(Ease.quadOut"),
+        ("sprite(Image.so", "soft", "sprite(Image.soft"),
+        ("sprite(Image.", "soft", "sprite(Image.soft"),
+    ])
+    func namespaceSurvives(source: String, choice: String, expected: String) async throws {
         let service = ScriptLanguageService()
-        let source = "sprite(Image.so"
         try await service.openDocument(with: source, locationService: NoLocations())
 
         let result = try await service.completions(at: source.utf16.count, reason: .standard)
-        let soft = try #require(result.items.first { $0.filterText == "soft" })
-        let range = try #require(soft.insertRange, "without a range, choosing this writes Image.sosoft")
+        let item = try #require(
+            result.items.first { $0.filterText == choice },
+            "\(choice) was not offered for \(source)",
+        )
+        let range = try #require(item.insertRange, "without a range the editor uses its own, which eats the receiver")
 
-        #expect(range.length == 2, "it must replace the two characters typed")
-        #expect(range.location == source.utf16.count - 2)
+        var document = source
+        let start = String.Index(utf16Offset: range.location, in: document)
+        let end = String.Index(utf16Offset: range.location + range.length, in: document)
+        document.replaceSubrange(start..<end, with: item.insertText)
+
+        #expect(document == expected)
+    }
+
+    /// A bare global has no receiver to preserve.
+    @Test("a global replaces only what was typed")
+    func globalReplacesOnlyTheWord() async throws {
+        let service = ScriptLanguageService()
+        let source = "const s = spr"
+        try await service.openDocument(with: source, locationService: NoLocations())
+
+        let result = try await service.completions(at: source.utf16.count, reason: .standard)
+        let item = try #require(result.items.first { $0.filterText == "sprite" })
+        let range = try #require(item.insertRange)
+
+        var document = source
+        let start = String.Index(utf16Offset: range.location, in: document)
+        let end = String.Index(utf16Offset: range.location + range.length, in: document)
+        document.replaceSubrange(start..<end, with: item.insertText)
+
+        #expect(document == "const s = sprite(")
     }
 
     /// Anything callable arrives with its opening paren.

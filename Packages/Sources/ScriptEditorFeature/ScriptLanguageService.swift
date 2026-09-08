@@ -111,35 +111,60 @@ final class ScriptLanguageService: LanguageService, @unchecked Sendable {
             []
         }
 
-        let replacing = replacementRange(at: location, in: context)
-
         return Completions(
             isIncomplete: false,
             items: entries.enumerated().map { index, entry in
-                completion(entry, id: index, selected: index == 0, replacing: replacing)
+                let insert = insertion(for: entry, at: location, in: context)
+                return completion(
+                    entry,
+                    id: index,
+                    selected: index == 0,
+                    insertText: insert.text,
+                    replacing: insert.range,
+                )
             },
         )
     }
 
-    /// The characters the chosen completion replaces.
+    /// The characters the chosen completion replaces, and what replaces them.
     ///
-    /// Without this the insertion is *appended* to what was typed: choosing
-    /// `soft` after `Image.so` writes `Image.sosoft`.
-    private func replacementRange(at location: Int, in context: CompletionContext) -> NSRange? {
-        let prefix = switch context {
-        case let .members(_, prefix): prefix
-        case let .spriteMethod(prefix): prefix
-        case let .global(prefix): prefix
-        case .none: ""
+    /// **`NSTextView` counts the dot as part of the word.** Measured against a
+    /// real one: with the caret after `Ease.out`, `rangeForUserCompletion`
+    /// reports eight characters — `Ease.out`, namespace and all. The library
+    /// anchors and falls back to that range, so a completion of just `quadOut`
+    /// replaced the whole thing and left `quadOut` where `Ease.quadOut` should
+    /// be. Reported as "it deletes Ease. and leaves out".
+    ///
+    /// So the range is taken from what the editor considers the word, and the
+    /// inserted text is rebuilt to match it — receiver included. Both halves
+    /// have to agree, and only one of them is mine to choose.
+    private func insertion(
+        for entry: ScriptAPI.Entry,
+        at location: Int,
+        in context: CompletionContext,
+    ) -> (text: String, range: NSRange?) {
+        let (prefix, receiver) = switch context {
+        case let .members(namespace, prefix): (prefix, "\(namespace).")
+        case let .spriteMethod(prefix): (prefix, "")
+        case let .global(prefix): (prefix, "")
+        case .none: ("", "")
         }
-        guard !prefix.isEmpty else { return nil }
-        return NSRange(location: location - prefix.utf16.count, length: prefix.utf16.count)
+
+        guard !prefix.isEmpty || !receiver.isEmpty else { return (entry.insert, nil) }
+
+        // What the editor will hand back: the receiver plus what was typed.
+        let replaced = receiver + prefix
+        return (
+            receiver + entry.insert,
+            NSRange(location: location - replaced.utf16.count, length: replaced.utf16.count)
+        )
     }
 
     private func completion(
         _ entry: ScriptAPI.Entry,
         id: Int,
         selected: Bool,
+        insertText: String,
         replacing: NSRange?,
     ) -> Completions.Completion {
         Completions.Completion(
@@ -149,7 +174,7 @@ final class ScriptLanguageService: LanguageService, @unchecked Sendable {
             selected: selected,
             sortText: entry.name,
             filterText: entry.name,
-            insertText: entry.insert,
+            insertText: insertText,
             insertRange: replacing,
             // A dot commits, so `Image.so` + `.` lands `Image.soft.` — which is
             // what a chain wants. A paren does not: it is already in
@@ -170,7 +195,34 @@ final class ScriptLanguageService: LanguageService, @unchecked Sendable {
     func tokens(for _: Range<Int>) async throws
         -> [[(token: LanguageConfiguration.Token, range: NSRange)]] { [] }
 
-    func info(at _: Int) async throws -> (view: any View, anchor: NSRange?)? { nil }
+    // MARK: - Hover
+
+    /// What the name under the cursor is.
+    ///
+    /// The same table the completion list reads, so a name described here is a
+    /// name that exists — and it answers the question completion cannot: what
+    /// something does once it is already written, which is most of the time
+    /// somebody spends looking at code.
+    ///
+    /// The receiver matters: `soft` is looked up among the images rather than
+    /// among the globals, where it is not. Without that, `Image.soft` would
+    /// report nothing while `sprite` reported fine.
+    func info(at location: Int) async throws -> (view: any View, anchor: NSRange?)? {
+        let document = text
+        guard let (word, range) = CompletionContext.word(at: location, in: document) else {
+            return nil
+        }
+
+        let candidates = if let receiver = CompletionContext.receiver(before: range, in: document) {
+            ScriptAPI.members(of: receiver)
+        } else {
+            ScriptAPI.globals + ScriptAPI.spriteMethods
+        }
+
+        guard let entry = candidates.first(where: { $0.name == word }) else { return nil }
+
+        return (view: HoverInfo(entry: entry), anchor: range)
+    }
 
     func capabilities() async throws -> (any View)? { nil }
 }
@@ -185,6 +237,26 @@ private extension [ScriptAPI.Entry] {
     func matching(_ prefix: String) -> [ScriptAPI.Entry] {
         guard !prefix.isEmpty else { return self }
         return filter { $0.name.lowercased().hasPrefix(prefix.lowercased()) }
+    }
+}
+
+/// What a name is, shown on hover.
+private struct HoverInfo: View {
+    let entry: ScriptAPI.Entry
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
+            Text(entry.name)
+                .font(Theme.Typography.readout)
+                .foregroundStyle(Theme.Palette.primary)
+
+            if !entry.summary.isEmpty {
+                Text(entry.summary)
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.secondary)
+            }
+        }
+        .padding(Theme.Spacing.compact)
     }
 }
 

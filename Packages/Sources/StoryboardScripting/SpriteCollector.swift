@@ -131,9 +131,85 @@ final class SpriteCollector {
             ), at: index)
         }
 
+        add(to: handle, name: "moveX") { arguments in
+            guard let timing = Timing(arguments, values: 2) else { return }
+            self.append(Command(
+                easing: timing.easing,
+                startTime: timing.start,
+                endTime: timing.end,
+                payload: .moveX(start: timing.values[0], end: timing.values[1]),
+            ), at: index)
+        }
+
+        add(to: handle, name: "moveY") { arguments in
+            guard let timing = Timing(arguments, values: 2) else { return }
+            self.append(Command(
+                easing: timing.easing,
+                startTime: timing.start,
+                endTime: timing.end,
+                payload: .moveY(start: timing.values[0], end: timing.values[1]),
+            ), at: index)
+        }
+
+        // `_V`, without which a letterbox bar cannot be written at all: a bar
+        // is a rectangle with very different axes, and a uniform scale has no
+        // way to say that.
+        add(to: handle, name: "scaleVec") { arguments in
+            guard let timing = Timing(arguments, values: 4) else { return }
+            self.append(Command(
+                easing: timing.easing,
+                startTime: timing.start,
+                endTime: timing.end,
+                payload: .vectorScale(
+                    startX: timing.values[0],
+                    startY: timing.values[1],
+                    endX: timing.values[2],
+                    endY: timing.values[3],
+                ),
+            ), at: index)
+        }
+
+        // `_C`, channels in [0, 255] as the format has them — not 0–1. A colour
+        // ramp is what makes a particle field read as material rather than as
+        // dots, so this is not an optional extra.
+        add(to: handle, name: "color") { arguments in
+            guard let timing = Timing(arguments, values: 6) else { return }
+            self.append(Command(
+                easing: timing.easing,
+                startTime: timing.start,
+                endTime: timing.end,
+                payload: .color(
+                    startR: timing.values[0],
+                    startG: timing.values[1],
+                    startB: timing.values[2],
+                    endR: timing.values[3],
+                    endG: timing.values[4],
+                    endB: timing.values[5],
+                ),
+            ), at: index)
+        }
+
         add(to: handle, name: "at") { arguments in
             guard arguments.count >= 2 else { return }
             self.place(x: arguments[0], y: arguments[1], at: index)
+        }
+
+        // `_P` — the flags. A span rather than values, so `Timing` with zero
+        // values reads them.
+        for (name, kind) in [
+            ("additive", ParameterKind.additive),
+            ("flipH", ParameterKind.flipHorizontal),
+            ("flipV", ParameterKind.flipVertical),
+        ] {
+            add(to: handle, name: name) { arguments in
+                guard let timing = Timing(arguments, values: 0) else { return }
+                self.append(Command(
+                    easing: timing.easing,
+                    startTime: timing.start,
+                    endTime: timing.end,
+                    payload: .parameter(kind),
+                ), at: index)
+            }
         }
 
         wrapMethods(on: handle, in: context)

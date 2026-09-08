@@ -32,6 +32,16 @@ public struct ScriptCodeEditor: View {
     /// a document it was never told about.
     @State private var language = ScriptLanguageService()
 
+    /// Asks the editor to show completions.
+    ///
+    /// Captured because nothing in the library triggers them on a character.
+    /// `LanguageService.completionTriggerCharacters` is declared in the
+    /// protocol and **read by nobody** — verified with a search across the
+    /// package: the only mention is its own declaration. So a typed `.` reached
+    /// no one, and the popup only ever appeared for the ⌥⎋ shortcut. This
+    /// closure is the same action that shortcut runs.
+    @State private var showCompletions: (() -> Void)?
+
     @State private var position = CodeEditor.Position()
     @State private var messages: Set<TextLocated<Message>> = []
     @FocusState private var isFocused: Bool
@@ -62,6 +72,13 @@ public struct ScriptCodeEditor: View {
             // line. The minimap is a stripe nobody can read that spends width
             // the code needs.
             layout: CodeEditor.LayoutConfiguration(showMinimap: false, wrapText: false),
+            setActions: { actions in
+                // Assigned to state from a callback the library invokes during
+                // layout, so it is deferred: writing state while a view is
+                // being built is a change SwiftUI has already passed.
+                let show = actions.completions
+                Task { @MainActor in showCompletions = show }
+            },
         )
         // Set explicitly, because the environment's default is
         // `Theme.defaultLight` — a white page in a dark-only app. I left it at
@@ -86,6 +103,26 @@ public struct ScriptCodeEditor: View {
             guard press.modifiers.contains(.command) else { return .ignored }
             run()
             return .handled
+        }
+        // A dot opens the completion list.
+        //
+        // Reported as broken and it was: typing `.` under `sprite(Image.soft)`
+        // offered nothing. The service answered correctly the whole time — five
+        // items, measured — because the editor never asked. Nothing in the
+        // library consumes `completionTriggerCharacters`, so this does it.
+        //
+        // `.ignored` so the dot is still typed: handling it would open the list
+        // for a character that never arrived, and the completion would replace
+        // text that does not include the dot it was triggered by.
+        //
+        // Deferred by one turn of the loop, because the list is computed from
+        // the document and at this moment the dot is not in it yet.
+        .onKeyPress(.init("."), phases: .down) { _ in
+            Task { @MainActor in
+                await Task.yield()
+                showCompletions?()
+            }
+            return .ignored
         }
         .onChange(of: diagnostics, initial: true) { _, marks in
             messages = Set(marks.map(\.located))

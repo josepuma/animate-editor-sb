@@ -1,4 +1,5 @@
 import Foundation
+import StoryboardCore
 
 /// What a script can call, as a list.
 ///
@@ -94,47 +95,19 @@ public enum ScriptAPI {
 
     /// `Ease.` — every curve the format has.
     ///
+    /// Derived from `Easing.allCases` rather than written out. The hand-written
+    /// version had all thirty-five names **backwards** — `outQuad` where the
+    /// enum says `quadOut` — so completion offered names the runtime rejects,
+    /// and choosing one produced a script that silently fell back to linear.
+    /// A duplicated list with nothing tying it to its source is a list that
+    /// drifts, and this one shipped already drifted.
+    ///
     /// All thirty-five, because a list is free to scroll past in an editor —
     /// unlike the inspector, where a menu of thirty-five is a menu nobody
-    /// reads. The names are the enum cases, so what is typed here is what the
-    /// bridge accepts.
-    public static let easings: [Entry] = [
-        Entry(name: "linear", summary: "No easing — the only curve nothing real follows", kind: .value),
-        Entry(name: "out", summary: "Decelerates", kind: .value),
-        Entry(name: "in", summary: "Accelerates", kind: .value),
-        Entry(name: "inQuad", summary: "Accelerates, gently", kind: .value),
-        Entry(name: "outQuad", summary: "Decelerates, gently — a safe default", kind: .value),
-        Entry(name: "inOutQuad", summary: "Accelerates then decelerates", kind: .value),
-        Entry(name: "inCubic", summary: "Accelerates, harder", kind: .value),
-        Entry(name: "outCubic", summary: "Decelerates, harder", kind: .value),
-        Entry(name: "inOutCubic", summary: "Both, harder", kind: .value),
-        Entry(name: "inQuart", summary: "Accelerates, harder still", kind: .value),
-        Entry(name: "outQuart", summary: "Decelerates, harder still", kind: .value),
-        Entry(name: "inOutQuart", summary: "Both, harder still", kind: .value),
-        Entry(name: "inQuint", summary: "Accelerates sharply", kind: .value),
-        Entry(name: "outQuint", summary: "Decelerates sharply", kind: .value),
-        Entry(name: "inOutQuint", summary: "Both, sharply", kind: .value),
-        Entry(name: "inSine", summary: "Accelerates on a sine curve", kind: .value),
-        Entry(name: "outSine", summary: "Decelerates on a sine curve", kind: .value),
-        Entry(name: "inOutSine", summary: "A smooth S — good for anything that sways", kind: .value),
-        Entry(name: "inExpo", summary: "Accelerates exponentially", kind: .value),
-        Entry(name: "outExpo", summary: "Decelerates exponentially — a hard stop", kind: .value),
-        Entry(name: "inOutExpo", summary: "Both, exponentially", kind: .value),
-        Entry(name: "inCirc", summary: "Accelerates on a circular arc", kind: .value),
-        Entry(name: "outCirc", summary: "Decelerates on a circular arc", kind: .value),
-        Entry(name: "inOutCirc", summary: "Both, circular", kind: .value),
-        Entry(name: "inElastic", summary: "Winds up before moving", kind: .value),
-        Entry(name: "outElastic", summary: "Overshoots and springs back", kind: .value),
-        Entry(name: "outElasticHalf", summary: "Springs back, half as far", kind: .value),
-        Entry(name: "outElasticQuarter", summary: "Springs back, a quarter as far", kind: .value),
-        Entry(name: "inOutElastic", summary: "Winds up, overshoots, settles", kind: .value),
-        Entry(name: "inBack", summary: "Pulls back before going", kind: .value),
-        Entry(name: "outBack", summary: "Goes past and returns", kind: .value),
-        Entry(name: "inOutBack", summary: "Pulls back, overshoots, settles", kind: .value),
-        Entry(name: "inBounce", summary: "Bounces into the start", kind: .value),
-        Entry(name: "outBounce", summary: "Bounces on landing", kind: .value),
-        Entry(name: "inOutBounce", summary: "Bounces at both ends", kind: .value),
-    ]
+    /// reads.
+    public static let easings: [Entry] = Easing.allCases.map { easing in
+        Entry(name: "\(easing)", summary: easing.summary, kind: .value)
+    }
 
     /// What a sprite builder answers to.
     ///
@@ -168,9 +141,51 @@ public enum ScriptAPI {
             kind: .method,
         ),
         Entry(
+            name: "moveX",
+            insert: "moveX(",
+            summary: "(ease?, from, to, startX, endX) — one axis, half the cost",
+            kind: .method,
+        ),
+        Entry(
+            name: "moveY",
+            insert: "moveY(",
+            summary: "(ease?, from, to, startY, endY) — one axis, half the cost",
+            kind: .method,
+        ),
+        Entry(
+            name: "scaleVec",
+            insert: "scaleVec(",
+            summary: "(ease?, from, to, startX, startY, endX, endY) — stretch per axis",
+            kind: .method,
+        ),
+        Entry(
+            name: "color",
+            insert: "color(",
+            summary: "(ease?, from, to, r, g, b, r, g, b) — channels in 0–255",
+            kind: .method,
+        ),
+        Entry(
             name: "at",
             insert: "at(",
             summary: "(x, y) — where the sprite sits before it moves",
+            kind: .method,
+        ),
+        Entry(
+            name: "additive",
+            insert: "additive(",
+            summary: "(from, to) — adds light instead of covering",
+            kind: .method,
+        ),
+        Entry(
+            name: "flipH",
+            insert: "flipH(",
+            summary: "(from, to) — mirrors horizontally",
+            kind: .method,
+        ),
+        Entry(
+            name: "flipV",
+            insert: "flipV(",
+            summary: "(from, to) — mirrors vertically",
             kind: .method,
         ),
     ]
@@ -219,5 +234,45 @@ public enum ScriptAPI {
         case "console": consoleMethods
         default: []
         }
+    }
+}
+
+private extension Easing {
+    /// One line about what the curve does.
+    ///
+    /// Grouped by family rather than written per case: thirty-five hand-written
+    /// summaries are thirty-five chances to describe one wrongly, and what
+    /// distinguishes them within a family is only how hard they pull.
+    var summary: String {
+        switch self {
+        case .linear: return "No easing — the only curve nothing real follows"
+        case .out: return "Decelerates"
+        case .in: return "Accelerates"
+        default:
+            let name = "\(self)"
+            let shape = if name.hasSuffix("InOut") {
+                "accelerates then decelerates"
+            } else if name.hasSuffix("Out") {
+                "decelerates"
+            } else {
+                "accelerates"
+            }
+            return "\(family) — \(shape)"
+        }
+    }
+
+    private var family: String {
+        let name = "\(self)"
+        if name.hasPrefix("quad") { return "Gently" }
+        if name.hasPrefix("cubic") { return "Harder" }
+        if name.hasPrefix("quart") { return "Harder still" }
+        if name.hasPrefix("quint") { return "Sharply" }
+        if name.hasPrefix("sine") { return "On a sine curve" }
+        if name.hasPrefix("expo") { return "Exponentially" }
+        if name.hasPrefix("circ") { return "On a circular arc" }
+        if name.hasPrefix("elastic") { return "Springs past and settles" }
+        if name.hasPrefix("back") { return "Overshoots" }
+        if name.hasPrefix("bounce") { return "Bounces" }
+        return ""
     }
 }
