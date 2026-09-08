@@ -25,6 +25,13 @@ public struct ScriptCodeEditor: View {
     /// Problems to mark, by line.
     private let diagnostics: [ScriptDiagnosticMark]
 
+    /// Answers the editor's questions about the API a script can call.
+    ///
+    /// Held in `@State` so it survives a rebuild: the editor opens the document
+    /// against it once, and a service replaced mid-session would be asked about
+    /// a document it was never told about.
+    @State private var language = ScriptLanguageService()
+
     @State private var position = CodeEditor.Position()
     @State private var messages: Set<TextLocated<Message>> = []
     @FocusState private var isFocused: Bool
@@ -44,7 +51,7 @@ public struct ScriptCodeEditor: View {
             text: $text,
             position: $position,
             messages: $messages,
-            language: .javaScript(),
+            language: .javaScript(language),
                         // No wrapping, and no minimap.
             //
             // Wrapping is what made the narrow panel unusable — `.move(Ease.
