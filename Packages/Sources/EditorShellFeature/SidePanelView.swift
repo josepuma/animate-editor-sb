@@ -7,13 +7,6 @@ struct SidePanelView: View {
     /// Fixed width, so the shell can size the workspace around the canvas.
     static let width: CGFloat = 240
 
-    /// The width while a script is being written **and** the inspector is open.
-    ///
-    /// Narrower than `scriptWidth`, because both columns have to fit: the code
-    /// gives up width rather than the parameters disappearing, which is what
-    /// happened when the inspector was simply vetoed.
-    static let scriptWidthSharing: CGFloat = 420
-
     /// The width while a script is being written.
     ///
     /// Two and a half times the browsing width, because the panel stops being
@@ -56,10 +49,14 @@ struct SidePanelView: View {
     /// What the preset list is narrowed to, or nothing for everything.
     @State private var selectedFilter: PresetFilter?
 
-    /// How wide the panel is, given what else is on screen.
+    /// How wide the panel is: wide for a script, narrow otherwise.
+    ///
+    /// It used to narrow again when the inspector was open, so that both fit.
+    /// Dropped: code should not shrink because another panel was opened, and
+    /// the canvas is what has room to give. One width per state is also one
+    /// fewer thing to reason about while typing.
     private var panelWidth: CGFloat {
-        guard shell.selectedScriptID != nil else { return Self.width }
-        return shell.isInspectorVisible ? Self.scriptWidthSharing : Self.scriptWidth
+        shell.selectedScriptID == nil ? Self.width : Self.scriptWidth
     }
 
     var body: some View {
@@ -76,7 +73,15 @@ struct SidePanelView: View {
         }
         .padding(Theme.Spacing.compact)
         // Wide while a script is open, so code has somewhere to live.
-        .frame(width: panelWidth, alignment: .top)
+        // `maxWidth`, not a fixed `width`.
+        //
+        // The wide editor asks for 620 while the window's own minimum budgets
+        // 240, so in a small window with the inspector open the canvas was
+        // left 100 points of the 480 it needs — measured. A maximum lets the
+        // layout resolve that the way it resolves every other squeeze, and
+        // costs the editor width only when there is none to take.
+        .frame(maxWidth: panelWidth, alignment: .top)
+        .layoutPriority(-1)
         .animation(Theme.Motion.standard, value: panelWidth)
         .frame(maxHeight: .infinity, alignment: .top)
         .surface(.panel)

@@ -141,11 +141,52 @@ public struct ScriptReferenceView: View {
 
                 Text(
                     """
-                    With a declaration the default is guaranteed, so `?? 24` is                     not needed. Types: `number`, `integer`, `toggle`, `text`,                     `choice` (with `options`), `color` (hex). A `range` makes it                     a slider; without one it is a field.
+                    With a declaration the default is guaranteed, so `?? 24` is not needed. Reading an id that was never declared says so rather than quietly giving `undefined`.
                     """
                 )
                 .font(Theme.Typography.micro)
                 .foregroundStyle(Theme.Palette.secondary)
+                .textSelection(.enabled)
+
+                // The six types, as a table rather than a sentence.
+                //
+                // They were listed inside a paragraph — `number`, `integer`,
+                // `toggle`… — which is a list somebody has to parse out of
+                // prose while trying to write a declaration. Asked for
+                // directly, twice, which is what a buried answer looks like.
+                Text(
+                    """
+                    number    a decimal        default: 1.5
+                    integer   a whole number   default: 24
+                    toggle    a switch         default: true
+                    choice    a menu           default: 'ring'  + options: ['ring', 'disc']
+                    color     a colour well    default: '#ff8844'
+                    text      a text field     default: 'sb/a.png'
+
+                    range: [1, 200]    makes it a slider; without one it is a field
+                    step: 0.05         how far one nudge moves it
+                    unit: 'px'         shown after the value
+                    name: 'How many'   overrides the title, otherwise taken from the id
+                    group: 'Shape'     which heading it sits under
+                    """
+                )
+                .font(Theme.Typography.readout)
+                .foregroundStyle(Theme.Palette.secondary)
+                .textSelection(.enabled)
+                .padding(Theme.Spacing.compact)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    Theme.Fill.well,
+                    in: RoundedRectangle(cornerRadius: Theme.Radius.small),
+                )
+
+                Text(
+                    """
+                    There is no `path` type: a motion path is drawn on the canvas with the pen, not written in a declaration.
+                    """
+                )
+                .font(Theme.Typography.micro)
+                .foregroundStyle(Theme.Palette.tertiary)
                 .textSelection(.enabled)
 
                 Divider().overlay(Theme.Border.panel)
