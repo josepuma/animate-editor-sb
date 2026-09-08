@@ -28,36 +28,51 @@ struct MetalCanvasView: NSViewRepresentable {
         view.clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
         view.preferredFramesPerSecond = 60
 
-        // Dropped while a scroll is running, and back to 60 when it settles.
+        // Paused for as long as a hand is on the wheel, and running again when
+        // it settles.
         //
-        // A scroll anywhere in the window makes AppKit recompose it, and with a
-        // Metal layer inside that costs the canvas twelve times what a quiet
-        // frame does — measured, 6ms against 0.5ms. Neither number is over
-        // budget on its own; together with the scroll they are, and the panel
-        // stutters.
+        // A scroll anywhere in the window makes AppKit recompose it, and the
+        // canvas and the scroll then compete for the same main thread.
         //
-        // Verified by pausing the canvas outright: the scroll went smooth at
-        // once, which is what a minute of switching something off answers and
-        // five rounds of instrumenting did not.
+        // This was a drop to 30fps rather than a pause, and that reading was
+        // wrong in a way only a measurement shows. **The canvas is not slow
+        // while a scroll runs — it is called less.** Measured inside `draw`,
+        // with the wave-mesh script open: a frame costs 1.93ms scrolling
+        // against 2.6-3.9ms at rest, so it is *cheaper*. What collapsed was
+        // the rate, and it collapsed to exactly half of whatever was asked
+        // for: 30 requested gave 15, and 8 requested gave 4. The other half of
+        // the turns go to the scroll.
         //
-        // Half rate for as long as a hand is on the wheel, which is what every
-        // video editor does while you navigate. Half rather than a third:
-        // thirty still reads as motion, and twenty is visibly a slideshow —
-        // the point is to take pressure off the scroll, not to make the preview
-        // look broken while it does.
+        // Which makes the old throttle the thing that made it visible. At rest
+        // the canvas asks 60, loses half, and 30 arrive — nobody notices. Ask
+        // 30 and 15 arrive, which is where an eye reads stutter. Lowering the
+        // number could only make it worse, because the loss is a proportion.
+        //
+        // So it pauses, which is what After Effects, Premiere, DaVinci and
+        // Figma all do while you navigate: a still frame reads as "waiting"
+        // and a stuttering one draws attention to the problem. A previous
+        // version of this comment recorded that pausing outright made the
+        // scroll smooth at once — that experiment was right, and the 30fps
+        // compromise built on top of it is what this replaces.
+        //
+        // Reported from a real session: "aunque el playback esté pausado y
+        // todo ande en 60fps, al scrollear anda lento" — and then the detail
+        // that solved it, "veo que afecta al renderer, le baja a 10fps". That
+        // one sentence killed five hypotheses that were all about the editor:
+        // nothing in a text view explains why the *canvas* suffers.
         NotificationCenter.default.addObserver(
             forName: NSScrollView.willStartLiveScrollNotification,
             object: nil,
             queue: .main,
         ) { [weak view] _ in
-            MainActor.assumeIsolated { view?.preferredFramesPerSecond = 30 }
+            MainActor.assumeIsolated { view?.isPaused = true }
         }
         NotificationCenter.default.addObserver(
             forName: NSScrollView.didEndLiveScrollNotification,
             object: nil,
             queue: .main,
         ) { [weak view] _ in
-            MainActor.assumeIsolated { view?.preferredFramesPerSecond = 60 }
+            MainActor.assumeIsolated { view?.isPaused = false }
         }
         view.delegate = context.coordinator
         context.coordinator.configure(view: view)
