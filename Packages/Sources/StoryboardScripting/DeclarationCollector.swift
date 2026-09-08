@@ -36,6 +36,29 @@ final class DeclarationCollector {
         lock.withLock { declared }
     }
 
+    /// Ids a script read that it never declared.
+    ///
+    /// Almost always a typo, or a `params()` call somebody has not written
+    /// yet — and `param('cout')` returned `undefined` silently, so a script
+    /// reading a control it forgot to declare drew nothing with nothing to say
+    /// why. Reported as exactly that confusion.
+    private var unknown: Set<String> = []
+
+    func recordUnknown(_ id: String) {
+        lock.withLock { unknown.insert(id) }
+    }
+
+    /// A diagnostic naming what was read but never declared, if anything was.
+    func unknownDiagnostic() -> ScriptRuntime.Diagnostic? {
+        let ids = lock.withLock { unknown }
+        guard !ids.isEmpty else { return nil }
+
+        let named = ids.sorted().map { "'\($0)'" }.joined(separator: ", ")
+        return .runtimeFailed(
+            "param(\(named)) was read but never declared — add it to params() so it has a control and a default",
+        )
+    }
+
     // MARK: - One declaration
 
     /// Reads `{ type: 'integer', default: 24, range: [1, 200] }`.

@@ -96,19 +96,9 @@ public enum ScriptAPI {
             kind: .namespace,
         ),
         Entry(
-            name: "param",
-            insert: "param(",
-            summary: "Reads one of the controls this script declared",
-            example: """
-            const count = param('count')
-            for (let i = 0; i < count; i++) sprite(Image.soft)
-            """,
-            kind: .function,
-        ),
-        Entry(
             name: "params",
             insert: "params(",
-            summary: "Declares the controls this script shows in the inspector",
+            summary: "Declares the inspector's controls — read them with param(id)",
             example: """
             // Declared once, at the top. They appear in the inspector as
             // real controls, and `param(id)` reads them back.
@@ -116,6 +106,20 @@ public enum ScriptAPI {
               count: { type: 'integer', default: 24, range: [1, 200] },
               tint:  { type: 'color',   default: '#ff8844' },
             })
+            """,
+            kind: .function,
+        ),
+        Entry(
+            name: "param",
+            insert: "param(",
+            summary: "Reads a control — declare it with params() first",
+            example: """
+            // Declared above — reading one that was not gives `undefined`
+            // and shows no control.
+            params({ count: { type: 'integer', default: 24 } })
+
+            const count = param('count')
+            for (let i = 0; i < count; i++) sprite(Image.soft)
             """,
             kind: .function,
         ),

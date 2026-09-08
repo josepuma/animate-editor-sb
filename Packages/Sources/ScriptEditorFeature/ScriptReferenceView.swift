@@ -26,6 +26,7 @@ public struct ScriptReferenceView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Spacing.regular) {
                     localTime
+                    controls
 
                     ForEach(sections, id: \.title) { section in
                         if !section.entries.isEmpty {
@@ -81,6 +82,66 @@ public struct ScriptReferenceView: View {
                     That is what makes dragging a clip safe: it moves the same sprites rather than generating different ones. Write an effect once and put it anywhere, or copy it to another moment in the song, and it animates identically.
 
                     It is the same rule the rest of the effects follow, and the same one After Effects follows: a composition does not know where it is nested.
+                    """
+                )
+                .font(Theme.Typography.micro)
+                .foregroundStyle(Theme.Palette.secondary)
+                .textSelection(.enabled)
+
+                Divider().overlay(Theme.Border.panel)
+            }
+        }
+    }
+
+    /// How a control gets into the inspector.
+    ///
+    /// Two calls that need each other, listed alphabetically as `param` and
+    /// `params` — so the first thing anybody read was how to *read* a control
+    /// that did not exist yet. Reported exactly that way: "you had to declare
+    /// it first, the help did not explain that well".
+    ///
+    /// Its own section, above the lists, because the relationship is the part
+    /// that matters and an alphabetical list cannot express one.
+    @ViewBuilder
+    private var controls: some View {
+        if search.isEmpty {
+            VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
+                SectionHeader("Controls come in two halves")
+
+                Text(
+                    """
+                    `params()` DECLARES a control and puts it in the inspector.                     `param(id)` READS one back. Reading without declaring gives                     `undefined` and no control appears — which looks exactly                     like a control that failed to show up.
+
+                    Declare once at the top, then read wherever you need it:
+                    """
+                )
+                .font(Theme.Typography.micro)
+                .foregroundStyle(Theme.Palette.secondary)
+                .textSelection(.enabled)
+
+                Text(
+                    """
+                    params({
+                      count: { type: 'integer', default: 24, range: [1, 200] },
+                      tint:  { type: 'color',   default: '#ff8844' },
+                    })
+
+                    const count = param('count')
+                    """
+                )
+                .font(Theme.Typography.readout)
+                .foregroundStyle(Theme.Palette.primary)
+                .textSelection(.enabled)
+                .padding(Theme.Spacing.compact)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    Theme.Fill.well,
+                    in: RoundedRectangle(cornerRadius: Theme.Radius.small),
+                )
+
+                Text(
+                    """
+                    With a declaration the default is guaranteed, so `?? 24` is                     not needed. Types: `number`, `integer`, `toggle`, `text`,                     `choice` (with `options`), `color` (hex). A `range` makes it                     a slider; without one it is a field.
                     """
                 )
                 .font(Theme.Typography.micro)

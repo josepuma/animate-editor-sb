@@ -139,6 +139,9 @@ public struct ScriptEngine: Sendable {
 
         let clamped = ScriptLimits.clamped(collector.sprites())
         var diagnostics = clamped.diagnostics
+        if let unknown = declarations.unknownDiagnostic() {
+            diagnostics.append(unknown)
+        }
         if collector.refused > 0 {
             diagnostics.append(.spritesTruncated(
                 produced: clamped.sprites.count + collector.refused,
@@ -269,6 +272,12 @@ public struct ScriptEngine: Sendable {
         let lookup: @convention(block) (String) -> Any? = { [weak declarations] id in
             if let stored = resolved[id] { return stored }
             guard let declared = declarations?.parameters()?.first(where: { $0.id == id }) else {
+                // Read but never declared — almost always a typo, or a
+                // `params()` call somebody has not written yet. It returned
+                // `undefined` silently, and `undefined * 2` is NaN, so a script
+                // reading a control it forgot to declare drew nothing with
+                // nothing to say why. Reported as exactly that confusion.
+                declarations?.recordUnknown(id)
                 return nil
             }
             return Self.javaScriptValue(of: declared.defaultValue)

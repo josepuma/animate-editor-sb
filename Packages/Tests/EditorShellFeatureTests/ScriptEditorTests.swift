@@ -5,7 +5,7 @@ import Testing
 @testable import StoryboardCore
 
 /// Editing a script's source from the side panel.
-@Suite("Script editor")
+@Suite("Script editor", .serialized)
 @MainActor
 struct ScriptEditorTests {
     /// Built through the model's own API, not by assembling a document.
@@ -105,6 +105,64 @@ struct ScriptEditorTests {
         shell.runScriptHandler = nil
 
         #expect(shell.runScriptHandler == nil)
+    }
+
+    /// A declared control reaches the inspector.
+    ///
+    /// The whole chain: the run declares, the ledger carries it, the shell
+    /// adopts it onto the node, and `descriptor(for:)` puts it where the
+    /// inspector already looks. Tested end to end because every link was
+    /// written separately and each one passing alone has proved not to be the
+    /// same thing.
+    @Test("a declared control appears in the inspector")
+    func declaredControlAppears() async {
+        let shell = EditorShellModel()
+        let node = shell.addEffect(ScriptEffect.descriptor, at: 0, duration: 4000)
+        shell.selectedNodeID = node.id
+
+        #expect(shell.selectedDescriptor?.parameters.isEmpty == true, "nothing is declared yet")
+
+        // The suite is `.serialized` because these tests await while holding
+        // the global seam, and a lock across an `await` is a deadlock waiting
+        // — Swift refuses to compile one, correctly. Ordering is the only tool
+        // left.
+        ScriptRuntime.run = { _ in
+            ScriptRuntime.Outcome(
+                sprites: [], diagnostics: [], logs: [],
+                declared: [EffectParameter(
+                    id: "count", name: "Count", group: "Script", defaultValue: .integer(24),
+                )],
+            )
+        }
+        defer { ScriptRuntime.run = nil }
+
+        shell.setScriptSource("params({ count: { type: 'integer', default: 24 } })", on: node.id)
+        _ = await shell.settledSprites()
+
+        #expect(shell.effects[node.id]?.scriptParameters.count == 1)
+        #expect(shell.selectedDescriptor?.parameters.map(\.id) == ["count"])
+    }
+
+    /// And a script that declares nothing leaves the inspector alone.
+    ///
+    /// `param('count') ?? 24` without a `params()` call declares nothing — the
+    /// fallback works, but there is no control to show, which is exactly what
+    /// it looks like when somebody expects one.
+    @Test("reading a param without declaring it shows no control")
+    func readingWithoutDeclaringShowsNothing() async {
+        let shell = EditorShellModel()
+        let node = shell.addEffect(ScriptEffect.descriptor, at: 0, duration: 4000)
+        shell.selectedNodeID = node.id
+
+        ScriptRuntime.run = { _ in
+            ScriptRuntime.Outcome(sprites: [], diagnostics: [], logs: [], declared: nil)
+        }
+        defer { ScriptRuntime.run = nil }
+
+        shell.setScriptSource("const count = param('count') ?? 24", on: node.id)
+        _ = await shell.settledSprites()
+
+        #expect(shell.selectedDescriptor?.parameters.isEmpty == true)
     }
 
     /// The panel only appears for a script clip.
