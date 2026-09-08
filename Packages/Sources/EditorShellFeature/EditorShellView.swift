@@ -231,15 +231,6 @@ public struct EditorShellView<Canvas: View>: View {
     /// keyboard is going, and mirroring it through every field in the tree
     /// would be a second copy to keep in step.
     ///
-    /// A focused `NSTextField` hands the keyboard to a shared field editor, so
-    /// the responder is an `NSText` whose delegate is the field — which is why
-    /// this checks for the editor rather than for the field itself.
-    private static var isEditingText: Bool {
-        guard let responder = NSApp.keyWindow?.firstResponder else { return false }
-        if let text = responder as? NSText { return text.isEditable }
-        return responder is NSTextView
-    }
-
     /// Keyboard equivalents for the editing commands.
     @ViewBuilder
     private var editingShortcuts: some View {
@@ -257,24 +248,24 @@ public struct EditorShellView<Canvas: View>: View {
             // than what was asked, in an app where the alternative used to be
             // nothing at all.
             Button("Undo") {
-                if Self.isEditingText {
+                if EditingFocus.isActive {
                     NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
                 } else {
                     shell.undo()
                 }
             }
             .keyboardShortcut("z", modifiers: .command)
-            .disabled(!shell.canUndo && !Self.isEditingText)
+            .disabled(!shell.canUndo && !EditingFocus.isActive)
 
             Button("Redo") {
-                if Self.isEditingText {
+                if EditingFocus.isActive {
                     NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
                 } else {
                     shell.redo()
                 }
             }
             .keyboardShortcut("z", modifiers: [.command, .shift])
-            .disabled(!shell.canRedo && !Self.isEditingText)
+            .disabled(!shell.canRedo && !EditingFocus.isActive)
 
             // Handed back to the field when one is being edited.
             //
@@ -284,7 +275,7 @@ public struct EditorShellView<Canvas: View>: View {
             // selected clip instead. The same collision the space bar had with
             // play/pause.
             Button("Copy") {
-                if Self.isEditingText {
+                if EditingFocus.isActive {
                     // Passed on to the field editor, which is what the user was
                     // aiming at.
                     NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
@@ -295,7 +286,7 @@ public struct EditorShellView<Canvas: View>: View {
             .keyboardShortcut("c", modifiers: .command)
 
             Button("Paste") {
-                if Self.isEditingText {
+                if EditingFocus.isActive {
                     NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
                 } else {
                     shell.pasteEffect(at: shell.playheadTime)
@@ -317,7 +308,7 @@ public struct EditorShellView<Canvas: View>: View {
             .keyboardShortcut("a", modifiers: .command)
 
             Button("Duplicate") {
-                guard !Self.isEditingText, let nodeID = shell.selectedNodeID else { return }
+                guard !EditingFocus.isActive, let nodeID = shell.selectedNodeID else { return }
                 shell.duplicateEffect(nodeID)
             }
             .keyboardShortcut("d", modifiers: .command)
@@ -327,13 +318,13 @@ public struct EditorShellView<Canvas: View>: View {
             // Delete belongs to the field too, or backspacing a character
             // destroys the clip being edited.
             Button("Delete") {
-                guard !Self.isEditingText else { return }
+                guard !EditingFocus.isActive else { return }
                 shell.deleteSelection()
             }
             .keyboardShortcut(.delete, modifiers: [])
 
             Button("Delete Forward") {
-                guard !Self.isEditingText else { return }
+                guard !EditingFocus.isActive else { return }
                 shell.deleteSelection()
             }
             .keyboardShortcut(.deleteForward, modifiers: [])

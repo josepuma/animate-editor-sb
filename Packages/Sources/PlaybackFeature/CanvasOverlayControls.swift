@@ -7,6 +7,15 @@ import SwiftUI
 /// bottom of the window to the timeline, and matches how video editors present
 /// preview controls.
 struct CanvasOverlayControls: View {
+    /// Whether the space bar should reach play/pause.
+    ///
+    /// A named function rather than an inline `guard` so it can be asserted:
+    /// a SwiftUI `keyboardShortcut` cannot be fired from a test, so the
+    /// decision has to be reachable on its own or it is untested.
+    static func shouldToggleOnSpace(whileEditing isEditing: Bool) -> Bool {
+        !isEditing
+    }
+
     @Bindable var model: PlaybackModel
 
     var body: some View {
@@ -84,8 +93,29 @@ struct CanvasOverlayControls: View {
                     .contentShape(.circle)
             }
             .buttonStyle(.plain)
-            .keyboardShortcut(.space, modifiers: [])
             .help(model.isPlaying ? "Pause" : "Play")
+
+            // The space bar, on a button of its own, hidden behind the one
+            // above.
+            //
+            // Separate because the guard belongs to the *shortcut*, not to the
+            // action: space is claimed at window level and reaches play/pause
+            // while somebody is typing — a one-line field survives that, a code
+            // editor does not, since space is the most-typed character in code.
+            // Clicking the visible button has to keep working either way, and
+            // gating the shared action would have broken that too.
+            //
+            // Every ⌘ shortcut in the shell already had this guard. The space
+            // bar was the one that did not, and it took a code editor for that
+            // to matter.
+            Button("") {
+                guard Self.shouldToggleOnSpace(whileEditing: EditingFocus.isActive) else { return }
+                model.togglePlayback()
+            }
+            .keyboardShortcut(.space, modifiers: [])
+            .frame(width: 0, height: 0)
+            .opacity(0)
+            .accessibilityHidden(true)
 
             IconButton(
                 systemImage: "forward.fill",
