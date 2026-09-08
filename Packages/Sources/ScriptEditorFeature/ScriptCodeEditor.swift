@@ -45,19 +45,22 @@ public struct ScriptCodeEditor: View {
             position: $position,
             messages: $messages,
             language: .javaScript(),
-            layout: CodeEditor.LayoutConfiguration(showMinimap: false, wrapText: true),
+                        // No wrapping, and no minimap.
+            //
+            // Wrapping is what made the narrow panel unusable — `.move(Ease.
+            // outQuad, born, born + 900,` broken across three lines, with the
+            // indentation of the continuation meaning nothing. Code is written
+            // in lines and read by their shape; scrolling sideways for the
+            // occasional long one costs less than losing that shape on every
+            // line. The minimap is a stripe nobody can read that spends width
+            // the code needs.
+            layout: CodeEditor.LayoutConfiguration(showMinimap: false, wrapText: false),
         )
-        // The theme is left at the environment's own default rather than set.
-        //
-        // The library exposes its dark theme as a mutable `static var`, which
-        // Swift 6 strict concurrency will not let a view read at all — and its
-        // `Theme` is not `Sendable`, so it cannot be cached in a `static let`
-        // either. The default already resolves to a dark scheme, and this app
-        // is dark-only, so the simplest reading is also the correct one.
-        //
-        // Building a theme from design-system tokens would need a colour per
-        // token category — nine roles this project does not have — which is the
-        // design system serving the dependency rather than the app.
+        // Set explicitly, because the environment's default is
+        // `Theme.defaultLight` — a white page in a dark-only app. I left it at
+        // the default and wrote in a comment that it "already resolves to
+        // dark"; it does not, and the screenshot showed it.
+        .environment(\.codeEditorTheme, .animateEditorDark)
         .focused($isFocused)
         // ⌘S runs the script.
         //

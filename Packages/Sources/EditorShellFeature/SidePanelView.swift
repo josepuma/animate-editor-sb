@@ -7,6 +7,19 @@ struct SidePanelView: View {
     /// Fixed width, so the shell can size the workspace around the canvas.
     static let width: CGFloat = 240
 
+    /// The width while a script is being written.
+    ///
+    /// Two and a half times the browsing width, because the panel stops being
+    /// a list and becomes a page: at 240 points a line of code wraps every few
+    /// words, which is not somewhere anyone can work — the screenshot of it
+    /// wrapping `Ease.outQuad` across two lines made that plain.
+    ///
+    /// The panel grows rather than the editor moving elsewhere, and the
+    /// inspector closes to pay for it: a clip's parameters are not what you are
+    /// looking at while typing its code, and giving up that column costs
+    /// nothing at the moment it is taken.
+    static let scriptWidth: CGFloat = 620
+
     @Bindable var shell: EditorShellModel
     /// Where a newly added effect is placed.
     /// Read when something is placed, not when the panel is built.
@@ -49,7 +62,9 @@ struct SidePanelView: View {
             }
         }
         .padding(Theme.Spacing.compact)
-        .frame(width: Self.width, alignment: .top)
+        // Wide while a script is open, so code has somewhere to live.
+        .frame(width: shell.selectedScriptID == nil ? Self.width : Self.scriptWidth, alignment: .top)
+        .animation(Theme.Motion.standard, value: shell.selectedScriptID)
         .frame(maxHeight: .infinity, alignment: .top)
         .surface(.panel)
     }

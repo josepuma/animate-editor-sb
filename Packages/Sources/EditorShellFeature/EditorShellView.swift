@@ -212,7 +212,15 @@ public struct EditorShellView<Canvas: View>: View {
             canvas
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if shell.isInspectorVisible, !isCanvasFullScreen {
+            // The inspector stands aside while a script is being written.
+            //
+            // The panel opposite grows to hold code, and this column is what
+            // pays for it: a clip's parameters are not what anyone is looking
+            // at while typing its script, so the space is worth more as page
+            // than as panel. It comes back on its own when the editor closes —
+            // `isInspectorVisible` is untouched, so whatever the author had
+            // chosen is what returns.
+            if shell.isInspectorVisible, shell.selectedScriptID == nil, !isCanvasFullScreen {
                 // Nothing passed but the model: every property handed to a
                 // view is a reason for SwiftUI to rebuild it, and the clock
                 // would have rebuilt this panel sixty times a second.
