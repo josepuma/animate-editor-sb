@@ -634,6 +634,22 @@ struct InspectorView: View {
     @ViewBuilder
     private func timingRow(node: EffectNode) -> some View {
         FieldGroup("Timing") {
+            // The name comes first, because it is what the block on the
+            // timeline says.
+            //
+            // `EffectNode.name` was written once, at placement, and never
+            // again — so several scripts were "Script 3" through "Script 6",
+            // named by the order they were dropped in. That is the one thing a
+            // name must not be: it carries no information about which clip
+            // draws what.
+            PropertyRow("Name") {
+                TextInputField(
+                    text: Binding(
+                        get: { node.name },
+                        set: { shell.renameEffect(node.id, to: $0) },
+                    ),
+                )
+            }
             PropertyRow("Start") {
                 NumberField(
                     value: Binding(

@@ -449,3 +449,73 @@ struct TrackReorderTests {
         #expect(order(stepped) == order(moved))
     }
 }
+
+/// Renaming a clip.
+///
+/// `EffectNode.name` existed from the start and was set once, at placement —
+/// "Script", then "Script 2". Nothing could change it afterwards, so a document
+/// with four scripts named them by the order they were dropped, which says
+/// nothing about what any of them does.
+@Suite("Renaming a clip")
+struct ClipRenameTests {
+    private func document() -> (EffectDocument, EffectNode.ID) {
+        var document = EffectDocument()
+        let track = document.addTrack(layer: .foreground)
+        let node = document.add(ScriptEffect.descriptor, at: 0, duration: 4000, on: track.id)
+        return (document, node.id)
+    }
+
+    @Test("a clip takes the name it is given")
+    func takesTheName() {
+        var (document, nodeID) = document()
+        document.renameNode(nodeID, to: "Wave Mesh")
+
+        #expect(document[nodeID]?.name == "Wave Mesh")
+    }
+
+    /// The same guard the track rename has, for the same reason: a nameless
+    /// block on a timeline cannot be identified, and the field that would fix
+    /// it is reached by selecting the block.
+    @Test("an empty name is refused", arguments: ["", "   ", "\t"])
+    func emptyRefused(attempt: String) {
+        var (document, nodeID) = document()
+        let before = document[nodeID]?.name
+
+        document.renameNode(nodeID, to: attempt)
+
+        #expect(document[nodeID]?.name == before)
+    }
+
+    @Test("surrounding whitespace is trimmed")
+    func trimmed() {
+        var (document, nodeID) = document()
+        document.renameNode(nodeID, to: "  Wave Mesh  ")
+
+        #expect(document[nodeID]?.name == "Wave Mesh")
+    }
+
+    /// A name is a label, so renaming must not disturb anything a sprite is
+    /// built from — the values, the seed, the transform or the clip's place on
+    /// the timeline.
+    @Test("renaming changes nothing else")
+    func nothingElse() throws {
+        var (document, nodeID) = document()
+        let before = try #require(document[nodeID])
+
+        document.renameNode(nodeID, to: "Wave Mesh")
+        let after = try #require(document[nodeID])
+
+        #expect(after.values == before.values)
+        #expect(after.seed == before.seed)
+        #expect(after.startTime == before.startTime)
+        #expect(after.duration == before.duration)
+        #expect(after.scriptSource == before.scriptSource)
+    }
+
+    /// An id that is not there is not a crash.
+    @Test("an unknown clip is ignored")
+    func unknownIgnored() {
+        var (document, _) = document()
+        document.renameNode("no-such-node", to: "Wave Mesh")
+    }
+}

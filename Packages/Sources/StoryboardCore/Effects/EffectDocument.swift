@@ -211,6 +211,29 @@ public struct EffectDocument: Sendable, Codable {
         tracks[index].name = trimmed
     }
 
+    /// Renames one clip.
+    ///
+    /// `EffectNode.name` was written once, at placement — "Script", then
+    /// "Script 2" — and never again, so a document with several scripts named
+    /// them by the order they were dropped in. That is the one thing a name
+    /// must not be: four clips called "Script 3" through "Script 6" carry no
+    /// information about which one draws the wave.
+    ///
+    /// Same trimming and same empty guard as the track above, deliberately: a
+    /// nameless block on a timeline cannot be identified, and the field that
+    /// would fix it is reached by selecting that block.
+    ///
+    /// Named `renameNode` rather than overloading `rename`, because
+    /// `EffectTrack.ID` and `EffectNode.ID` are **both `String`**: an overload
+    /// would not just be ambiguous to a reader, it does not compile. This
+    /// codebase already lost a test runner to two `prepare` functions that
+    /// differed only by an argument label and resolved to each other.
+    public mutating func renameNode(_ nodeID: EffectNode.ID, to name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, let location = locate(nodeID) else { return }
+        tracks[location.track].nodes[location.node].name = trimmed
+    }
+
     // ─── Filters ─────────────────────────────────────────────────────────────
 
     @discardableResult

@@ -1647,6 +1647,19 @@ public final class EditorShellModel {
         appearanceChanged()
     }
 
+    /// Renames one clip.
+    ///
+    /// `appearanceChanged()` rather than `effectsChanged()`, for the same
+    /// reason the track above does: a name is a label and no sprite carries
+    /// it. The distinction is not cosmetic here — the field commits per
+    /// keystroke, and a script clip re-evaluated on every letter is 572
+    /// sprites and 13,000 commands per character typed. It is the bug the
+    /// track colour already had.
+    public func renameEffect(_ nodeID: EffectNode.ID, to name: String) {
+        effects.renameNode(nodeID, to: name)
+        appearanceChanged()
+    }
+
     // ─── Filters ─────────────────────────────────────────────────────────────
 
     /// The filters available to apply.
