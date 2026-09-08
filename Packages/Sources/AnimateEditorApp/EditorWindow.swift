@@ -1,5 +1,6 @@
 import AppKit
 import EditorShellFeature
+import ScriptEditorFeature
 import ImageIO
 import PlaybackFeature
 import StoryboardCore
@@ -89,6 +90,12 @@ struct EditorWindow: View {
             seek: { playback.seek(to: $0) },
             canvas: { view.canvas },
         )
+        // The code editor, provided here for the same reason the canvas is:
+        // the shell is arrangement, and a real editor means a syntax
+        // highlighter it should not have to build against.
+        .scriptEditor { text, run in
+            AnyView(ScriptCodeEditor(text: text, run: run))
+        }
         .onChange(of: playback.isCanvasFullScreen, initial: true) { _, isFullScreen in
             isCanvasFullScreen = isFullScreen
         }

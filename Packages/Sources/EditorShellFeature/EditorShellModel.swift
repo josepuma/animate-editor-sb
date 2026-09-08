@@ -741,6 +741,7 @@ public final class EditorShellModel {
 
     public var exportHandler: ((_ sprites: [StoryboardSprite], _ folder: URL) throws -> URL)?
 
+
     /// Where the selected clip's pixels are, as the canvas last measured them.
     ///
     /// Supplied by the app rather than worked out here, for the same reason the

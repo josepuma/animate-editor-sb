@@ -235,8 +235,19 @@ public struct EditorShellView<Canvas: View>: View {
     @ViewBuilder
     private var editingShortcuts: some View {
         Group {
-            Button("Save") { shell.saveProject() }
-                .keyboardShortcut("s", modifiers: .command)
+            // ⌘S saves — unless a code editor has the keyboard, where it means
+            // "run this script", and the editor claims it first.
+            //
+            // The guard is here for the same reason ⌘Z has one: a shortcut is
+            // window-wide, so without it ⌘S inside the editor saved the
+            // project while leaving the code that was just typed uncommitted —
+            // the one keystroke everybody presses doing everything except what
+            // it looked like it did.
+            Button("Save") {
+                guard !EditingFocus.isActive else { return }
+                shell.saveProject()
+            }
+            .keyboardShortcut("s", modifiers: .command)
 
             Button("Export") { Task { await shell.exportStoryboard() } }
                 .keyboardShortcut("e", modifiers: .command)
