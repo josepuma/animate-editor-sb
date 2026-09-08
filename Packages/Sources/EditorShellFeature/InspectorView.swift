@@ -284,7 +284,9 @@ struct InspectorView: View {
     @ViewBuilder
     private func layerSections(_ node: EffectNode) -> some View {
         ForEach(node.layers) { layer in
-            if let descriptor = shell.library.descriptor(for: layer.type) {
+            // A layer is an `EffectNode`, so its descriptor resolves per node
+            // for the same reason the parent's does.
+            if let descriptor = shell.library.descriptor(for: layer) {
                 LayerSection(
                     layer: layer,
                     descriptor: descriptor,

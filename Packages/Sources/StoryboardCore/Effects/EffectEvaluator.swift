@@ -22,8 +22,21 @@ public struct EffectLibrary: Sendable {
         effects[type]
     }
 
+    /// The descriptor for a type, with no node to ask.
+    ///
+    /// Kept beside the node-aware lookup below because the library browser
+    /// lists tools before any node exists, so it has nothing to pass.
     public func descriptor(for type: String) -> EffectDescriptor? {
         effects[type].map { Swift.type(of: $0).descriptor }
+    }
+
+    /// The descriptor for a placed node.
+    ///
+    /// Prefer this wherever a node is in hand: an effect whose parameters come
+    /// from what the author stored answers differently per node, and a caller
+    /// that resolves by type alone would show one node's controls for another.
+    public func descriptor(for node: EffectNode) -> EffectDescriptor? {
+        effects[node.type]?.descriptor(for: node)
     }
 
     /// Everything registered, ordered for the effect browser.
@@ -74,7 +87,10 @@ public struct EffectEvaluator: Sendable {
         guard node.isVisible else { return [] }
         guard let effect = library.effect(for: node.type) else { return [] }
 
-        let descriptor = Swift.type(of: effect).descriptor
+        // Asked of the node, not the type. For every effect written by hand
+        // these are the same answer; for one whose controls come from what the
+        // author stored, only the node knows what it declared.
+        let descriptor = effect.descriptor(for: node)
         let context = EffectContext(descriptor: descriptor, node: node, beat: beat)
         var rng = EffectRandom(seed: node.seed)
 

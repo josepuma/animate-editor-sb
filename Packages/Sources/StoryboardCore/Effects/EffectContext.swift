@@ -103,10 +103,28 @@ public struct EffectContext: Sendable {
 public protocol Effect: Sendable {
     static var descriptor: EffectDescriptor { get }
 
+    /// What this node declares, which is usually what the type declares.
+    ///
+    /// Every effect written by hand fixes its parameter set at compile time, so
+    /// the static descriptor answers for all of its nodes. An effect whose
+    /// parameters come from what the author stored — a script declaring its own
+    /// controls — cannot: two such nodes share one type and declare different
+    /// things, so the descriptor has to be a function of the node.
+    ///
+    /// Defaulted, so an effect only implements this when it genuinely needs to,
+    /// and so nothing reading a descriptor has to ask which kind it is holding.
+    func descriptor(for node: EffectNode) -> EffectDescriptor
+
     /// Produces sprites in local time, starting at 0.
     ///
     /// The returned commands must stay within `0...context.duration`; the
     /// evaluator shifts them into place and is the only thing that knows where
     /// the node sits.
     func evaluate(in context: EffectContext, rng: inout EffectRandom) -> [StoryboardSprite]
+}
+
+public extension Effect {
+    func descriptor(for _: EffectNode) -> EffectDescriptor {
+        Self.descriptor
+    }
 }

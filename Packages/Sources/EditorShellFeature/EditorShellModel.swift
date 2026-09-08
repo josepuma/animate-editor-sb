@@ -435,7 +435,10 @@ public final class EditorShellModel {
     /// The descriptor behind the selected effect, for the inspector to render.
     public var selectedDescriptor: EffectDescriptor? {
         guard let node = selectedEffect else { return nil }
-        return library.descriptor(for: node.type)
+        // From the node: an effect that declares its controls from stored state
+        // answers per node, and resolving by type would show one clip's
+        // parameters while another is selected.
+        return library.descriptor(for: node)
     }
 
     /// The track the selection belongs to, or the selected track itself.
@@ -942,7 +945,10 @@ public final class EditorShellModel {
         on trackID: EffectTrack.ID? = nil,
     ) -> EffectNode? {
         guard let source = copiedNode,
-              let descriptor = library.descriptor(for: source.type)
+              // From the copied node, not its type: what a paste should carry
+              // is whatever that clip declared, and for an effect whose
+              // controls come from stored state the type cannot say.
+              let descriptor = library.descriptor(for: source)
         else { return nil }
 
         var node = effects.add(
