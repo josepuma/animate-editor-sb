@@ -104,11 +104,17 @@ public extension ScriptRuntime {
     /// `nonisolated(unsafe)`: a test that sets it and forgets to put it back
     /// changes the result of every test that runs afterwards, and which of them
     /// that is depends on execution order.
+    ///
+    /// > Important: **`run` is one global, and swift-testing runs suites in
+    /// parallel.** Save-and-restore is correct in series and useless against a
+    /// second suite doing the same thing at the same moment — one leaves its
+    /// `defer` and pulls the runtime out from under the other mid-evaluation.
+    /// It showed up as a Grid test reporting 0 sprites where it wanted 96, on
+    /// roughly one run in three, having passed twenty times before. Every suite
+    /// that installs here is `.serialized` and shares one lock, which is why
+    /// these helpers exist rather than each test setting the property itself.
     static func withoutRuntime<T>(_ body: () throws -> T) rethrows -> T {
-        let saved = run
-        run = nil
-        defer { run = saved }
-        return try body()
+        try holding(nil, body)
     }
 
     /// Runs `body` with `runtime` installed, restoring whatever was there.
@@ -116,9 +122,28 @@ public extension ScriptRuntime {
         _ runtime: @escaping @Sendable (Request) -> Outcome,
         _ body: () throws -> T,
     ) rethrows -> T {
+        try holding(runtime, body)
+    }
+
+    /// Holds the seam at one value for the duration of `body`.
+    ///
+    /// The lock is what makes this safe, not the save-and-restore: two suites
+    /// swapping one global at the same time is the race, and only one of them
+    /// can be inside here at a time.
+    private static func holding<T>(
+        _ runtime: (@Sendable (Request) -> Outcome)?,
+        _ body: () throws -> T,
+    ) rethrows -> T {
+        seamLock.lock()
         let saved = run
         run = runtime
-        defer { run = saved }
+        defer {
+            run = saved
+            seamLock.unlock()
+        }
         return try body()
     }
 }
+
+/// Guards the scripting seam while a test holds it at a known value.
+private let seamLock = NSLock()

@@ -13,7 +13,7 @@ import Testing
 /// fall back to a stand-in because the *shape* of the answer is known — a wave,
 /// an approximate glyph width. Arbitrary code has no honest stand-in, so the
 /// fallback here draws nothing and says why.
-@Suite("Script runtime seam")
+@Suite("Script runtime seam", .serialized)
 struct ScriptRuntimeTests {
     private func request(source: String = "sprite(Image.soft)") -> ScriptRuntime.Request {
         ScriptRuntime.Request(

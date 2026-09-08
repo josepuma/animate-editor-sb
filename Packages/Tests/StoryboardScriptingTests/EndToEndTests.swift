@@ -10,7 +10,7 @@ import Testing
 /// the real runtime and evaluates a real document, because that is the only
 /// arrangement that says the pieces fit together — and each of them passing
 /// alone has already proved not to be the same thing.
-@Suite("Script effect end to end")
+@Suite("Script effect end to end", .serialized)
 struct EndToEndTests {
     private func withRuntime<T>(_ body: () throws -> T) rethrows -> T {
         try ScriptRuntime.withRuntime({ ScriptEngine().run($0) }, body)

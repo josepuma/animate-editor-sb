@@ -85,13 +85,6 @@ public enum Theme {
         /// 1.5 — a ring drawn around a control, thicker than a hairline so it
         /// reads as a deliberate outline rather than an edge.
         public static let ring: CGFloat = 1.5
-        /// 260 — a code editor's minimum height, about fifteen lines.
-        ///
-        /// Enough to hold a short script whole. Below roughly a dozen lines an
-        /// editor is a slot you scroll rather than a page you read, and losing
-        /// sight of the loop you are inside is what makes a small code box
-        /// worse than useless.
-        public static let scriptEditor: CGFloat = 260
         /// 78 — label column in an inspector row, wide enough for a two-word
         /// parameter name on one line ("Velocity Random", "Rotation Random").
         ///

@@ -156,19 +156,27 @@ struct SidePanelView: View {
     /// No list of what has been placed: the timeline already shows that, in the
     /// arrangement that matters. Repeating it here spends the panel's height on
     /// a second, worse view of the same thing.
+    @ViewBuilder
     private var scripts: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
-            // The editor for the selected script, above the library.
-            //
-            // Above because it is what you came here for once a script is
-            // selected: the library is for placing something new, and having to
-            // scroll past twenty presets to reach the code you are writing puts
-            // the browsing ahead of the work.
-            if let scriptID = shell.selectedScriptID {
-                ScriptEditorPanel(shell: shell, nodeID: scriptID)
-                Divider().overlay(Theme.Border.panel)
-            }
+        // The editor REPLACES the library while a script is selected, rather
+        // than sitting above it.
+        //
+        // Stacked, nothing fitted: the editor, the tool row, the search field
+        // and the filter chips together are taller than the panel, so every one
+        // of them got squeezed and the code drew straight over the rest. And
+        // the library is for placing something *new* — with a script selected,
+        // the code is what you came here for, so giving it the whole panel is
+        // both the fix and the right arrangement.
+        if let scriptID = shell.selectedScriptID {
+            ScriptEditorPanel(shell: shell, nodeID: scriptID)
+        } else {
+            library
+        }
+    }
 
+    /// The effect library: tools, search, filters and the presets.
+    private var library: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
             tools
             search
             packFilter

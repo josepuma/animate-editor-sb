@@ -26,34 +26,57 @@ struct ScriptEditorPanel: View {
         VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
             header
 
-            FieldWell(isFocused: isFocused) {
-                TextEditor(text: Binding(
-                    get: { draft ?? source },
-                    set: { draft = $0 },
-                ))
-                .font(Theme.Typography.readout)
-                .foregroundStyle(Theme.Palette.primary)
-                .scrollContentBackground(.hidden)
-                .focused($isFocused)
-                .frame(minHeight: Theme.Size.scriptEditor)
-                // ⌘↩ rather than ↩, which has to insert a newline: this is
-                // code, and a field where Return commits cannot hold a second
-                // line.
-                .onKeyPress(.return, phases: .down) { press in
-                    guard press.modifiers.contains(.command) else { return .ignored }
-                    commit()
-                    return .handled
-                }
-                .onExitCommand {
-                    draft = nil
-                    isFocused = false
-                }
-                .onChange(of: isFocused) { _, focused in
-                    // Committed on losing focus as well, because clicking away
-                    // is how a form gets filled in — a value that demands a
-                    // keystroke to keep is a value that gets lost.
-                    if !focused { commit() }
-                }
+            // An exact height, and clipped to it.
+            //
+            // `TextEditor` sizes itself to its content and draws outside
+            // whatever frame it is handed: given `minHeight`, twenty lines of
+            // code rendered straight over the search field, the filter chips
+            // and the preset list below — the panel unreadable. It is the same
+            // trap as the `ScrollView` that never receives the height it is
+            // given, from the other side: a minimum on something that grows is
+            // not a bound at all.
+            //
+            // 996 tests were green while the panel looked like that. A test
+            // cannot see a layout, which is the whole reason to open the app.
+            TextEditor(text: Binding(
+                get: { draft ?? source },
+                set: { draft = $0 },
+            ))
+            .font(Theme.Typography.readout)
+            .foregroundStyle(Theme.Palette.primary)
+            .scrollContentBackground(.hidden)
+            .focused($isFocused)
+            // Fills the panel rather than taking a fixed height: it has the
+            // whole column now, and code is the one thing here worth every
+            // pixel available. Still an explicit frame, not a minimum — the
+            // point of the bound is that the editor cannot exceed it.
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(Theme.Spacing.tight)
+            .background(Theme.Fill.well, in: RoundedRectangle(cornerRadius: Theme.Radius.control))
+            .overlay {
+                RoundedRectangle(cornerRadius: Theme.Radius.control)
+                    .strokeBorder(
+                        isFocused ? Theme.Border.raised : Theme.Border.field,
+                        lineWidth: Theme.Size.hairline,
+                    )
+            }
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control))
+            // ⌘↩ rather than ↩, which has to insert a newline: this is code,
+            // and a field where Return commits cannot hold a second line.
+            .onKeyPress(.return, phases: .down) { press in
+                guard press.modifiers.contains(.command) else { return .ignored }
+                commit()
+                return .handled
+            }
+            .onExitCommand {
+                draft = nil
+                isFocused = false
+            }
+            .onChange(of: isFocused) { _, focused in
+                // Committed on losing focus as well, because clicking away is
+                // how a form gets filled in — a value that demands a keystroke
+                // to keep is a value that gets lost.
+                if !focused { commit() }
             }
 
             if let draft, draft != source {
@@ -73,11 +96,27 @@ struct ScriptEditorPanel: View {
     /// beside it: the primitive already holds that recipe, and a second copy is
     /// how two headings in one window end up a step apart.
     private var header: some View {
-        SectionHeader("Script") {
-            if let count = shell.effects[nodeID]?.scriptParameters.count, count > 0 {
-                Text("\(count) control\(count == 1 ? "" : "s")")
-                    .font(Theme.Typography.micro)
-                    .foregroundStyle(Theme.Palette.tertiary)
+        SectionHeader(shell.effects[nodeID]?.name ?? "Script") {
+            HStack(spacing: Theme.Spacing.tight) {
+                if let count = shell.effects[nodeID]?.scriptParameters.count, count > 0 {
+                    Text("\(count) control\(count == 1 ? "" : "s")")
+                        .font(Theme.Typography.micro)
+                        .foregroundStyle(Theme.Palette.tertiary)
+                }
+
+                // A way back to the library.
+                //
+                // The editor takes the whole panel, so without this the only
+                // route to placing another effect is deselecting the clip on
+                // the canvas — a control that hides another control with no
+                // door out is a dead end.
+                IconButton(
+                    systemImage: "xmark",
+                    size: Theme.Size.controlTiny,
+                    help: "Back to the library",
+                ) {
+                    shell.selectedNodeID = nil
+                }
             }
         }
     }

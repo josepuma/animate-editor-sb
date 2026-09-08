@@ -9,7 +9,7 @@ import Testing
 /// The end-to-end suite proves the pieces connect; this prints what a real
 /// clip resolves to at a real moment, because "996 tests pass" and "something
 /// is on screen" have already proved to be different claims in this project.
-@Suite("Render proof")
+@Suite("Render proof", .serialized)
 struct RenderProofTests {
     @Test("a placed script clip resolves to drawable state mid-clip")
     func resolvesToDrawableState() throws {

@@ -4,7 +4,7 @@ import Testing
 @testable import StoryboardCore
 
 /// The scripted effect: a clip like any other, whose sprites come from code.
-@Suite("Script effect")
+@Suite("Script effect", .serialized)
 struct ScriptEffectTests {
     private let evaluator = EffectEvaluator()
 
