@@ -81,13 +81,31 @@ struct HoverTests {
         #expect(try await hasInfo("sprite(Image.soft).fade(0, 1, 0, 1)", at: 21))
     }
 
-    /// A name the table does not know says nothing, rather than guessing.
+    /// A name from nowhere says nothing, rather than guessing.
+    ///
+    /// `myOwnThing` used to be here, and is not any more: a name the script
+    /// declares IS described now, which is the point — hover answers "where
+    /// does this come from", and for a variable the answer is a line number.
     @Test("an unknown name is not described", arguments: [
-        ("const myOwnThing = 1", 8),
         ("sprite(Image.nonsense)", 16),
+        ("thisWasNeverDeclared", 4),
     ])
     func unknownNotDescribed(source: String, offset: Int) async throws {
         #expect(try await hasInfo(source, at: offset) == false)
+    }
+
+    /// A name the script declared is described by where it was declared.
+    ///
+    /// A scan cannot say what *type* something is — that needs evaluation, on
+    /// every hover — so it says what it honestly knows: which keyword
+    /// introduced it, and on which line.
+    @Test("a declared variable is described", arguments: [
+        ("const count = 24", 8),
+        ("let cursor = 0\nsprite(Image.soft)", 6),
+        ("function place(x) {}\n", 12),
+    ])
+    func declaredIsDescribed(source: String, offset: Int) async throws {
+        #expect(try await hasInfo(source, at: offset))
     }
 
     /// A member name looked up without its receiver would miss.
@@ -97,9 +115,15 @@ struct HoverTests {
     /// of bug that looks like "hover works sometimes".
     @Test("a member is not confused for a global")
     func memberIsNotAGlobal() async throws {
-        // `out` is an easing, and also not a global.
+        // `out` is an easing, and reached through `Ease.` it is described as
+        // one.
         #expect(try await hasInfo("  .move(Ease.out, 0, 1, 0, 0, 1, 1)", at: 14))
-        #expect(try await hasInfo("const out = 1", at: 7) == false)
+
+        // Bare, it is not an easing — but it IS a declaration here, so it is
+        // described as that rather than as the curve. Which is the right
+        // answer: the receiver is what decides.
+        #expect(try await hasInfo("const out = 1", at: 7))
+        #expect(try await hasInfo("out", at: 1) == false, "undeclared and unqualified is nothing")
     }
 
     /// An out-of-range offset must not trap.

@@ -88,21 +88,22 @@ public struct ScriptCodeEditor: View {
         .focused($isFocused)
         // ⌘S runs the script.
         //
-        // Claimed here rather than at window level, and it has to be: the
-        // window already binds ⌘S to saving the project, with no guard for a
-        // field having focus — so inside the editor it saved the document
-        // without committing the code that was just typed. Caught here first,
-        // the two agree: the source lands on the node, and saving the project
-        // is what putting it there means, since the script lives in the
-        // document.
+        // A zero-sized `Button` with a keyboard shortcut, not `.onKeyPress`.
+        // `.onKeyPress` only fires for a view that holds the keyboard, and the
+        // library's `NSTextView` holds it — so the handler never saw ⌘S and
+        // the footer sat on "⌘S to run" while nothing ran. Reported exactly
+        // that way.
         //
-        // `.onKeyPress` rather than a hidden `Button` with a shortcut: a
-        // shortcut is window-wide however it is declared, so it would fire
-        // while the canvas has focus too.
-        .onKeyPress(.init("s"), phases: .down) { press in
-            guard press.modifiers.contains(.command) else { return .ignored }
-            run()
-            return .handled
+        // Safe as a window-wide shortcut because it only exists while this
+        // view does, which is only while a script clip is selected — and the
+        // shell's own ⌘S now yields to a focused editor, so the two do not
+        // both fire.
+        .background {
+            Button("") { run() }
+                .keyboardShortcut("s", modifiers: .command)
+                .frame(width: 0, height: 0)
+                .opacity(0)
+                .accessibilityHidden(true)
         }
         // A dot opens the completion list.
         //

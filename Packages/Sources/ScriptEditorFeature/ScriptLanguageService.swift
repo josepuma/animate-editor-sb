@@ -106,7 +106,12 @@ final class ScriptLanguageService: LanguageService, @unchecked Sendable {
             // Only once something is typed. Every global offered on an empty
             // line is a popup that appears while somebody is thinking, and the
             // way to dismiss it is to type past it.
-            prefix.isEmpty ? [] : ScriptAPI.globals.matching(prefix)
+            //
+            // The script's own names come first: `count`, declared on the line
+            // above, is far likelier to be what somebody is reaching for than
+            // anything the host provides — and it was not offered at all while
+            // `duration` was, which is backwards.
+            prefix.isEmpty ? [] : declared(matching: prefix) + ScriptAPI.globals.matching(prefix)
         case .none:
             []
         }
@@ -124,6 +129,23 @@ final class ScriptLanguageService: LanguageService, @unchecked Sendable {
                 )
             },
         )
+    }
+
+    /// What the script itself declared, as completion entries.
+    ///
+    /// The prefix is excluded from its own suggestions: offering `count` while
+    /// the caret sits in the middle of typing `count` is a list whose only
+    /// entry is what is already there.
+    private func declared(matching prefix: String) -> [ScriptAPI.Entry] {
+        ScriptDeclarations.all(in: text)
+            .filter { $0.name != prefix && $0.name.lowercased().hasPrefix(prefix.lowercased()) }
+            .map { declaration in
+                ScriptAPI.Entry(
+                    name: declaration.name,
+                    summary: "\(declaration.keyword) — line \(declaration.line)",
+                    kind: declaration.keyword == "function" ? .function : .value,
+                )
+            }
     }
 
     /// The characters the chosen completion replaces, and what replaces them.
@@ -220,9 +242,27 @@ final class ScriptLanguageService: LanguageService, @unchecked Sendable {
             ScriptAPI.globals + ScriptAPI.spriteMethods
         }
 
-        guard let entry = candidates.first(where: { $0.name == word }) else { return nil }
+        if let entry = candidates.first(where: { $0.name == word }) {
+            return (view: HoverInfo(entry: entry), anchor: range)
+        }
 
-        return (view: HoverInfo(entry: entry), anchor: range)
+        // Then the script's own names. A scan cannot say what *type* something
+        // is — that needs evaluation, and this runs on every hover — so it
+        // says what it honestly knows: which keyword introduced it and where.
+        // "const, line 4" is the answer to "where does this come from", which
+        // is the question somebody hovering a variable actually has.
+        guard CompletionContext.receiver(before: range, in: document) == nil,
+              let declaration = ScriptDeclarations.all(in: document).first(where: { $0.name == word })
+        else { return nil }
+
+        return (
+            view: HoverInfo(entry: ScriptAPI.Entry(
+                name: declaration.name,
+                summary: "\(declaration.keyword) — declared on line \(declaration.line)",
+                kind: declaration.keyword == "function" ? .function : .value,
+            )),
+            anchor: range
+        )
     }
 
     func capabilities() async throws -> (any View)? { nil }
