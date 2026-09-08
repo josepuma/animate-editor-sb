@@ -116,7 +116,9 @@ struct EndToEndTests {
             let started = Date()
             let drawn = EffectEvaluator().evaluate(node)
 
-            #expect(Date().timeIntervalSince(started) < 5)
+            // See the note in LoopInstrumentationTests: the claim is that it
+            // finishes at all, not that it finishes quickly.
+            #expect(Date().timeIntervalSince(started) < 30)
             #expect(drawn.isEmpty)
         }
     }

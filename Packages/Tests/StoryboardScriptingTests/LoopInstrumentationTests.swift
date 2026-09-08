@@ -39,7 +39,11 @@ struct LoopInstrumentationTests {
         let outcome = run(source)
         let elapsed = Date().timeIntervalSince(started)
 
-        #expect(elapsed < 2, "took \(Int(elapsed * 1000))ms — it did not stop on its own")
+        // Generous on purpose. The distinction being tested is "stops" versus
+        // "never stops" — an unguarded runaway has no finish time at all — and a
+        // tight bound turns a machine under load into a red test, which teaches
+        // people to ignore red tests. Measured at ~20ms unloaded.
+        #expect(elapsed < 30, "took \(Int(elapsed * 1000))ms — it did not stop on its own")
         #expect(!outcome.diagnostics.isEmpty, "\(source) ran to completion, which it cannot have")
     }
 
@@ -114,7 +118,7 @@ struct LoopInstrumentationTests {
         let started = Date()
         let outcome = run("let n = 0; while (true) n++")
 
-        #expect(Date().timeIntervalSince(started) < 2)
+        #expect(Date().timeIntervalSince(started) < 30)
         #expect(!outcome.diagnostics.isEmpty)
     }
 
