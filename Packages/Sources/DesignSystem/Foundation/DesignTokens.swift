@@ -85,6 +85,13 @@ public enum Theme {
         /// 1.5 — a ring drawn around a control, thicker than a hairline so it
         /// reads as a deliberate outline rather than an edge.
         public static let ring: CGFloat = 1.5
+        /// 64 — a script's output row, about four lines before it scrolls.
+        ///
+        /// Deliberately small. Output shares a row with the ⌘S hint rather
+        /// than taking a panel: a console occupying a third of the editor is
+        /// one somebody closes, and the next error then goes unseen for the
+        /// same reason the last one did.
+        public static let scriptOutput: CGFloat = 64
         /// 78 — label column in an inspector row, wide enough for a two-word
         /// parameter name on one line ("Velocity Random", "Rotation Random").
         ///

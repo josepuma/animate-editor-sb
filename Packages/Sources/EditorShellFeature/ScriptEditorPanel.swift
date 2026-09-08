@@ -90,6 +90,22 @@ struct ScriptEditorPanel: View {
                         .foregroundStyle(Theme.Palette.tertiary)
                 }
 
+                // The API reference, opened in its own window.
+                //
+                // A button rather than a menu item, because the question it
+                // answers — "what can I call here" — arrives while somebody is
+                // typing, and a menu is not where they are looking. In its own
+                // window so the code stays visible beside it: a reference that
+                // covers the thing being written is a reference nobody keeps
+                // open.
+                IconButton(
+                    systemImage: "questionmark.circle",
+                    size: Theme.Size.controlTiny,
+                    help: "Scripting reference",
+                ) {
+                    shell.openScriptReference?()
+                }
+
                 // A way back to the library.
                 //
                 // The editor takes the whole panel, so without this the only
@@ -107,21 +123,66 @@ struct ScriptEditorPanel: View {
         }
     }
 
-    /// Says whether there is anything to run, and how.
+    /// The ⌘S hint, and whatever the last run had to say.
     ///
-    /// Only while the draft differs: a hint that is always on screen is chrome
-    /// nobody reads, and the one moment it matters is when there are unsaved
-    /// changes sitting in front of you.
+    /// On one row rather than a panel of its own, and scrollable, so output
+    /// costs the code no height. A console that takes a third of the panel is
+    /// a console somebody closes, and then the next error goes unseen for the
+    /// same reason it was unseen before.
     @ViewBuilder
     private var footer: some View {
-        if let draft, draft != source {
+        HStack(alignment: .top, spacing: Theme.Spacing.compact) {
             Text("⌘S to run")
                 .font(Theme.Typography.micro)
-                .foregroundStyle(Theme.Palette.warning)
-        } else {
-            Text("⌘S to run")
-                .font(Theme.Typography.micro)
-                .foregroundStyle(Theme.Palette.tertiary)
+                .foregroundStyle(
+                    draft != nil && draft != source
+                        ? Theme.Palette.warning
+                        : Theme.Palette.tertiary,
+                )
+                .fixedSize()
+
+            if let report = shell.scriptReport?(nodeID), !report.isEmpty {
+                Divider().frame(height: Theme.Size.dividerHeight)
+
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
+                        // Errors first, whatever order they arrived in: a
+                        // failure buried under twenty log lines is a failure
+                        // nobody reads.
+                        ForEach(Array(report.diagnostics.enumerated()), id: \.offset) { _, diagnostic in
+                            OutputLine(text: describe(diagnostic), tone: .error)
+                        }
+
+                        ForEach(Array(report.logs.enumerated()), id: \.offset) { _, line in
+                            OutputLine(text: line.message, tone: tone(of: line.level))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: Theme.Size.scriptOutput)
+            }
+        }
+    }
+
+    private func tone(of level: ScriptRuntime.LogLine.Level) -> OutputLine.Tone {
+        switch level {
+        case .log: .plain
+        case .warn: .warning
+        case .error: .error
+        }
+    }
+
+    /// A diagnostic in the words somebody can act on.
+    private func describe(_ diagnostic: ScriptRuntime.Diagnostic) -> String {
+        switch diagnostic {
+        case .noRuntime: "No scripting runtime — this is a broken build, not your script."
+        case .noSource: "Nothing to run yet."
+        case let .compileFailed(message): message
+        case let .runtimeFailed(message): message
+        case let .spritesTruncated(produced, kept):
+            "\(produced) sprites asked for; \(kept) kept — a storyboard cannot carry more."
+        case let .commandsTruncated(produced, kept):
+            "\(produced) commands asked for; \(kept) kept — a storyboard cannot carry more."
         }
     }
 

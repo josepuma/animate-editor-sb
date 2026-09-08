@@ -62,28 +62,61 @@ public enum ScriptAPI {
             name: "sprite",
             insert: "sprite(",
             summary: "Creates a sprite from an image path",
+            example: """
+            // A built-in shape, or any file in the beatmap folder.
+            sprite(Image.soft)
+            sprite('sb/particle.png')
+
+            // With a layer and an origin, both optional.
+            sprite('sb/bar.png', { layer: Layer.Overlay, origin: Origin.TopLeft })
+            """,
             kind: .function,
         ),
         Entry(
             name: "duration",
             summary: "The clip's length in milliseconds",
+            example: """
+            // Time is LOCAL: 0 is where the clip starts, whatever the
+            // timeline says. Dragging the clip moves what this made.
+            sprite(Image.soft).fade(0, duration, 0, 1)
+            """,
             kind: .value,
         ),
         Entry(
             name: "rng",
             summary: "Reproducible randomness, seeded from the clip",
+            example: """
+            rng.unit()            // 0 up to 1
+            rng.between(0, 640)   // a position
+            rng.integer(1, 6)     // a whole number, both ends included
+
+            // Seeded from the clip, so it gives the same field every time —
+            // which is what keeps the preview and the exported .osb agreeing.
+            """,
             kind: .namespace,
         ),
         Entry(
             name: "param",
             insert: "param(",
             summary: "Reads one of the controls this script declared",
+            example: """
+            const count = param('count')
+            for (let i = 0; i < count; i++) sprite(Image.soft)
+            """,
             kind: .function,
         ),
         Entry(
             name: "params",
             insert: "params(",
             summary: "Declares the controls this script shows in the inspector",
+            example: """
+            // Declared once, at the top. They appear in the inspector as
+            // real controls, and `param(id)` reads them back.
+            params({
+              count: { type: 'integer', default: 24, range: [1, 200] },
+              tint:  { type: 'color',   default: '#ff8844' },
+            })
+            """,
             kind: .function,
         ),
         Entry(name: "Image", summary: "The images the app provides", kind: .namespace),
@@ -207,12 +240,14 @@ public enum ScriptAPI {
             name: "flipH",
             insert: "flipH(",
             summary: "(from, to) — mirrors horizontally",
+            example: "sprite('sb/arrow.png').flipH(0, duration)",
             kind: .method,
         ),
         Entry(
             name: "flipV",
             insert: "flipV(",
             summary: "(from, to) — mirrors vertically",
+            example: "sprite('sb/arrow.png').flipV(0, duration)",
             kind: .method,
         ),
     ]

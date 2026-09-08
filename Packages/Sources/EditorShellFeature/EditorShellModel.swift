@@ -172,7 +172,26 @@ public final class EditorShellModel {
 
         sidePanel = .scripts
         isSidePanelVisible = true
+
+        // The inspector steps aside on the way in, once.
+        //
+        // Not vetoed while a script is open — that made a script's own
+        // `params` unreachable, controls that existed and could not be shown.
+        // Closed on arrival and left alone after: opening it is then a decision
+        // that sticks, and the editor narrows to share rather than the
+        // parameters disappearing.
+        if !hasSteppedInspectorAsideForScript {
+            hasSteppedInspectorAsideForScript = true
+            isInspectorVisible = false
+        }
     }
+
+    /// Whether the inspector has already been closed for a script this session.
+    ///
+    /// So it happens on the way in and never again: doing it on every
+    /// selection would shut a panel the author had deliberately opened, every
+    /// time they clicked a clip.
+    @ObservationIgnored private var hasSteppedInspectorAsideForScript = false
 
     /// Told the moment the selection changes.
     ///
@@ -1098,6 +1117,20 @@ public final class EditorShellModel {
     /// the footer sat on "⌘S to run" while nothing ran. One shortcut, one
     /// owner, and the owner asks whoever is in front of it.
     @ObservationIgnored public var runScriptHandler: (() -> Void)?
+
+    /// What a script node's last run reported.
+    ///
+    /// A closure rather than a stored dictionary, because the ledger it reads
+    /// lives in Core and is written by the evaluation pass — a copy here would
+    /// be a second place for the same facts, kept in step by hand.
+    @ObservationIgnored public var scriptReport: ((EffectNode.ID) -> ScriptRuntime.Report?)?
+
+    /// Opens the scripting reference.
+    ///
+    /// Provided by the app, like the editor itself: opening a window is not
+    /// something arrangement does, and the reference is generated from the
+    /// same table that feeds completion — which lives in the editor's target.
+    @ObservationIgnored public var openScriptReference: (() -> Void)?
 
     /// Replaces a script's source.
     ///

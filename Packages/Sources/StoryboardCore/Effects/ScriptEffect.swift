@@ -83,10 +83,15 @@ public struct ScriptEffect: Effect {
             seed: context.node.seed,
         ))
 
-        // Diagnostics are deliberately dropped here and reported by the host
-        // instead. `evaluate` cannot throw by protocol, and a broken script has
-        // to come back as an empty clip rather than as a failure that stops the
-        // rest of the document evaluating.
+        // Recorded rather than returned. `evaluate` cannot throw by protocol,
+        // and a broken script has to come back as an empty clip rather than as
+        // a failure that stops the rest of the document evaluating — so what it
+        // had to say travels in a ledger the UI reads after the pass lands.
+        ScriptRuntime.record(
+            ScriptRuntime.Report(diagnostics: outcome.diagnostics, logs: outcome.logs),
+            for: context.node.id,
+        )
+
         return outcome.sprites
     }
 }

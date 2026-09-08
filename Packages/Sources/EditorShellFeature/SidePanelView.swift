@@ -7,6 +7,13 @@ struct SidePanelView: View {
     /// Fixed width, so the shell can size the workspace around the canvas.
     static let width: CGFloat = 240
 
+    /// The width while a script is being written **and** the inspector is open.
+    ///
+    /// Narrower than `scriptWidth`, because both columns have to fit: the code
+    /// gives up width rather than the parameters disappearing, which is what
+    /// happened when the inspector was simply vetoed.
+    static let scriptWidthSharing: CGFloat = 420
+
     /// The width while a script is being written.
     ///
     /// Two and a half times the browsing width, because the panel stops being
@@ -49,6 +56,12 @@ struct SidePanelView: View {
     /// What the preset list is narrowed to, or nothing for everything.
     @State private var selectedFilter: PresetFilter?
 
+    /// How wide the panel is, given what else is on screen.
+    private var panelWidth: CGFloat {
+        guard shell.selectedScriptID != nil else { return Self.width }
+        return shell.isInspectorVisible ? Self.scriptWidthSharing : Self.scriptWidth
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.compact) {
             SectionHeader(shell.sidePanel.title)
@@ -63,8 +76,8 @@ struct SidePanelView: View {
         }
         .padding(Theme.Spacing.compact)
         // Wide while a script is open, so code has somewhere to live.
-        .frame(width: shell.selectedScriptID == nil ? Self.width : Self.scriptWidth, alignment: .top)
-        .animation(Theme.Motion.standard, value: shell.selectedScriptID)
+        .frame(width: panelWidth, alignment: .top)
+        .animation(Theme.Motion.standard, value: panelWidth)
         .frame(maxHeight: .infinity, alignment: .top)
         .surface(.panel)
     }

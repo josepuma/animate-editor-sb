@@ -70,18 +70,89 @@ public enum ScriptRuntime {
         case commandsTruncated(produced: Int, kept: Int)
     }
 
+    /// One line a script printed.
+    public struct LogLine: Sendable, Equatable {
+        public enum Level: Sendable, Equatable {
+            case log
+            case warn
+            case error
+        }
+
+        public let level: Level
+        public let message: String
+
+        public init(level: Level, message: String) {
+            self.level = level
+            self.message = message
+        }
+    }
+
     public struct Outcome: Sendable {
         public var sprites: [StoryboardSprite]
         public var diagnostics: [Diagnostic]
 
-        public init(sprites: [StoryboardSprite], diagnostics: [Diagnostic]) {
+        /// What the script printed, in order.
+        ///
+        /// `console.log` was installed as a no-op so a script reaching for it
+        /// would not die — which is the right instinct and the wrong result:
+        /// somebody logs precisely when they cannot work out what a script did,
+        /// and a log going nowhere is the one moment that help is missing.
+        public var logs: [LogLine]
+
+        public init(
+            sprites: [StoryboardSprite],
+            diagnostics: [Diagnostic],
+            logs: [LogLine] = [],
+        ) {
             self.sprites = sprites
             self.diagnostics = diagnostics
+            self.logs = logs
         }
     }
 
     /// Installed by the app at launch.
     nonisolated(unsafe) public static var run: (@Sendable (Request) -> Outcome)?
+
+    /// What the last evaluation reported, by node.
+    ///
+    /// A ledger beside the sprites rather than a return value, because
+    /// `Effect.evaluate` cannot throw and must not fail the document for one
+    /// broken clip. The UI reads it after a pass lands.
+    ///
+    /// Replaced per node rather than appended: a problem fixed in one pass must
+    /// not still be listed in the next, and a log from a run that is over is
+    /// noise pretending to be current.
+    nonisolated(unsafe) private static var reports: [String: Report] = [:]
+    private static let reportLock = NSLock()
+
+    /// What one node's last run had to say.
+    public struct Report: Sendable, Equatable {
+        public var diagnostics: [Diagnostic]
+        public var logs: [LogLine]
+
+        public init(diagnostics: [Diagnostic], logs: [LogLine]) {
+            self.diagnostics = diagnostics
+            self.logs = logs
+        }
+
+        public var isEmpty: Bool { diagnostics.isEmpty && logs.isEmpty }
+    }
+
+    /// Records what a node's run reported.
+    public static func record(_ report: Report, for nodeID: String) {
+        reportLock.withLock {
+            if report.isEmpty {
+                reports.removeValue(forKey: nodeID)
+            } else {
+                reports[nodeID] = report
+            }
+        }
+    }
+
+    /// What a node's last run reported, if anything.
+    public static func report(for nodeID: String) -> Report? {
+        reportLock.withLock { reports[nodeID] }
+    }
 
     /// Runs a script, or explains why it could not.
     public static func sprites(for request: Request) -> Outcome {

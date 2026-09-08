@@ -93,7 +93,8 @@ public struct ScriptEngine: Sendable {
         }
 
         let collector = SpriteCollector(idPrefix: request.idPrefix)
-        install(into: context, request: request, collector: collector)
+        let logs = LogCollector()
+        install(into: context, request: request, collector: collector, logs: logs)
 
         if instrumentsLoops {
             context.evaluateScript(LoopInstrumenter.preamble)
@@ -103,7 +104,14 @@ public struct ScriptEngine: Sendable {
         }
 
         if let thrown {
-            return ScriptRuntime.Outcome(sprites: [], diagnostics: [.runtimeFailed(thrown)])
+            // The logs travel with the failure. A script that threw is exactly
+            // when the lines printed before it matter — dropping them here
+            // would take away the only trace of how far it got.
+            return ScriptRuntime.Outcome(
+                sprites: [],
+                diagnostics: [.runtimeFailed(thrown)],
+                logs: logs.lines(),
+            )
         }
 
         // A call given a name that does not exist is a failure, not a sprite.
@@ -116,6 +124,7 @@ public struct ScriptEngine: Sendable {
                 diagnostics: [.runtimeFailed(
                     "a value passed to a sprite command does not exist — check a name like Ease.quadOut",
                 )],
+                logs: logs.lines(),
             )
         }
 
@@ -127,7 +136,11 @@ public struct ScriptEngine: Sendable {
                 kept: clamped.sprites.count,
             ))
         }
-        return ScriptRuntime.Outcome(sprites: clamped.sprites, diagnostics: diagnostics)
+        return ScriptRuntime.Outcome(
+            sprites: clamped.sprites,
+            diagnostics: diagnostics,
+            logs: logs.lines(),
+        )
     }
 
     // MARK: - Building the context
@@ -136,10 +149,11 @@ public struct ScriptEngine: Sendable {
         into context: JSContext,
         request: ScriptRuntime.Request,
         collector: SpriteCollector,
+        logs: LogCollector,
     ) {
         remove(Self.removedGlobals, from: context)
         lockRandom(in: context, seed: request.seed)
-        installConsole(in: context)
+        installConsole(in: context, into: logs)
 
         context.setObject(request.duration, forKeyedSubscript: "duration" as NSString)
         context.setObject(ImageConstants.table, forKeyedSubscript: "Image" as NSString)
@@ -256,12 +270,15 @@ public struct ScriptEngine: Sendable {
     /// die: reaching for a log is what somebody does when a script misbehaves,
     /// and having that throw turns one problem into two. Wiring it to the
     /// diagnostics panel comes with the editor.
-    private func installConsole(in context: JSContext) {
-        let log: @convention(block) (JSValue) -> Void = { _ in }
+    private func installConsole(in context: JSContext, into collector: LogCollector) {
+        func writer(_ level: ScriptRuntime.LogLine.Level) -> @convention(block) (JSValue) -> Void {
+            { value in collector.append(level: level, value: value) }
+        }
+
         let table = JSValue(newObjectIn: context)
-        table?.setObject(log, forKeyedSubscript: "log" as NSString)
-        table?.setObject(log, forKeyedSubscript: "warn" as NSString)
-        table?.setObject(log, forKeyedSubscript: "error" as NSString)
+        table?.setObject(writer(.log), forKeyedSubscript: "log" as NSString)
+        table?.setObject(writer(.warn), forKeyedSubscript: "warn" as NSString)
+        table?.setObject(writer(.error), forKeyedSubscript: "error" as NSString)
         context.setObject(table, forKeyedSubscript: "console" as NSString)
     }
 }

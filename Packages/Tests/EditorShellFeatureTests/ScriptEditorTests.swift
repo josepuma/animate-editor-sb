@@ -190,6 +190,41 @@ struct ScriptEditorRevealTests {
         #expect(shell.sidePanel == .scripts)
     }
 
+    /// The inspector steps aside on the way in, and stays the author's after.
+    ///
+    /// It was vetoed outright while a script was open, which meant a script
+    /// declaring `params` could not show them — controls that existed and were
+    /// unreachable.
+    @Test("the inspector closes once, then obeys its button")
+    func inspectorStepsAsideOnce() {
+        let shell = EditorShellModel()
+        let node = shell.addEffect(ScriptEffect.descriptor, at: 0, duration: 4000)
+
+        shell.selectedNodeID = node.id
+        #expect(shell.isInspectorVisible == false, "it should step aside on the way in")
+
+        // Opened deliberately, and it stays open.
+        shell.isInspectorVisible = true
+        shell.selectedNodeID = nil
+        shell.selectedNodeID = node.id
+
+        #expect(shell.isInspectorVisible, "it closed a panel the author had opened")
+    }
+
+    /// A second script clip does not shut it again either.
+    @Test("selecting another script leaves the inspector alone")
+    func secondScriptLeavesItAlone() {
+        let shell = EditorShellModel()
+        let first = shell.addEffect(ScriptEffect.descriptor, at: 0, duration: 4000)
+        let second = shell.addEffect(ScriptEffect.descriptor, at: 5000, duration: 4000)
+
+        shell.selectedNodeID = first.id
+        shell.isInspectorVisible = true
+        shell.selectedNodeID = second.id
+
+        #expect(shell.isInspectorVisible)
+    }
+
     /// Selecting the same clip twice is not a second event.
     @Test("reselecting the same clip does not fight a manual panel change")
     func reselectingDoesNotOverride() {
