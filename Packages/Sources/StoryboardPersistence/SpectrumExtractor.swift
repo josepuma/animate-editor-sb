@@ -287,6 +287,15 @@ public enum SpectrumExtractor {
         return Spectrum(frames: extracted, interval: interval, start: range.lowerBound)
     }
 
+    /// The longest window a single band may ask for, in cycles.
+    ///
+    /// Resolution is not free: the window is what the bank walks per band per
+    /// frame, and a very narrow band would ask for one long enough to smear
+    /// across the beat it is supposed to be showing. Past this the bars stop
+    /// being separable anyway — a bank this fine is asking for more detail than
+    /// the ear picks out of a moving row.
+    private static let maximumCycles: Double = 32
+
     /// Band boundaries, spaced by pitch rather than by frequency.
     ///
     /// An octave is a doubling, so equal *ratios* are what read as equal steps.
@@ -325,11 +334,24 @@ public enum SpectrumExtractor {
             // measure something that resolves in eleven. Measured, the bank was
             // 1,001ms of a 1,146ms spectrum while decoding the file was 137.
             //
-            // Four cycles: enough that a partial period cannot swing the
-            // reading, few enough that a high band costs almost nothing. The
-            // low bands still take the whole window, which is right — they are
-            // the ones that need it, and they are also the fewest.
-            let needed = min(samples.count, Int(4 * sampleRate / centre))
+            // Long enough to *resolve* this band, not a fixed count of cycles.
+            //
+            // A window of N seconds can only tell apart frequencies 1/N apart,
+            // and a fixed four cycles ignores how narrow the band actually is.
+            // At 24 bands that is fine. At 64 it is not: measured, band 30
+            // spans 59 Hz while four cycles resolve 150 Hz, and band 60 spans
+            // 1114 Hz against 2837 — so neighbouring bands read the *same*
+            // stretch of spectrum, and from band 21 up all 43 of them flattened
+            // into half a range. Which is exactly the row of near-identical
+            // bars this was reported as.
+            //
+            // The window a band needs is 1/width seconds. Kept to at least four
+            // cycles so a low band still cannot be swung by a partial period,
+            // and capped at the samples on hand.
+            let width = edge.high - edge.low
+            let cyclesForWidth = width > 0 ? centre / width : 4
+            let cycles = max(4, min(cyclesForWidth, Self.maximumCycles))
+            let needed = min(samples.count, Int(cycles * sampleRate / centre))
             let energy = goertzel(
                 samples, count: needed, frequency: centre, sampleRate: sampleRate,
             )
