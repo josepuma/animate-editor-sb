@@ -13,6 +13,9 @@ final class SpriteCollector {
     private let idPrefix: String
     private var built: [StoryboardSprite] = []
 
+    /// Set when a call was given a name that does not exist.
+    private(set) var undefinedArgument = false
+
     /// How many sprites the script asked for beyond the ceiling.
     ///
     /// Counted here because the clamp downstream can no longer see them: they
@@ -39,6 +42,14 @@ final class SpriteCollector {
         // script rather than at the bridge.
         let make: @convention(block) (String, JSValue?) -> JSValue? = { path, options in
             guard let context = JSContext.current() else { return nil }
+            // A name that does not exist arrives as the *string* "undefined",
+            // because the block's parameter is typed `String` — so
+            // `sprite(Image.blurry)` produced a sprite pointing at a file
+            // called "undefined" and drew nothing, silently.
+            guard path != "undefined", path != "null", !path.isEmpty else {
+                self.undefinedArgument = true
+                return self.inertBuilder(in: context)
+            }
             return self.builder(path: path, options: options, in: context)
         }
         context.setObject(make, forKeyedSubscript: "sprite" as NSString)
@@ -246,12 +257,29 @@ final class SpriteCollector {
     private func add(to handle: JSValue, name: String, body: @escaping ([Double]) -> Void) {
         let method: @convention(block) (JSValue) -> JSValue = { arguments in
             let count = Int(arguments.forProperty("length")?.toInt32() ?? 0)
-            // Every argument made finite here, once, rather than at each use.
-            // `0/0` is ordinary JavaScript and a NaN reaching a command puts a
-            // sprite at a position the resolver cannot interpolate — and a NaN
-            // converted to `Int` anywhere downstream traps and takes the editor
-            // with it.
-            body((0..<count).compactMap { arguments.atIndex($0)?.toDouble().finite() })
+            // An `undefined` argument is refused rather than made finite.
+            //
+            // `Ease.outQuad` — a name that does not exist — arrives here as
+            // `undefined`. Made finite it became 0, and 0 is `linear`, so a
+            // misspelled curve produced a working sprite animating differently
+            // from what was asked with nothing to say so. Measured on a saved
+            // project that had been drawing wrong for a while.
+            //
+            // A real NaN is still made finite: `0/0` is ordinary arithmetic
+            // somebody may have written on purpose, and a NaN converted to
+            // `Int` downstream traps and takes the editor with it. What is
+            // refused is the *absence* of a value, which is always a mistake.
+            let values = (0..<count).map { index -> Double? in
+                guard let value = arguments.atIndex(index), !value.isUndefined, !value.isNull else {
+                    return nil
+                }
+                return value.toDouble().finite()
+            }
+            guard !values.contains(where: { $0 == nil }) else {
+                self.undefinedArgument = true
+                return handle
+            }
+            body(values.compactMap { $0 })
             return handle
         }
         handle.setObject(method, forKeyedSubscript: "__\(name)" as NSString)
@@ -318,7 +346,19 @@ final class SpriteCollector {
     /// was made, and the call still returned an object.
     private func option(_ name: String, from options: JSValue?) -> String? {
         guard let options, options.isObject else { return nil }
-        guard let value = options.forProperty(name), !value.isUndefined else { return nil }
+        guard let value = options.forProperty(name) else { return nil }
+
+        // An option present but undefined is a name that does not exist.
+        //
+        // `{ layer: Layer.Middle }` reads as `undefined` here, and treating
+        // that the same as an absent option meant a typo silently drew on the
+        // foreground. The distinction is whether the KEY is there: an option
+        // nobody wrote is fine, an option written wrong is not.
+        guard !value.isUndefined, !value.isNull else {
+            if options.hasProperty(name) { undefinedArgument = true }
+            return nil
+        }
+
         return value.toString()
     }
 

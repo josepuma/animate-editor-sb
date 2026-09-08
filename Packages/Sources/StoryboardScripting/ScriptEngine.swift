@@ -106,6 +106,19 @@ public struct ScriptEngine: Sendable {
             return ScriptRuntime.Outcome(sprites: [], diagnostics: [.runtimeFailed(thrown)])
         }
 
+        // A call given a name that does not exist is a failure, not a sprite.
+        //
+        // Returning the sprite anyway is what let `Ease.outQuad` animate as
+        // linear for a while: the clip drew, so nothing looked wrong.
+        if collector.undefinedArgument {
+            return ScriptRuntime.Outcome(
+                sprites: [],
+                diagnostics: [.runtimeFailed(
+                    "a value passed to a sprite command does not exist — check a name like Ease.quadOut",
+                )],
+            )
+        }
+
         let clamped = ScriptLimits.clamped(collector.sprites())
         var diagnostics = clamped.diagnostics
         if collector.refused > 0 {
