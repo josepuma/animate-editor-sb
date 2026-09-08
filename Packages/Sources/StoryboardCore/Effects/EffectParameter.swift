@@ -111,9 +111,9 @@ public enum EffectValue: Sendable, Equatable, Codable {
 /// This is the shared contract. A native effect declares these in Swift and a
 /// script will declare the same shape as JSON; the inspector only ever sees
 /// declarations, never the effect that produced them.
-public struct EffectParameter: Sendable, Equatable {
+public struct EffectParameter: Sendable, Equatable, Codable {
     /// What kind of control this parameter needs.
-    public enum Kind: String, Sendable, Equatable {
+    public enum Kind: String, Sendable, Equatable, Codable {
         case number
         case integer
         case toggle
@@ -124,7 +124,7 @@ public struct EffectParameter: Sendable, Equatable {
     }
 
     /// How a numeric parameter should be presented.
-    public enum Presentation: String, Sendable, Equatable {
+    public enum Presentation: String, Sendable, Equatable, Codable {
         /// A field with a stepper — for values typed exactly.
         case field
         /// A slider — for values dialled in by feel, within a closed range.
@@ -170,7 +170,12 @@ public struct EffectParameter: Sendable, Equatable {
     public var animation: Animation
 
     /// What it costs to animate a parameter.
-    public enum Animation: Sendable, Equatable {
+    ///
+    /// Written by hand rather than synthesised because one case carries a
+    /// value, and the step is the part that matters: a `.textures` parameter
+    /// decoded without its step reports the wrong sprite cost, and being right
+    /// about that cost is the only reason the inspector shows one.
+    public enum Animation: Sendable, Equatable, Codable {
         /// Not animatable. The default, because most parameters describe what a
         /// filter *is* rather than what it does over time — and a stopwatch on
         /// a structural value promises something the format cannot deliver.
@@ -190,7 +195,7 @@ public struct EffectParameter: Sendable, Equatable {
     }
 
     /// One parameter having one of a set of values.
-    public struct Condition: Sendable, Equatable {
+    public struct Condition: Sendable, Equatable, Codable {
         public let parameter: String
         public let values: [String]
 

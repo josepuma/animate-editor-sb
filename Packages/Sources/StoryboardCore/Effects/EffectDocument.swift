@@ -453,6 +453,11 @@ public struct EffectDocument: Sendable, Codable {
             layers: original.layersRehomed(under: copyID, seed: copySeed),
             isVisible: original.isVisible,
             isLocked: original.isLocked,
+            // Its code and declared controls too, for the same reason as its
+            // filters: a copy of a script that drops the script is a copy of
+            // nothing.
+            scriptSource: original.scriptSource,
+            scriptParameters: original.scriptParameters,
         )
 
         tracks[location.track].nodes.insert(copy, at: location.node + 1)

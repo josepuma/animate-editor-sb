@@ -969,6 +969,10 @@ public final class EditorShellModel {
         // And its layers, re-homed under the new id for the same reason the
         // filters were reidentified.
         node.layers = source.layersRehomed(under: node.id, seed: node.seed)
+        // And its code, with the controls it declares: a paste that drops the
+        // script pastes an empty clip that reads as broken.
+        node.scriptSource = source.scriptSource
+        node.scriptParameters = source.scriptParameters
         effects[node.id] = node
 
         selectedNodeID = node.id

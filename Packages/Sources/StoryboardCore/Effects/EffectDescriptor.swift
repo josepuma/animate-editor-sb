@@ -101,6 +101,7 @@ public struct EffectNode: Identifiable, Sendable, Equatable, Codable {
     private enum CodingKeys: String, CodingKey {
         case id, type, name, layer, startTime, duration, seed, values
         case transform, filters, layers, isVisible, isLocked
+        case scriptSource, scriptParameters
     }
 
     /// Written before filters moved onto the clip, a node has none of its own.
@@ -125,6 +126,12 @@ public struct EffectNode: Identifiable, Sendable, Equatable, Codable {
         layers = try container.decodeIfPresent([EffectNode].self, forKey: .layers) ?? []
         isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
         isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
+        // Absent in every project written before scripting, and absent from
+        // every node that is not a script. Nothing distinguishes "no script
+        // here" from "no scripts existed yet", and nothing needs to.
+        scriptSource = try container.decodeIfPresent(String.self, forKey: .scriptSource)
+        scriptParameters = try container
+            .decodeIfPresent([EffectParameter].self, forKey: .scriptParameters) ?? []
     }
 
     public let id: String
@@ -178,6 +185,22 @@ public struct EffectNode: Identifiable, Sendable, Equatable, Codable {
     public var isVisible: Bool
     public var isLocked: Bool
 
+    /// The code this node runs, for a scripted effect. `nil` for every other.
+    ///
+    /// Held on the node rather than in a file beside the beatmap because it is
+    /// part of the document: `storyboard.aesb` lives inside the beatmap folder
+    /// so the project travels with the map, and a script in a loose file would
+    /// be left behind by the copy that carries everything else.
+    public var scriptSource: String?
+
+    /// The controls this node's script declares, for the inspector to draw.
+    ///
+    /// Stored, not derived on demand, because the descriptor has to be a pure
+    /// function of what was saved: undo restores a document, and a descriptor
+    /// recomputed from something else would put the inspector out of step with
+    /// the state it just went back to.
+    public var scriptParameters: [EffectParameter]
+
     public init(
         id: String,
         type: String,
@@ -192,6 +215,8 @@ public struct EffectNode: Identifiable, Sendable, Equatable, Codable {
         layers: [EffectNode] = [],
         isVisible: Bool = true,
         isLocked: Bool = false,
+        scriptSource: String? = nil,
+        scriptParameters: [EffectParameter] = [],
     ) {
         self.id = id
         self.type = type
@@ -206,6 +231,8 @@ public struct EffectNode: Identifiable, Sendable, Equatable, Codable {
         self.layers = layers
         self.isVisible = isVisible
         self.isLocked = isLocked
+        self.scriptSource = scriptSource
+        self.scriptParameters = scriptParameters
     }
 
     public var endTime: Double { startTime + duration }
@@ -284,6 +311,8 @@ public extension EffectNode {
                 filters: layer.filters.map { $0.reidentified() },
                 isVisible: layer.isVisible,
                 isLocked: layer.isLocked,
+                scriptSource: layer.scriptSource,
+                scriptParameters: layer.scriptParameters,
             )
         }
     }
