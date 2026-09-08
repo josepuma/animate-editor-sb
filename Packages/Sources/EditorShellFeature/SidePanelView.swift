@@ -158,6 +158,17 @@ struct SidePanelView: View {
     /// a second, worse view of the same thing.
     private var scripts: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
+            // The editor for the selected script, above the library.
+            //
+            // Above because it is what you came here for once a script is
+            // selected: the library is for placing something new, and having to
+            // scroll past twenty presets to reach the code you are writing puts
+            // the browsing ahead of the work.
+            if let scriptID = shell.selectedScriptID {
+                ScriptEditorPanel(shell: shell, nodeID: scriptID)
+                Divider().overlay(Theme.Border.panel)
+            }
+
             tools
             search
             packFilter

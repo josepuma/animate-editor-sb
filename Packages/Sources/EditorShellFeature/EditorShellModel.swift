@@ -1048,6 +1048,37 @@ public final class EditorShellModel {
         effectsChanged(node: nodeID)
     }
 
+    /// The selected clip, if it is a script — otherwise `nil`.
+    ///
+    /// What the side panel asks before offering an editor. A clip's type is the
+    /// only thing that decides, and asking here keeps the view from knowing the
+    /// type string.
+    public var selectedScriptID: EffectNode.ID? {
+        guard let nodeID = selectedNodeID,
+              effects[nodeID]?.type == ScriptEffect.descriptor.type
+        else { return nil }
+        return nodeID
+    }
+
+    /// Replaces a script's source.
+    ///
+    /// Through the model rather than onto the node directly, so `EditHistory`
+    /// sees it: capture happens in `effects`' `willSet`, and a write that
+    /// side-steps that is an edit the author cannot take back.
+    ///
+    /// An unchanged commit does nothing at all. The editor commits on losing
+    /// focus as well as on Return, so clicking away from a script nobody
+    /// touched would otherwise re-evaluate the whole document and spend an undo
+    /// entry saying nothing happened.
+    public func setScriptSource(_ source: String, on nodeID: EffectNode.ID) {
+        guard var node = effects[nodeID], !isLocked(nodeID) else { return }
+        guard node.scriptSource != source else { return }
+
+        node.scriptSource = source
+        effects[nodeID] = node
+        effectsChanged(node: nodeID)
+    }
+
     /// Sets a parameter on one layer of a compound effect.
     public func setLayerValue(
         _ value: EffectValue,
