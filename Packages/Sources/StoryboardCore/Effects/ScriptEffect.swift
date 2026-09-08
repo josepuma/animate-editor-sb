@@ -33,7 +33,7 @@ public struct ScriptEffect: Effect {
       const born = (i / count) * duration * 0.5
 
       sprite(Image.soft)
-        .move(Ease.outQuad, born, born + 900,
+        .move(Ease.quadOut, born, born + 900,
               320, 240,
               320 + Math.cos(angle) * 160,
               240 + Math.sin(angle) * 160)

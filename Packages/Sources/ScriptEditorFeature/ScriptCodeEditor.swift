@@ -121,6 +121,19 @@ public struct ScriptCodeEditor: View {
             Task { @MainActor in
                 await Task.yield()
                 showCompletions?()
+                // The panel is given the keyboard, because the library only
+                // does so `if !isVisible` — so a panel left visible from an
+                // earlier invocation reopens without focus, and its own
+                // `keyDown` (arrows, Return) never runs. Reported as "the new
+                // window should have focus but does not".
+                //
+                // Found by hand rather than asked for: `CompletionPanel` is
+                // `internal` to the library, so it is located among the app's
+                // own windows instead. A floating panel that is not the main
+                // window and holds a hosting view is the completion list; the
+                // editor's own window is `isMainWindow`.
+                await Task.yield()
+                focusCompletionPanel()
             }
             return .ignored
         }
@@ -131,6 +144,29 @@ public struct ScriptCodeEditor: View {
         // costs a fifth of the width the code needs. Off, not configurable —
         // one setting for a thing nobody would turn on is a setting.
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Hands the keyboard to the completion panel, if one is showing.
+    ///
+    /// The library gives it focus only `if !isVisible`, so a panel left over
+    /// from an earlier invocation reopens without the keyboard and its own
+    /// `keyDown` — the arrows and Return — never runs.
+    ///
+    /// Identified by shape rather than by type, because `CompletionPanel` is
+    /// `internal` to the library: what is reachable is that it is a visible,
+    /// non-main, floating `NSPanel` belonging to this app. The editor's own
+    /// window is `isMainWindow`, and nothing else here floats.
+    @MainActor
+    private func focusCompletionPanel() {
+        guard let panel = NSApp?.windows.first(where: { window in
+            window.isVisible
+                && !window.isMainWindow
+                && window is NSPanel
+                && window.level == .floating
+        }), !panel.isKeyWindow else { return }
+
+        panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(panel.contentView)
     }
 }
 

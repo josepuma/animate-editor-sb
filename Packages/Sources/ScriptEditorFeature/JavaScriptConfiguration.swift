@@ -112,6 +112,11 @@ public extension LanguageConfiguration {
     /// them is what tells someone the name they typed is the one the host
     /// provides rather than a typo.
     private static var reservedIdentifiers: [String] {
+        keywords
+    }
+
+    /// The words the language itself reserves, plus what the host installs.
+    private static var keywords: [String] {
         [
             // The language.
             "await", "break", "case", "catch", "class", "const", "continue",
@@ -138,5 +143,23 @@ public extension LanguageConfiguration {
             "sprite", "rng", "duration", "param", "params", "Image", "Ease",
             "Layer", "Origin", "console",
         ]
+        // The members of those namespaces, so `Ease.quadOut` colours as one
+        // thing rather than a coloured receiver and a plain word after it.
+        //
+        // Reported as "the enums have no syntax", and it was not a limitation
+        // of regex highlighting — `Ease` was in the list and `quadOut` was
+        // not. Tree-sitter would have coloured them by grammar; a table
+        // colours them by being complete.
+        //
+        // Taken from `ScriptAPI` rather than written again, so the names that
+        // colour are exactly the names that complete: a third copy of this
+        // list is a third thing to keep in step, and the second copy was
+        // already wrong once — all thirty-five easings were spelled backwards.
+        + ScriptAPI.easings.map(\.name)
+        + ScriptAPI.images.map(\.name)
+        + ScriptAPI.layers.map(\.name)
+        + ScriptAPI.origins.map(\.name)
+        + ScriptAPI.spriteMethods.map(\.name)
+        + ScriptAPI.randomMethods.map(\.name)
     }
 }

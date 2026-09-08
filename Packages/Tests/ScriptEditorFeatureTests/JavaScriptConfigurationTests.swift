@@ -35,6 +35,47 @@ struct JavaScriptConfigurationTests {
         #expect(language.reservedIdentifiers.contains(name))
     }
 
+    /// Members colour too, not just their namespace.
+    ///
+    /// Reported as "the enums have no syntax": `Ease` was in the list and
+    /// `quadOut` was not, so `Ease.quadOut` drew as a coloured receiver
+    /// followed by a plain word. Not a limit of regex highlighting — a limit of
+    /// an incomplete table.
+    @Test("a namespace member is coloured", arguments: [
+        "quadOut", "soft", "fade", "unit", "Centre", "Overlay",
+    ])
+    func membersAreColoured(name: String) {
+        #expect(language.reservedIdentifiers.contains(name))
+    }
+
+    /// And a name that does not exist is not.
+    ///
+    /// Colouring everything would be the same as colouring nothing: the point
+    /// of the highlight is that it distinguishes a name the host provides from
+    /// one somebody typed.
+    @Test("an unknown name is not coloured", arguments: [
+        "notAThing", "myVariable", "count",
+    ])
+    func unknownIsNotColoured(name: String) {
+        #expect(language.reservedIdentifiers.contains(name) == false)
+    }
+
+    /// Every name the completion list offers is a name the highlighter knows.
+    ///
+    /// The two lists are the same data now, and this says so — the version
+    /// where they were written separately had one of them spelled backwards
+    /// for all thirty-five easings.
+    @Test("everything completable is highlightable")
+    func completionAndHighlightingAgree() {
+        let highlighted = Set(language.reservedIdentifiers)
+        let completable = ScriptAPI.easings + ScriptAPI.images + ScriptAPI.layers
+            + ScriptAPI.origins + ScriptAPI.spriteMethods + ScriptAPI.randomMethods
+
+        for entry in completable {
+            #expect(highlighted.contains(entry.name), "\(entry.name) completes but does not colour")
+        }
+    }
+
     /// The three string forms JavaScript has, including the one Swift does not.
     @Test("all three string delimiters are recognised", arguments: [
         "\"double\"", "'single'", "`template`",

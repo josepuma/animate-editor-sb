@@ -41,6 +41,66 @@ struct EndToEndTests {
         }
     }
 
+    /// Every name the starter template uses has to exist.
+    ///
+    /// It shipped calling `Ease.outQuad`, which `Easing` does not have — the
+    /// name was invented, so it read as `undefined`, the bridge fell back to
+    /// linear, and the first thing anybody sees was quietly not doing what it
+    /// said. Nothing caught it because "the template draws" was the only claim
+    /// under test, and it draws either way.
+    ///
+    /// Asserted by throwing from the script itself, so an undefined name is a
+    /// diagnostic rather than a silent fallback.
+    @Test("every name in the starter template resolves")
+    func starterTemplateNamesResolve() {
+        withRuntime {
+            // Each identifier the template reaches for, checked against what
+            // the runtime actually installs.
+            let checks = """
+            const missing = []
+            if (typeof sprite !== 'function') missing.push('sprite')
+            if (typeof duration !== 'number') missing.push('duration')
+            if (typeof Image.soft !== 'string') missing.push('Image.soft')
+            if (typeof Ease.quadOut !== 'number') missing.push('Ease.quadOut')
+            if (missing.length) throw new Error('undefined: ' + missing.join(', '))
+            sprite(Image.soft)
+            """
+
+            var node = EffectNode(
+                id: "fx", type: ScriptEffect.descriptor.type, name: "Script",
+                startTime: 0, duration: 4000, seed: 1,
+            )
+            node.scriptSource = checks
+
+            #expect(EffectEvaluator().evaluate(node).count == 1)
+        }
+    }
+
+    /// The easing the template names has to be the one the bridge accepts.
+    ///
+    /// Read out of the produced command rather than compared as a string: a
+    /// name that does not exist reaches the bridge as `undefined`, which
+    /// becomes linear — so the only way to know the template's curve survived
+    /// is to look at what it wrote.
+    @Test("the starter template's easing is not silently linear")
+    func starterTemplateEasingSurvives() throws {
+        try withRuntime {
+            var document = EffectDocument()
+            let track = document.addTrack(layer: .foreground)
+            _ = document.add(ScriptEffect.descriptor, at: 0, duration: 4000, on: track.id)
+
+            let moves = EffectEvaluator().evaluate(document)
+                .flatMap(\.commands)
+                .filter { $0.kind == .move }
+
+            let eased = try #require(moves.first)
+            #expect(
+                eased.timing.easing != .linear,
+                "the template asks for an easing; linear means the name did not resolve",
+            )
+        }
+    }
+
     /// A script's output feeds the existing filters unchanged.
     ///
     /// Nothing in a filter asks which effect produced the sprites it is given,
