@@ -33,6 +33,7 @@ let package = Package(
         .library(name: "StoryboardCore", targets: ["StoryboardCore"]),
         .library(name: "StoryboardRendering", targets: ["StoryboardRendering"]),
         .library(name: "StoryboardPersistence", targets: ["StoryboardPersistence"]),
+        .library(name: "StoryboardScripting", targets: ["StoryboardScripting"]),
         .library(name: "DesignSystem", targets: ["DesignSystem"]),
         .library(name: "PlaybackFeature", targets: ["PlaybackFeature"]),
         .library(name: "ProjectBrowserFeature", targets: ["ProjectBrowserFeature"]),
@@ -84,6 +85,21 @@ let package = Package(
             dependencies: ["StoryboardPersistence"],
         ),
 
+        // Running author-written scripts on JavaScriptCore.
+        //
+        // Platform, not a feature: it has no UI, and it talks to a framework on
+        // the core's behalf exactly as the renderer talks to Metal. Core
+        // declares what it needs and this target provides it, so the core's
+        // tests still run with no JS engine involved.
+        .target(
+            name: "StoryboardScripting",
+            dependencies: ["StoryboardCore"],
+        ),
+        .testTarget(
+            name: "StoryboardScriptingTests",
+            dependencies: ["StoryboardScripting", "StoryboardCore"],
+        ),
+
         .target(
             name: "DesignSystem",
         ),
@@ -131,7 +147,14 @@ let package = Package(
         // owns the window.
         .executableTarget(
             name: "AnimateEditorApp",
-            dependencies: ["PlaybackFeature", "ProjectBrowserFeature", "EditorShellFeature"],
+            dependencies: [
+                "PlaybackFeature",
+                "ProjectBrowserFeature",
+                "EditorShellFeature",
+                // The app installs the scripting runtime into the core's seam,
+                // which is why no feature needs to know it exists.
+                "StoryboardScripting",
+            ],
         ),
 
         // Development harness: runs the renderer against a generated storyboard
