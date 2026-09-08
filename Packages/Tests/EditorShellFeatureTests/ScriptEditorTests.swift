@@ -75,6 +75,38 @@ struct ScriptEditorTests {
         #expect(shell.effects[id]?.scriptSource == original)
     }
 
+    /// ⌘S runs the script when the editor is open, and saves otherwise.
+    ///
+    /// It did nothing at all for a while: two buttons claimed the shortcut,
+    /// the shell's won, and it guarded on a text field having focus and
+    /// returned — so the editor's never ran and the footer sat on "⌘S to run"
+    /// while nothing ran. One owner that delegates is the only arrangement
+    /// where both meanings work.
+    @Test("the editor takes over cmd-S while it is open")
+    func editorTakesOverSave() {
+        let (shell, id) = shellWithScript()
+        #expect(shell.runScriptHandler == nil, "nothing is registered before the editor appears")
+
+        var ran = false
+        shell.runScriptHandler = { ran = true }
+
+        // What the shell's ⌘S does now: ask whoever is in front of it.
+        shell.runScriptHandler?()
+
+        #expect(ran)
+        #expect(shell.effects[id] != nil)
+    }
+
+    /// And hands it back, so ⌘S saves again once the editor is gone.
+    @Test("the handler is released when the editor goes away")
+    func handlerIsReleased() {
+        let (shell, _) = shellWithScript()
+        shell.runScriptHandler = {}
+        shell.runScriptHandler = nil
+
+        #expect(shell.runScriptHandler == nil)
+    }
+
     /// The panel only appears for a script clip.
     @Test("the editor is offered only for a script clip")
     func offeredOnlyForScripts() {

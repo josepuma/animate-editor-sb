@@ -86,25 +86,6 @@ public struct ScriptCodeEditor: View {
         // dark"; it does not, and the screenshot showed it.
         .environment(\.codeEditorTheme, .animateEditorDark)
         .focused($isFocused)
-        // ⌘S runs the script.
-        //
-        // A zero-sized `Button` with a keyboard shortcut, not `.onKeyPress`.
-        // `.onKeyPress` only fires for a view that holds the keyboard, and the
-        // library's `NSTextView` holds it — so the handler never saw ⌘S and
-        // the footer sat on "⌘S to run" while nothing ran. Reported exactly
-        // that way.
-        //
-        // Safe as a window-wide shortcut because it only exists while this
-        // view does, which is only while a script clip is selected — and the
-        // shell's own ⌘S now yields to a focused editor, so the two do not
-        // both fire.
-        .background {
-            Button("") { run() }
-                .keyboardShortcut("s", modifiers: .command)
-                .frame(width: 0, height: 0)
-                .opacity(0)
-                .accessibilityHidden(true)
-        }
         // A dot opens the completion list.
         //
         // Reported as broken and it was: typing `.` under `sprite(Image.soft)`

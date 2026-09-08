@@ -1087,6 +1087,18 @@ public final class EditorShellModel {
         return nodeID
     }
 
+    /// What ⌘S should do while a script is being edited.
+    ///
+    /// Set by the editor panel and cleared when it goes away, so the shell's
+    /// own ⌘S can hand over rather than swallow the key.
+    ///
+    /// A closure rather than two buttons both claiming the shortcut: that was
+    /// the bug — the shell's button won, saw a text field had focus, and
+    /// returned without doing anything, so the editor's button never ran and
+    /// the footer sat on "⌘S to run" while nothing ran. One shortcut, one
+    /// owner, and the owner asks whoever is in front of it.
+    @ObservationIgnored public var runScriptHandler: (() -> Void)?
+
     /// Replaces a script's source.
     ///
     /// Through the model rather than onto the node directly, so `EditHistory`

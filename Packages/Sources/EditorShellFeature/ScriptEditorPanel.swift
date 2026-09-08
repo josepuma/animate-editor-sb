@@ -63,6 +63,22 @@ struct ScriptEditorPanel: View {
         // Keyed to the clip, so selecting another script does not leave the
         // previous one's draft sitting in the editor.
         .onChange(of: nodeID) { _, _ in draft = nil }
+        // ⌘S belongs to the editor while the editor is here.
+        //
+        // Registered rather than bound to a second button: two buttons with
+        // the same shortcut means one of them wins, and the one that won was
+        // the shell's — which declined because a field had focus, so nothing
+        // happened at all.
+        //
+        // Re-registered on every draft change, not once in `onAppear`. A
+        // closure over `commit` captures the `self` it was made with, and
+        // `draft` is `@State` — so the version registered when the panel
+        // appeared reads `nil` forever and ⌘S would have saved nothing. Same
+        // bug wearing a different hat.
+        .onChange(of: draft, initial: true) { _, _ in
+            shell.runScriptHandler = commit
+        }
+        .onDisappear { shell.runScriptHandler = nil }
     }
 
     private var header: some View {

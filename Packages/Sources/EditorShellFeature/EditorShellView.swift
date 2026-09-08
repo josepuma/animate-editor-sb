@@ -252,8 +252,19 @@ public struct EditorShellView<Canvas: View>: View {
             // the one keystroke everybody presses doing everything except what
             // it looked like it did.
             Button("Save") {
-                guard !EditingFocus.isActive else { return }
-                shell.saveProject()
+                // Handed to the script editor when one is open, rather than
+                // refused.
+                //
+                // The first version guarded on `EditingFocus.isActive` and
+                // returned — which is why ⌘S did nothing inside the editor:
+                // two buttons claimed the shortcut, this one won, and it
+                // declined. A shortcut with one owner that delegates is the
+                // only arrangement where both meanings work.
+                if let run = shell.runScriptHandler {
+                    run()
+                } else {
+                    shell.saveProject()
+                }
             }
             .keyboardShortcut("s", modifiers: .command)
 
