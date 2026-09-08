@@ -144,8 +144,34 @@ public final class EditorShellModel {
     public var selectedNodeID: EffectNode.ID? {
         didSet {
             guard selectedNodeID != oldValue else { return }
+            revealScriptEditorIfNeeded()
             onSelectionChanged?(selectedNodeID)
         }
+    }
+
+    /// Shows the script panel when a script clip is selected.
+    ///
+    /// In `selectedNodeID`'s `didSet` rather than at the places that select,
+    /// because there are several — a click on the timeline, a click on the
+    /// canvas, a paste, an arrow key — and an editor that appears for some of
+    /// them is worse than one that never does: you learn it is unreliable
+    /// rather than learning where it is.
+    ///
+    /// Selecting the clip is the whole gesture. The editor existed before this
+    /// and was reachable only by then switching panels by hand, which means the
+    /// feature was hidden behind knowing it was there.
+    ///
+    /// It does not switch **away** on deselecting, or on selecting something
+    /// else. Taking a panel back is a second decision the author did not ask
+    /// for, and a rail that moves under you twice per click is worse than one
+    /// that moves once.
+    private func revealScriptEditorIfNeeded() {
+        guard let nodeID = selectedNodeID,
+              effects[nodeID]?.type == ScriptEffect.descriptor.type
+        else { return }
+
+        sidePanel = .scripts
+        isSidePanelVisible = true
     }
 
     /// Told the moment the selection changes.
