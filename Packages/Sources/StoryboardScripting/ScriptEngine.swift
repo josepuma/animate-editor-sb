@@ -9,7 +9,20 @@ import StoryboardCore
 /// scripts that agree separately but not together is the kind of bug that only
 /// shows up in someone else's project.
 public struct ScriptEngine: Sendable {
-    public init() {}
+    /// Whether loops are made to count themselves.
+    ///
+    /// Only ever false in a test that has to prove the rewrite changes nothing
+    /// about a script that terminates. There is no way to turn it off from the
+    /// app, because a script that can outrun its guard is a hung editor.
+    let instrumentsLoops: Bool
+
+    public init() {
+        instrumentsLoops = true
+    }
+
+    init(instrumentsLoops: Bool) {
+        self.instrumentsLoops = instrumentsLoops
+    }
 
     /// Everything a script can see, by name.
     ///
@@ -46,6 +59,14 @@ public struct ScriptEngine: Sendable {
         // The storyboard API.
         "Ease", "Image", "Layer", "Origin", "console", "duration", "param",
         "params", "rng", "sprite",
+        // The loop guard and its counter.
+        //
+        // Visible rather than hidden: they have to be callable from inside the
+        // loops they protect, so they cannot be deleted before the script runs.
+        // Declared here because the allow-list test asserts equality — it
+        // caught these the moment instrumentation landed, which is the test
+        // doing exactly its job.
+        LoopInstrumenter.guardName, "__ticks",
     ]
 
     /// Names JavaScriptCore installs that a script must not reach.
@@ -74,14 +95,26 @@ public struct ScriptEngine: Sendable {
         let collector = SpriteCollector(idPrefix: request.idPrefix)
         install(into: context, request: request, collector: collector)
 
-        context.evaluateScript(request.source)
+        if instrumentsLoops {
+            context.evaluateScript(LoopInstrumenter.preamble)
+            context.evaluateScript(LoopInstrumenter.instrument(request.source))
+        } else {
+            context.evaluateScript(request.source)
+        }
 
         if let thrown {
             return ScriptRuntime.Outcome(sprites: [], diagnostics: [.runtimeFailed(thrown)])
         }
 
         let clamped = ScriptLimits.clamped(collector.sprites())
-        return ScriptRuntime.Outcome(sprites: clamped.sprites, diagnostics: clamped.diagnostics)
+        var diagnostics = clamped.diagnostics
+        if collector.refused > 0 {
+            diagnostics.append(.spritesTruncated(
+                produced: clamped.sprites.count + collector.refused,
+                kept: clamped.sprites.count,
+            ))
+        }
+        return ScriptRuntime.Outcome(sprites: clamped.sprites, diagnostics: diagnostics)
     }
 
     // MARK: - Building the context
@@ -155,13 +188,21 @@ public struct ScriptEngine: Sendable {
         let stream = RandomStream(seed: seed &+ 0x9E37_79B9_7F4A_7C15)
 
         let unit: @convention(block) () -> Double = { stream.next() }
+
+        // Every number crossing this bridge is guarded, because a script can
+        // hand over anything: `rng.integer(0, 0/0)` reaches Swift as NaN, and
+        // `Int(nan)` is not an error — it is a **trap**, which takes the whole
+        // editor down. A script must not be able to crash the app it runs in,
+        // and this was found by a test crashing the process rather than failing.
         let between: @convention(block) (Double, Double) -> Double = { low, high in
-            low + stream.next() * (high - low)
+            guard low.isFinite, high.isFinite else { return 0 }
+            return low + stream.next() * (high - low)
         }
         let integer: @convention(block) (Double, Double) -> Double = { low, high in
-            let lower = Int(low.rounded())
-            let upper = Int(high.rounded())
-            guard upper > lower else { return low }
+            guard low.isFinite, high.isFinite else { return 0 }
+            let lower = Int(low.rounded().clampedToInt)
+            let upper = Int(high.rounded().clampedToInt)
+            guard upper > lower else { return Double(lower) }
             return Double(lower + Int(stream.next() * Double(upper - lower + 1)))
         }
 

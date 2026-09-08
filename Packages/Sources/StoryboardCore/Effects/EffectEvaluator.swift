@@ -50,7 +50,10 @@ public struct EffectLibrary: Sendable {
     }
 
     /// The built-in library.
-    public static let standard = EffectLibrary(effects: [ImageEffect(), ShapeEffect(), TextEffect(), EmitterEffect(), AudioBarsEffect()])
+    ///
+    /// Removing `ScriptEffect()` from this list turns scripting off entirely —
+    /// nothing else reaches it, so this one line is the rollback.
+    public static let standard = EffectLibrary(effects: [ImageEffect(), ShapeEffect(), TextEffect(), EmitterEffect(), AudioBarsEffect(), ScriptEffect()])
 }
 
 /// Turns placed effect nodes into the sprites the renderer and the exporter

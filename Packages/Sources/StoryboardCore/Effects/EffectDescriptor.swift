@@ -82,6 +82,14 @@ public struct EffectDescriptor: Sendable, Equatable {
     /// the default.
     public var initialTransform: @Sendable (Double) -> Transform = { _ in Transform() }
 
+    /// The code a freshly placed clip starts with, for a scripted effect.
+    ///
+    /// `nil` for everything else, which is every effect but one. Declared here
+    /// beside `initialTransform` for the same reason: the descriptor stays the
+    /// only thing a caller needs, so nothing that places a clip has to know
+    /// which effects run code.
+    public var initialSource: String?
+
     /// Every parameter at its default, ready for a newly created node.
     public var defaultValues: [String: EffectValue] {
         Dictionary(uniqueKeysWithValues: parameters.map { ($0.id, $0.defaultValue) })

@@ -402,6 +402,13 @@ public struct EffectDocument: Sendable, Codable {
             // empty transform, no fade, and therefore a single zero-length
             // command — a sprite whose whole life lasted an instant.
             transform: descriptor.initialTransform(duration),
+            // Whatever code the effect wants a fresh clip to start with.
+            //
+            // Applied here for the same reason as the transform above: every
+            // route in gets it. A script clip built from `defaultValues` alone
+            // would arrive empty and draw nothing, which reads as broken rather
+            // than as waiting to be written.
+            scriptSource: descriptor.initialSource,
         )
         tracks[index].nodes.append(node)
         return node

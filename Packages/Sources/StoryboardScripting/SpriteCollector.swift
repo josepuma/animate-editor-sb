@@ -13,6 +13,14 @@ final class SpriteCollector {
     private let idPrefix: String
     private var built: [StoryboardSprite] = []
 
+    /// How many sprites the script asked for beyond the ceiling.
+    ///
+    /// Counted here because the clamp downstream can no longer see them: they
+    /// are declined at the door rather than built and trimmed, so without this
+    /// the truncation would be silent — and silent truncation is the failure
+    /// mode the whole diagnostic exists to avoid.
+    private(set) var refused = 0
+
     init(idPrefix: String) {
         self.idPrefix = idPrefix
     }
@@ -45,6 +53,24 @@ final class SpriteCollector {
     /// object would need converting afterwards, and every field in that
     /// conversion is a field that can be forgotten.
     private func builder(path: String, options: JSValue?, in context: JSContext) -> JSValue? {
+        // Past the ceiling, a builder that accepts calls and keeps nothing.
+        //
+        // The iteration guard stops an endless loop, but `while (true) {
+        // sprite(...) }` reaches that ceiling having built two million sprites
+        // in Swift first — measured at **100 seconds** before the clamp, which
+        // only trims the finished array, ever saw them. Refusing early takes
+        // that to 1.4s.
+        //
+        // Inert rather than `nil`: returning nothing makes the *next* chained
+        // call throw, which discards the two thousand good sprites the script
+        // had already built. Truncating is the decision — a clip somebody can
+        // look at and turn down beats an error and a blank canvas — and it has
+        // to hold here too.
+        guard built.count < ScriptLimits.maximumSprites else {
+            refused += 1
+            return inertBuilder(in: context)
+        }
+
         let index = built.count
         built.append(StoryboardSprite(
             id: "\(idPrefix)/s\(index)",
@@ -114,6 +140,27 @@ final class SpriteCollector {
         return handle
     }
 
+    /// A builder that accepts every call and keeps nothing.
+    ///
+    /// Handed out once the sprite ceiling is reached, so a script that asks for
+    /// too many carries on running and chaining rather than throwing on its
+    /// next `.fade(…)`. Built once per context and reused: past the ceiling
+    /// there may be millions of calls, and one JS object per call is work spent
+    /// on sprites nobody will see.
+    private func inertBuilder(in context: JSContext) -> JSValue? {
+        if let existing = context.objectForKeyedSubscript("__inert"), !existing.isUndefined {
+            return existing
+        }
+        return context.evaluateScript("""
+        globalThis.__inert = (function () {
+            const noop = function () { return globalThis.__inert }
+            return {
+                fade: noop, move: noop, scale: noop, rotate: noop, at: noop,
+            }
+        })()
+        """)
+    }
+
     /// Adds a chaining method: it runs `body`, then returns the builder.
     ///
     /// The block takes an **array** rather than a variadic list, and the JS
@@ -123,7 +170,12 @@ final class SpriteCollector {
     private func add(to handle: JSValue, name: String, body: @escaping ([Double]) -> Void) {
         let method: @convention(block) (JSValue) -> JSValue = { arguments in
             let count = Int(arguments.forProperty("length")?.toInt32() ?? 0)
-            body((0..<count).compactMap { arguments.atIndex($0)?.toDouble() })
+            // Every argument made finite here, once, rather than at each use.
+            // `0/0` is ordinary JavaScript and a NaN reaching a command puts a
+            // sprite at a position the resolver cannot interpolate — and a NaN
+            // converted to `Int` anywhere downstream traps and takes the editor
+            // with it.
+            body((0..<count).compactMap { arguments.atIndex($0)?.toDouble().finite() })
             return handle
         }
         handle.setObject(method, forKeyedSubscript: "__\(name)" as NSString)
