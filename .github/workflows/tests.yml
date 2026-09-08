@@ -1,0 +1,74 @@
+# Runs the test suite on every push and pull request.
+#
+# The suite is the project's safety net — golden fixtures that compare the Swift
+# engine against the real TypeScript one, and a body of guards each written to
+# fail when a specific past bug comes back. A guard nobody runs protects
+# nothing, so it runs here rather than relying on someone remembering locally.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # A new push supersedes the run in flight for the same ref.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # arm64, to match the architecture the app ships on: the renderer compiles
+    # Metal shaders and the project has arm64-specific concerns, so an Intel
+    # runner would be testing a different target than anyone actually runs.
+    runs-on: macos-26
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Pinned rather than left to the image default. GitHub rolls the default
+      # Xcode forward silently, and a toolchain that changes under a green
+      # suite is a suite that can start failing with no commit to blame.
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.6.app
+
+      - name: Report toolchain
+        run: swift --version
+
+      # Everything except the three suites that need a live GPU.
+      #
+      # GitHub's hosted macOS runners have no usable one: the device
+      # `MTLCreateSystemDefaultDevice` hands back cannot render, and there is no
+      # passthrough (actions/runner-images#7085, open since 2022).
+      #
+      # Skipped by SUITE, not by target. `StoryboardRenderingTests` holds 78
+      # cases and only three of them need a GPU, so dropping the whole target
+      # would cost 56 tests of pure logic — the shelf packer, the canvas
+      # geometry, the built-in shapes, the export. Those are the ones worth
+      # keeping.
+      #
+      # The names below are TYPE names, not the display names in `@Suite("…")`.
+      # `--skip` matches identifiers, so "Texture decoding" silently matches
+      # nothing and the suite runs anyway — verified by watching the count stay
+      # at 78 with the skips supposedly applied. A filter that quietly does
+      # nothing is worse than no filter: the run goes green locally and fails
+      # on the runner.
+      #
+      # What genuinely cannot run here, and stays verified locally only:
+      #   TextureDecodingTests / BuiltInTextureTests — decode to RGBA and read
+      #                                                pixels back off the GPU.
+      #   ShaderLayoutTests — compiles Shaders.metal to check every entry point
+      #                       still exists.
+      - name: Test
+        run: |
+          swift test --package-path Packages \
+            --skip TextureDecodingTests \
+            --skip BuiltInTextureTests \
+            --skip ShaderLayoutTests
+
+      # The skipped suites still have to COMPILE. Without this, code behind a
+      # skip is free to stop building and nothing would say so until someone
+      # ran the suite by hand — which is the situation this workflow exists to
+      # end.
+      - name: Build all targets
+        run: swift build --package-path Packages --build-tests
