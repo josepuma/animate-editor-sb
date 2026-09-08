@@ -128,35 +128,36 @@ final class ScriptLanguageService: LanguageService, @unchecked Sendable {
 
     /// The characters the chosen completion replaces, and what replaces them.
     ///
-    /// **`NSTextView` counts the dot as part of the word.** Measured against a
-    /// real one: with the caret after `Ease.out`, `rangeForUserCompletion`
-    /// reports eight characters — `Ease.out`, namespace and all. The library
-    /// anchors and falls back to that range, so a completion of just `quadOut`
-    /// replaced the whole thing and left `quadOut` where `Ease.quadOut` should
-    /// be. Reported as "it deletes Ease. and leaves out".
+    /// Only ever the word typed — never the receiver.
     ///
-    /// So the range is taken from what the editor considers the word, and the
-    /// inserted text is rebuilt to match it — receiver included. Both halves
-    /// have to agree, and only one of them is mine to choose.
+    /// It replaced `Ease.quadOut` whole for a while, because `NSTextView`
+    /// counts the dot as part of a word: with the caret after `Ease.out` its
+    /// `rangeForUserCompletion` reports all eight characters, measured. That
+    /// range is only the *fallback* though (`CodeActions.swift:242` passes mine
+    /// when it exists), so carrying the receiver was solving a problem that
+    /// only appears when the range is `nil` — and it created two: the receiver
+    /// was rewritten, so `Ease` lost its keyword colour, and a single
+    /// backspace took the whole thing away because one programmatic insertion
+    /// is one undo group.
+    ///
+    /// A range is therefore **always** returned, even for an empty prefix — an
+    /// empty range at the caret, which inserts without replacing and never
+    /// falls through to the editor's own idea of the word.
     private func insertion(
         for entry: ScriptAPI.Entry,
         at location: Int,
         in context: CompletionContext,
     ) -> (text: String, range: NSRange?) {
-        let (prefix, receiver) = switch context {
-        case let .members(namespace, prefix): (prefix, "\(namespace).")
-        case let .spriteMethod(prefix): (prefix, "")
-        case let .global(prefix): (prefix, "")
-        case .none: ("", "")
+        let prefix = switch context {
+        case let .members(_, prefix): prefix
+        case let .spriteMethod(prefix): prefix
+        case let .global(prefix): prefix
+        case .none: ""
         }
 
-        guard !prefix.isEmpty || !receiver.isEmpty else { return (entry.insert, nil) }
-
-        // What the editor will hand back: the receiver plus what was typed.
-        let replaced = receiver + prefix
         return (
-            receiver + entry.insert,
-            NSRange(location: location - replaced.utf16.count, length: replaced.utf16.count)
+            entry.insert,
+            NSRange(location: location - prefix.utf16.count, length: prefix.utf16.count)
         )
     }
 
@@ -170,7 +171,7 @@ final class ScriptLanguageService: LanguageService, @unchecked Sendable {
         Completions.Completion(
             id: id,
             rowView: { _ in CompletionRow(entry: entry) },
-            documentationView: Text(entry.summary).font(Theme.Typography.micro),
+            documentationView: CompletionDocumentation(entry: entry),
             selected: selected,
             sortText: entry.name,
             filterText: entry.name,
@@ -237,6 +238,40 @@ private extension [ScriptAPI.Entry] {
     func matching(_ prefix: String) -> [ScriptAPI.Entry] {
         guard !prefix.isEmpty else { return self }
         return filter { $0.name.lowercased().hasPrefix(prefix.lowercased()) }
+    }
+}
+
+/// The documentation pane beside the completion list.
+///
+/// The library reserves it a hundred points whether or not there is anything to
+/// show, so the signature alone — already in the row beside the name — spends
+/// that space saying the same thing twice. An example answers what a signature
+/// cannot: what those numbers mean in place, which is the question somebody
+/// reaching for `scaleVec(…, 854, 80, 854, 80)` actually has.
+private struct CompletionDocumentation: View {
+    let entry: ScriptAPI.Entry
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.compact) {
+            if !entry.summary.isEmpty {
+                Text(entry.summary)
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.secondary)
+            }
+
+            if let example = entry.example {
+                Text(example)
+                    .font(Theme.Typography.readout)
+                    .foregroundStyle(Theme.Palette.primary)
+                    .textSelection(.enabled)
+                    .padding(Theme.Spacing.tight)
+                    .background(
+                        Theme.Fill.well,
+                        in: RoundedRectangle(cornerRadius: Theme.Radius.small),
+                    )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

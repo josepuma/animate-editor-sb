@@ -21,12 +21,29 @@ public enum ScriptAPI {
         public let insert: String
         /// One line, shown beside the name.
         public let summary: String
+
+        /// A line of real code, for the documentation pane.
+        ///
+        /// The library reserves that pane a hundred points whether anything is
+        /// in it or not — `minHeight: 100`, hardcoded — so showing the
+        /// signature there, which is already in the row beside the name,
+        /// spends the space saying nothing twice. An example answers what a
+        /// signature cannot: what the numbers actually mean in place.
+        public let example: String?
+
         public let kind: Kind
 
-        public init(name: String, insert: String? = nil, summary: String, kind: Kind) {
+        public init(
+            name: String,
+            insert: String? = nil,
+            summary: String,
+            example: String? = nil,
+            kind: Kind,
+        ) {
             self.name = name
             self.insert = insert ?? name
             self.summary = summary
+            self.example = example
             self.kind = kind
         }
     }
@@ -120,60 +137,70 @@ public enum ScriptAPI {
             name: "fade",
             insert: "fade(",
             summary: "(ease?, from, to, startOpacity, endOpacity)",
+            example: "sprite(Image.soft).fade(0, 300, 0, 1)",
             kind: .method,
         ),
         Entry(
             name: "move",
             insert: "move(",
             summary: "(ease?, from, to, startX, startY, endX, endY)",
+            example: "sprite(Image.soft).move(Ease.quadOut, 0, 900, 320, 240, 500, 100)",
             kind: .method,
         ),
         Entry(
             name: "scale",
             insert: "scale(",
             summary: "(ease?, from, to, startScale, endScale)",
+            example: "sprite(Image.soft).scale(0, 600, 0.2, 1)",
             kind: .method,
         ),
         Entry(
             name: "rotate",
             insert: "rotate(",
             summary: "(ease?, from, to, startRadians, endRadians)",
+            example: "sprite(Image.soft).rotate(0, 900, 0, Math.PI * 2)",
             kind: .method,
         ),
         Entry(
             name: "moveX",
             insert: "moveX(",
             summary: "(ease?, from, to, startX, endX) — one axis, half the cost",
+            example: "sprite(Image.soft).moveX(0, 900, 320, 500)",
             kind: .method,
         ),
         Entry(
             name: "moveY",
             insert: "moveY(",
             summary: "(ease?, from, to, startY, endY) — one axis, half the cost",
+            example: "sprite(Image.soft).moveY(0, 900, 240, 100)",
             kind: .method,
         ),
         Entry(
             name: "scaleVec",
             insert: "scaleVec(",
             summary: "(ease?, from, to, startX, startY, endX, endY) — stretch per axis",
+            example: "sprite(Image.square).scaleVec(0, 1, 854, 80, 854, 80)",
             kind: .method,
         ),
         Entry(
             name: "color",
             insert: "color(",
             summary: "(ease?, from, to, r, g, b, r, g, b) — channels in 0–255",
+            example: "sprite(Image.soft).color(0, 900, 255, 190, 90, 200, 40, 20)",
             kind: .method,
         ),
         Entry(
             name: "at",
             insert: "at(",
             summary: "(x, y) — where the sprite sits before it moves",
+            example: "sprite(Image.soft).at(320, 240)",
             kind: .method,
         ),
         Entry(
             name: "additive",
             insert: "additive(",
             summary: "(from, to) — adds light instead of covering",
+            example: "sprite(Image.glow).additive(0, duration)",
             kind: .method,
         ),
         Entry(
