@@ -163,6 +163,77 @@ struct EndToEndTests {
         }
     }
 
+    /// Every method the list declares is actually callable from a script.
+    ///
+    /// `SpriteMethod` is about to feed three things — the real builder, the
+    /// inert one, and the generated type declarations the editor reads. A case
+    /// added to the list but never registered would be declared to VSCode,
+    /// offered by autocompletion, and throw when called: the same shape as the
+    /// thirty-five backwards easing names, arriving from the other direction.
+    ///
+    /// It asks for one sprite and one command, so a method that silently keeps
+    /// nothing fails here too rather than only a method that throws.
+    @Test("every declared method is callable", arguments: SpriteMethod.allCases)
+    func everyDeclaredMethodIsCallable(_ method: SpriteMethod) {
+        withRuntime {
+            var node = EffectNode(
+                id: "fx", type: ScriptEffect.descriptor.type, name: "Script",
+                startTime: 0, duration: 4000, seed: 1,
+            )
+            node.scriptSource = "sprite(Image.soft).\(method.rawValue)(\(method.sampleArguments))"
+
+            let drawn = EffectEvaluator().evaluate(node)
+
+            #expect(drawn.count == 1, ".\(method.rawValue)() must not throw")
+            // `at` sets a resting position rather than appending a command, so
+            // it is the one case with nothing on the timeline to count.
+            let commands = drawn.first?.commands.count ?? 0
+            #expect(
+                commands == (method == .at ? 0 : 1),
+                ".\(method.rawValue)() must record what it claims to",
+            )
+        }
+    }
+
+    /// Past the ceiling, EVERY method still chains.
+    ///
+    /// The clamp's own comment promises a script that asks for too many
+    /// "carries on running and chaining rather than throwing on its next
+    /// `.fade(…)`" — and `fade` is exactly the case the existing ceiling test
+    /// exercises. The inert builder handed out past the limit exposed five of
+    /// the twelve methods the real builder registers, so a script that chained
+    /// `.color(…)` or `.scaleVec(…)` threw on sprite 2001 and produced nothing
+    /// at all. Truncation that only survives the methods a test happened to
+    /// call is not truncation.
+    ///
+    /// Parameterised over the whole surface rather than over the seven that
+    /// were missing: a method added to the builder and forgotten here is the
+    /// same bug again, and this way it fails on arrival.
+    @Test("past the ceiling every method still chains", arguments: SpriteMethod.allCases)
+    func inertBuilderChainsEveryMethod(_ method: SpriteMethod) {
+        withRuntime {
+            var node = EffectNode(
+                id: "fx", type: ScriptEffect.descriptor.type, name: "Script",
+                startTime: 0, duration: 4000, seed: 1,
+            )
+            // One past the ceiling, so the last call gets the inert builder
+            // while every call before it gets a real one.
+            let asked = ScriptLimits.maximumSprites + 1
+            node.scriptSource = """
+            for (let i = 0; i < \(asked); i++) {
+              sprite(Image.soft).\(method.rawValue)(\(method.sampleArguments))
+            }
+            """
+
+            let drawn = EffectEvaluator().evaluate(node)
+
+            #expect(
+                drawn.count == ScriptLimits.maximumSprites,
+                "chaining .\(method.rawValue)() past the ceiling must truncate, not throw",
+            )
+        }
+    }
+
     /// An endless script does not hang the evaluation.
     @Test("an endless script does not hang the document")
     func endlessScriptDoesNotHang() {
