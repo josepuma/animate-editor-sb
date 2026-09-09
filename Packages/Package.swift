@@ -203,6 +203,13 @@ let package = Package(
                 // needs to know either one exists.
                 "StoryboardScripting",
                 "ScriptEditorFeature",
+                // Declared although `PlaybackFeature` already brings it: this
+                // target imports it directly, and an undeclared import
+                // compiles only because another target's artefacts happen to
+                // be in `.build`. That is the accident CI caught the first
+                // time it ran, when a Core test reached a feature and passed
+                // locally for the same reason.
+                "StoryboardPersistence",
             ],
         ),
 

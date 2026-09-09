@@ -481,8 +481,12 @@ public struct EditorShellView<Canvas: View>: View {
 // ─── Layout constants ────────────────────────────────────────────────────────
 
 /// Fixed measurements the workspace needs to size itself.
+///
+/// `internal` rather than `private` so the minimum window size can be tested:
+/// it is derived from the panel widths, so widening one of those raises the
+/// floor the window can open at, and nothing said so until a test did.
 @MainActor
-private enum ShellLayout {
+enum ShellLayout {
     /// Aspect ratio of the storyboard canvas.
     static let canvasAspect: CGFloat = 854.0 / 480.0
     /// Width of the icon rail: one control plus its surrounding padding.

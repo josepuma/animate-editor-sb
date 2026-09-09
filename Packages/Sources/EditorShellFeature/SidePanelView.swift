@@ -5,7 +5,17 @@ import SwiftUI
 /// The left panel: whatever the rail has selected.
 struct SidePanelView: View {
     /// Fixed width, so the shell can size the workspace around the canvas.
-    static let width: CGFloat = 240
+    ///
+    /// 300 rather than the 240 it started at: the panels hold rows of a label
+    /// and a control, and at 240 the control had about 130 points — enough for
+    /// a number, not for a menu. "China continental (simplificado)" is
+    /// thirty-two characters and was truncated on screen.
+    ///
+    /// This feeds ``EditorShellView/minimumWidth``, so it is not free: the
+    /// window's floor moves with it, from 1076 to 1136 points. That is still
+    /// well inside a 13-inch display's 1470, which is what makes the room
+    /// affordable.
+    static let width: CGFloat = 300
 
     /// The width while a script is being written.
     ///
@@ -68,6 +78,7 @@ struct SidePanelView: View {
             case .scripts: scripts
             case .filters: filtersPanel
             case .layers: layers
+            case .lyrics: LyricsPanel(shell: shell)
             case .timing: timing
             }
         }

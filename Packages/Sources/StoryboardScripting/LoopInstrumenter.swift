@@ -103,11 +103,14 @@ enum LoopInstrumenter {
     /// Checked for word boundaries so `forEach` and a variable called
     /// `whileLoop` are left alone — rewriting either would corrupt the script.
     private static func nextLoop(in source: String, from start: String.Index) -> Keyword? {
+        let skippable = commentsAndStrings(in: source)
+
         var candidates: [Keyword] = []
         for (word, isFor) in [("for", true), ("while", false)] {
             var search = start
             while let found = source.range(of: word, range: search..<source.endIndex) {
-                if isWord(in: source, range: found) {
+                let inProse = true
+                if isWord(in: source, range: found), !inProse {
                     candidates.append(Keyword(start: found.lowerBound, end: found.upperBound, isFor: isFor))
                     break
                 }
@@ -115,6 +118,88 @@ enum LoopInstrumenter {
             }
         }
         return candidates.min { $0.start < $1.start }
+    }
+
+    /// The stretches of the source that are prose rather than code.
+    ///
+    /// The word-boundary check alone is not enough, and a real script showed
+    /// why: a line reading `// …a comb, while an angle that comes…` was
+    /// followed by `const angleAt = (u) => {`. The `while` is a whole word, so
+    /// it passed as a keyword, the next `(` found was the arrow function's
+    /// parameter list, and it came out as
+    /// `const angleAt = ((__tick(), u)) => {` — a syntax error from a file
+    /// that is valid JavaScript.
+    ///
+    /// Scanned in one pass rather than with a regular expression: the states
+    /// nest in ways a pattern cannot express — a `//` inside a string is not a
+    /// comment, and a quote inside a comment does not open a string.
+    private static func commentsAndStrings(in source: String) -> [Range<String.Index>] {
+        enum State { case code, lineComment, blockComment, string(Character) }
+
+        var ranges: [Range<String.Index>] = []
+        var state = State.code
+        var regionStart = source.startIndex
+        var index = source.startIndex
+
+        func next(after position: String.Index) -> String.Index? {
+            let after = source.index(after: position)
+            return after < source.endIndex ? after : nil
+        }
+
+        while index < source.endIndex {
+            let character = source[index]
+
+            switch state {
+            case .code:
+                if character == "/", let following = next(after: index) {
+                    if source[following] == "/" {
+                        state = .lineComment
+                        regionStart = index
+                        index = following
+                    } else if source[following] == "*" {
+                        state = .blockComment
+                        regionStart = index
+                        index = following
+                    }
+                } else if character == "\"" || character == "'" || character == "`" {
+                    state = .string(character)
+                    regionStart = index
+                }
+
+            case .lineComment:
+                if character == "\n" {
+                    ranges.append(regionStart..<index)
+                    state = .code
+                }
+
+            case .blockComment:
+                if character == "*", let following = next(after: index), source[following] == "/" {
+                    index = following
+                    ranges.append(regionStart..<source.index(after: index))
+                    state = .code
+                }
+
+            case let .string(quote):
+                // An escape consumes whatever follows, so `"\\""` does not end
+                // the string.
+                if character == "\\" {
+                    if let following = next(after: index) { index = following }
+                } else if character == quote {
+                    ranges.append(regionStart..<source.index(after: index))
+                    state = .code
+                }
+            }
+
+            index = source.index(after: index)
+        }
+
+        // An unterminated comment or string runs to the end of the file.
+        switch state {
+        case .code: break
+        default: ranges.append(regionStart..<source.endIndex)
+        }
+
+        return ranges
     }
 
     private static func isWord(in source: String, range: Range<String.Index>) -> Bool {

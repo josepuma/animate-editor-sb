@@ -77,7 +77,22 @@ struct FieldsPage: View {
             .frame(maxWidth: 340)
         }
 
-        Specimen("FieldGroup", note: "A titled block, separated from its neighbours by its own surface.") {
+        Specimen("FieldGroups", note: "A column of groups with the rule between them — between, not before, since a group cannot know whether it is first and a rule on the first separates it from nothing. Placed by hand at each call site it gets forgotten.") {
+            FieldGroups {
+                FieldGroup("Timing") {
+                    PropertyRow("Start") { PropertyValue("15811 ms") }
+                }
+                FieldGroup("Transform") {
+                    PropertyRow("Position X") { PropertyValue("320 px") }
+                }
+                FieldGroup("Content") {
+                    PropertyRow("Text") { PropertyValue("HELLO") }
+                }
+            }
+            .frame(width: 260, alignment: .leading)
+        }
+
+        Specimen("FieldGroup", note: "A titled block, separated by its heading and the space around it — not by a surface. A panel of filled groups is boxes inside a box: the panel already has one.") {
             HStack(alignment: .top, spacing: Theme.Spacing.regular) {
                 FieldGroup("Transform") {
                     PropertyRow("Scale") {

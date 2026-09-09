@@ -8,6 +8,7 @@ public enum SidePanel: String, CaseIterable, Identifiable, Sendable {
     case scripts
     case filters
     case layers
+    case lyrics
     case timing
 
     public var id: String { rawValue }
@@ -18,6 +19,7 @@ public enum SidePanel: String, CaseIterable, Identifiable, Sendable {
         case .scripts: "curlybraces"
         case .filters: "wand.and.stars"
         case .layers: "square.3.layers.3d"
+        case .lyrics: "text.bubble"
         case .timing: "metronome"
         }
     }
@@ -28,6 +30,7 @@ public enum SidePanel: String, CaseIterable, Identifiable, Sendable {
         case .scripts: "Effects"
         case .filters: "Filters"
         case .layers: "Layers"
+        case .lyrics: "Lyrics"
         case .timing: "Timing"
         }
     }
@@ -674,6 +677,271 @@ public final class EditorShellModel {
         selectedNodeID = node.id
         effectsChanged()
         return node
+    }
+
+    // ─── Lyrics ──────────────────────────────────────────────────────────────
+
+    /// Reads the song and returns the words it heard.
+    ///
+    /// Supplied by the app for the same reason the video export is: the speech
+    /// framework belongs to the platform layer, and a feature does not import
+    /// another. It takes the audio URL rather than reading it from playback —
+    /// `PlaybackModel` is `@MainActor`, so a closure touching it would hop to
+    /// the main thread and drag seconds of audio decoding along.
+    @ObservationIgnored
+    public var lyricTranscriptionHandler: (
+        @Sendable (_ audio: URL, _ locale: String) async throws -> [LyricTranscription.Word]
+    )?
+
+    /// The song to transcribe, set by whoever loaded it.
+    @ObservationIgnored public var lyricAudioURL: URL?
+
+    /// Which languages the engine can do, and which are already downloaded.
+    ///
+    /// Supplied by the app alongside the transcriber. Told apart because the
+    /// distinction decides how long the next click takes: an installed
+    /// language starts in seconds, and any other one fetches a model first.
+    @ObservationIgnored
+    public var lyricLocalesHandler: (
+        @Sendable () async -> (available: [String], installed: [String])
+    )?
+
+    /// The languages to offer, grouped and named by the app.
+    ///
+    /// Supplied rather than derived: grouping needs `Locale` and the engine's
+    /// own list, and this target imports neither.
+    @ObservationIgnored
+    public var lyricLanguagesHandler: (
+        @Sendable () async -> [LyricTranscription.LanguageOption]
+    )?
+
+    /// The languages to offer, or nothing when no engine is installed.
+    public func lyricLocales() async -> (available: [String], installed: [String]) {
+        guard let lyricLocalesHandler else { return ([], []) }
+        return await lyricLocalesHandler()
+    }
+
+    /// How long a line may run before it is treated as more than one sentence.
+    ///
+    /// On the model rather than the panel's `@State` so it survives the panel
+    /// being rebuilt, which happens whenever the playhead moves.
+    public var lyricMaximumDuration = LyricTranscription.maximumLineDuration
+
+    /// The gap that ends a line.
+    public var lyricGapThreshold = LyricTranscription.defaultGapThreshold
+
+    /// How big the placed text is, as the clip's **scale**.
+    ///
+    /// The transform's scale rather than the font size, and the reason is the
+    /// atlas: `TextSprite.rawPath` hashes the size into each glyph's path, so
+    /// every size tried mints a fresh texture for every character — a hundred
+    /// and eleven of them in one song, and a slider dragged across its range
+    /// would coin a set per step. A scale is one `_V` command and the texture
+    /// never changes.
+    ///
+    /// One number for both axes: lyrics are read, not stretched. An author who
+    /// wants one axis has the inspector.
+    public var lyricScale: Double = 1
+
+    /// Which lines have already been placed.
+    ///
+    /// So a line can be given its own movement — place one, change the preset,
+    /// place the next — without losing track of what is already on the
+    /// timeline. Cleared with the transcription it belongs to.
+    public private(set) var placedLyricLines: Set<Double> = []
+
+    /// Places one line, so it can carry a movement of its own.
+    public func importLyricLine(_ line: LyricTranscription.Line, preset: EffectPreset? = nil) {
+        importLyrics([line], preset: preset)
+        placedLyricLines.insert(line.id)
+    }
+
+    /// Regroups with whatever the two knobs currently say.
+    public func regroupLyrics() {
+        guard !lyricWords.isEmpty else { return }
+        lyricLines = LyricTranscription.lines(
+            from: lyricWords,
+            gapThreshold: lyricGapThreshold,
+            maximumDuration: lyricMaximumDuration,
+        )
+        // The lines are new objects, so what was placed no longer describes
+        // them: leaving the marks would tick rows that were never placed.
+        placedLyricLines = []
+    }
+
+    /// What the last transcription heard, grouped into lines.
+    ///
+    /// Held rather than placed. A transcription is a **draft** — measured, six
+    /// per cent of Japanese lines and forty per cent of English ones want
+    /// checking — and thirty-eight clips appearing unbidden is not a draft.
+    public private(set) var lyricLines: [LyricTranscription.Line] = []
+
+    /// The words behind ``lyricLines``, kept so the grouping can be retuned
+    /// without reading the song again.
+    @ObservationIgnored private var lyricWords: [LyricTranscription.Word] = []
+
+    /// Whether a transcription is running.
+    public private(set) var isTranscribingLyrics = false
+
+    /// Why the last transcription failed, if it did.
+    ///
+    /// Reported rather than swallowed: a transcription that returns nothing and
+    /// says nothing is indistinguishable from a song with no singing in it.
+    public private(set) var lyricError: String?
+
+    public var canTranscribeLyrics: Bool {
+        lyricTranscriptionHandler != nil && !isTranscribingLyrics
+    }
+
+    /// Transcribes the loaded song into ``lyricLines``.
+    public func transcribeLyrics(locale: String) async {
+        guard let lyricTranscriptionHandler, !isTranscribingLyrics else { return }
+
+        isTranscribingLyrics = true
+        lyricError = nil
+        defer { isTranscribingLyrics = false }
+
+        // A missing URL is not a failure worth a message: nothing is loaded
+        // yet, and the button that led here should not have been reachable.
+        let audio = lyricAudioURL ?? URL(fileURLWithPath: "")
+
+        do {
+            lyricWords = try await lyricTranscriptionHandler(audio, locale)
+            lyricLines = LyricTranscription.lines(
+                from: lyricWords,
+                gapThreshold: lyricGapThreshold,
+                maximumDuration: lyricMaximumDuration,
+            )
+            placedLyricLines = []
+        } catch {
+            lyricWords = []
+            lyricLines = []
+            lyricError = "\(error)"
+        }
+    }
+
+    /// Regroups with an explicit gap, for callers that pass one.
+    ///
+    /// Reading the song again to change a number would cost seconds for an
+    /// answer already in hand — the words stay in memory for exactly this.
+    public func regroupLyrics(gapThreshold: Double) {
+        lyricGapThreshold = gapThreshold
+        regroupLyrics()
+    }
+
+    /// Forgets the last transcription.
+    public func clearLyrics() {
+        lyricWords = []
+        lyricLines = []
+        lyricError = nil
+        placedLyricLines = []
+    }
+
+
+    /// Places transcribed lines as text clips, one per line.
+    ///
+    /// The half of a lyric storyboard nobody can do by hand: the words are a
+    /// search away, and marking four hundred glyphs to twenty milliseconds is
+    /// not. What arrives is ordinary clips — they carry a transform, keyframes,
+    /// filters, undo and the project format, none of which had to be invented
+    /// for this.
+    ///
+    /// - Parameters:
+    ///   - lines: what was heard, in song time. Grouping words into these is
+    ///     ``LyricTranscription/lines(from:gapThreshold:maximumCharacters:)``.
+    ///   - preset: the movement to give them. Nothing forces one, and nothing
+    ///     should: thirty-eight clips with every animation parameter resting at
+    ///     zero are thirty-eight captions, and a preset is only a bag of values
+    ///     so this costs nothing.
+    public func importLyrics(_ lines: [LyricTranscription.Line], preset: EffectPreset? = nil) {
+        guard !lines.isEmpty else { return }
+        guard let descriptor = library.descriptor(for: TextEffect.descriptor.type) else { return }
+
+        // One undo entry and one evaluation for the whole import.
+        //
+        // Placing thirty-eight clips one at a time records thirty-eight undo
+        // steps — so taking the import back is thirty-eight keystrokes, each
+        // showing a half-imported song — and starts thirty-eight evaluations
+        // that cancel each other. This is the same bracket a drag uses, for the
+        // same reason: what somebody wants back is the state before the
+        // gesture, not one clip ago.
+        // `beginGesture` coalesces the undo entry and holds evaluation until
+        // the whole batch is in; `effectsChanged` is what says the document
+        // moved. Both are needed — `endGesture` only re-evaluates, so without
+        // the second the revision stayed at zero: the canvas was never told
+        // there were new sprites, the title bar never showed unsaved changes,
+        // and every revision-keyed cache kept a pre-import answer.
+        beginGesture()
+        defer {
+            endGesture()
+            effectsChanged()
+        }
+
+        // Their own lane, and a fresh one each time. A second import — another
+        // language, or a corrected pass — piled into the same lane would
+        // overlap the first and leave neither pickable.
+        let track = effects.addTrack(named: lyricsTrackName())
+
+        for line in lines {
+            var node = effects.add(
+                descriptor,
+                // Song time, which is what a line carries and what a clip
+                // wants: the effect generates in local time and the evaluator
+                // adds this offset once.
+                at: line.start,
+                duration: max(line.duration, Self.minimumLyricDuration),
+                on: track.id,
+            )
+
+            // The line is the name. `add` numbers duplicates — "Text 2", "Text
+            // 3" — which says nothing about which line a clip holds, and
+            // thirty-eight of those are a track nobody can read.
+            node.name = Self.clipName(for: line.text)
+
+            // The preset first, then the text: a preset carries values for
+            // every parameter it touches, and applying it afterwards would
+            // overwrite the one thing that makes this clip itself.
+            if let preset {
+                node.values.merge(preset.values) { _, new in new }
+            }
+            node.values[TextEffect.Param.text] = .text(line.text)
+
+            // Applied here rather than left to the inspector: at full size a
+            // line of twenty-five glyphs is 1200 points on a stage 854 wide,
+            // so without this every clip had to be resized by hand — which is
+            // the work this feature exists to remove.
+            if lyricScale != 1 {
+                node.transform[value: .scaleX] = lyricScale
+                node.transform[value: .scaleY] = lyricScale
+            }
+
+            effects[node.id] = node
+        }
+    }
+
+    /// A clip's label: the line, shortened to something a track row can show.
+    ///
+    /// Truncated rather than wrapped or dropped — the first few words are
+    /// enough to tell one line from another, which is all a label is for.
+    private static func clipName(for text: String) -> String {
+        guard text.count > maximumClipNameLength else { return text }
+        return text.prefix(maximumClipNameLength).trimmingCharacters(in: .whitespaces) + "…"
+    }
+
+    private static let maximumClipNameLength = 24
+
+    /// What a lyric clip lasts when the engine reported no length at all.
+    ///
+    /// A glyph can come back as a single instant, and a zero-length clip cannot
+    /// be grabbed on the timeline — `TextEffect` also guards on
+    /// `context.duration > 0`, so it would draw nothing at all.
+    private static let minimumLyricDuration: Double = 200
+
+    /// The name for a new lyrics lane, numbered if one is already there.
+    private func lyricsTrackName() -> String {
+        let base = "Lyrics"
+        let existing = effects.tracks.count { $0.name == base || $0.name.hasPrefix("\(base) ") }
+        return existing == 0 ? base : "\(base) \(existing + 1)"
     }
 
     // ─── Editing effects ─────────────────────────────────────────────────────
@@ -2103,9 +2371,42 @@ public final class EditorShellModel {
     /// Kept apart from the read below: clearing touches the same dictionaries
     /// that are held `inout` there, and Swift rejects the overlapping access
     /// outright rather than letting the two disagree.
+    /// The span every placed clip covers, once its filters are counted.
+    ///
+    /// Cached, and that is the whole point. This is what the timeline draws
+    /// against, so it is read from a dozen places in one rebuild — and each
+    /// read walked every node asking ``duration(of:on:)`` about it, which
+    /// looked each one up by a **linear search** through every track. Measured
+    /// on a project of 84 nodes with `sample` on the running app: 720 calls a
+    /// second costing **895 of every 1000 milliseconds**, while all of drawing
+    /// used eight. The editor sat at 44fps with the GPU idle.
+    ///
+    /// Quadratic, so placing lyrics did not cause it — it took the project from
+    /// 35 nodes to 84 and made it impossible to miss.
+    public var playedTimeRange: ClosedRange<Double>? {
+        invalidateCachesIfNeeded()
+        if let cachedSpan { return cachedSpan.value }
+        // Named `clipDuration` because a parameter called `duration` shadows
+        // the method being called on the next line.
+        let span = effects.timeRange { [self] trackID, clipDuration in
+            duration(of: clipDuration, on: trackID)
+        }
+        cachedSpan = Box(value: span)
+        return span
+    }
+
+    /// Wrapped, so "computed and nil" is distinct from "not computed".
+    private struct Box {
+        let value: ClosedRange<Double>?
+    }
+
+    @ObservationIgnored private var cachedSpan: Box?
+
     private func invalidateCachesIfNeeded() {
         guard cacheRevision != effectsRevision else { return }
         cacheRevision = effectsRevision
+        // Always cleared in full: it is one value, and any edit can move it.
+        cachedSpan = nil
 
         // Only the clip that changed, when the edit named one.
         //

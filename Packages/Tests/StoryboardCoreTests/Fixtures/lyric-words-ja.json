@@ -1,0 +1,2402 @@
+[
+  {
+    "text": "あ",
+    "start": 480,
+    "end": 780,
+    "confidence": 0.54
+  },
+  {
+    "text": "あ",
+    "start": 780,
+    "end": 2760,
+    "confidence": 0.64
+  },
+  {
+    "text": "。",
+    "start": 11460,
+    "end": 11520,
+    "confidence": 0.73
+  },
+  {
+    "text": "落",
+    "start": 16680,
+    "end": 16980,
+    "confidence": 0.99
+  },
+  {
+    "text": "ち",
+    "start": 16980,
+    "end": 17220,
+    "confidence": 1.0
+  },
+  {
+    "text": "て",
+    "start": 17220,
+    "end": 17460,
+    "confidence": 1.0
+  },
+  {
+    "text": "ゆ",
+    "start": 17460,
+    "end": 17700,
+    "confidence": 0.97
+  },
+  {
+    "text": "く",
+    "start": 17700,
+    "end": 17940,
+    "confidence": 1.0
+  },
+  {
+    "text": "砂",
+    "start": 17940,
+    "end": 18420,
+    "confidence": 1.0
+  },
+  {
+    "text": "時",
+    "start": 18420,
+    "end": 18840,
+    "confidence": 1.0
+  },
+  {
+    "text": "計",
+    "start": 18840,
+    "end": 19020,
+    "confidence": 1.0
+  },
+  {
+    "text": "ば",
+    "start": 19020,
+    "end": 19800,
+    "confidence": 1.0
+  },
+  {
+    "text": "か",
+    "start": 19800,
+    "end": 20160,
+    "confidence": 1.0
+  },
+  {
+    "text": "り",
+    "start": 20160,
+    "end": 20400,
+    "confidence": 0.99
+  },
+  {
+    "text": "見",
+    "start": 20400,
+    "end": 21060,
+    "confidence": 0.98
+  },
+  {
+    "text": "て",
+    "start": 21060,
+    "end": 21300,
+    "confidence": 0.99
+  },
+  {
+    "text": "る",
+    "start": 21300,
+    "end": 21540,
+    "confidence": 1.0
+  },
+  {
+    "text": "よ",
+    "start": 21540,
+    "end": 21780,
+    "confidence": 0.99
+  },
+  {
+    "text": "。",
+    "start": 21780,
+    "end": 22020,
+    "confidence": 0.74
+  },
+  {
+    "text": "逆",
+    "start": 22020,
+    "end": 22740,
+    "confidence": 0.95
+  },
+  {
+    "text": "さ",
+    "start": 22740,
+    "end": 23160,
+    "confidence": 0.99
+  },
+  {
+    "text": "ま",
+    "start": 23160,
+    "end": 23340,
+    "confidence": 0.98
+  },
+  {
+    "text": "に",
+    "start": 23340,
+    "end": 23580,
+    "confidence": 0.99
+  },
+  {
+    "text": "す",
+    "start": 23580,
+    "end": 23940,
+    "confidence": 0.98
+  },
+  {
+    "text": "れ",
+    "start": 23940,
+    "end": 24120,
+    "confidence": 0.98
+  },
+  {
+    "text": "ば",
+    "start": 24120,
+    "end": 24300,
+    "confidence": 0.98
+  },
+  {
+    "text": "ほ",
+    "start": 24300,
+    "end": 24660,
+    "confidence": 0.98
+  },
+  {
+    "text": "ら",
+    "start": 24660,
+    "end": 24900,
+    "confidence": 0.98
+  },
+  {
+    "text": "ま",
+    "start": 24900,
+    "end": 25500,
+    "confidence": 0.98
+  },
+  {
+    "text": "だ",
+    "start": 25500,
+    "end": 25740,
+    "confidence": 0.66
+  },
+  {
+    "text": "始",
+    "start": 25740,
+    "end": 26640,
+    "confidence": 0.96
+  },
+  {
+    "text": "ま",
+    "start": 26640,
+    "end": 26940,
+    "confidence": 0.98
+  },
+  {
+    "text": "る",
+    "start": 26940,
+    "end": 27120,
+    "confidence": 0.98
+  },
+  {
+    "text": "よ",
+    "start": 27120,
+    "end": 27360,
+    "confidence": 0.98
+  },
+  {
+    "text": "。",
+    "start": 27360,
+    "end": 27660,
+    "confidence": 0.62
+  },
+  {
+    "text": "刻",
+    "start": 27660,
+    "end": 28620,
+    "confidence": 1.0
+  },
+  {
+    "text": "ん",
+    "start": 28620,
+    "end": 28980,
+    "confidence": 0.98
+  },
+  {
+    "text": "だ",
+    "start": 28980,
+    "end": 29280,
+    "confidence": 0.98
+  },
+  {
+    "text": "だ",
+    "start": 29280,
+    "end": 29700,
+    "confidence": 0.94
+  },
+  {
+    "text": "け",
+    "start": 29700,
+    "end": 30000,
+    "confidence": 0.98
+  },
+  {
+    "text": "進",
+    "start": 30840,
+    "end": 31140,
+    "confidence": 0.92
+  },
+  {
+    "text": "む",
+    "start": 31140,
+    "end": 31380,
+    "confidence": 0.99
+  },
+  {
+    "text": "時",
+    "start": 31380,
+    "end": 31920,
+    "confidence": 0.99
+  },
+  {
+    "text": "間",
+    "start": 31920,
+    "end": 32220,
+    "confidence": 0.99
+  },
+  {
+    "text": "に",
+    "start": 32220,
+    "end": 32760,
+    "confidence": 0.99
+  },
+  {
+    "text": "い",
+    "start": 32760,
+    "end": 33540,
+    "confidence": 0.95
+  },
+  {
+    "text": "つ",
+    "start": 33540,
+    "end": 33720,
+    "confidence": 0.96
+  },
+  {
+    "text": "か",
+    "start": 33720,
+    "end": 34080,
+    "confidence": 0.93
+  },
+  {
+    "text": "僕",
+    "start": 34080,
+    "end": 34620,
+    "confidence": 0.95
+  },
+  {
+    "text": "も",
+    "start": 34620,
+    "end": 35220,
+    "confidence": 1.0
+  },
+  {
+    "text": "入",
+    "start": 35220,
+    "end": 36180,
+    "confidence": 1.0
+  },
+  {
+    "text": "れ",
+    "start": 36180,
+    "end": 36600,
+    "confidence": 1.0
+  },
+  {
+    "text": "る",
+    "start": 36600,
+    "end": 36900,
+    "confidence": 1.0
+  },
+  {
+    "text": "か",
+    "start": 36900,
+    "end": 37500,
+    "confidence": 1.0
+  },
+  {
+    "text": "な",
+    "start": 37500,
+    "end": 37740,
+    "confidence": 0.97
+  },
+  {
+    "text": "。",
+    "start": 37740,
+    "end": 38220,
+    "confidence": 0.49
+  },
+  {
+    "text": "君",
+    "start": 39660,
+    "end": 39960,
+    "confidence": 1.0
+  },
+  {
+    "text": "だ",
+    "start": 39960,
+    "end": 40380,
+    "confidence": 1.0
+  },
+  {
+    "text": "け",
+    "start": 40380,
+    "end": 40560,
+    "confidence": 1.0
+  },
+  {
+    "text": "が",
+    "start": 40560,
+    "end": 40800,
+    "confidence": 1.0
+  },
+  {
+    "text": "過",
+    "start": 40800,
+    "end": 41280,
+    "confidence": 1.0
+  },
+  {
+    "text": "ぎ",
+    "start": 41280,
+    "end": 41460,
+    "confidence": 1.0
+  },
+  {
+    "text": "去",
+    "start": 41460,
+    "end": 41760,
+    "confidence": 1.0
+  },
+  {
+    "text": "っ",
+    "start": 41760,
+    "end": 42000,
+    "confidence": 0.99
+  },
+  {
+    "text": "た",
+    "start": 42000,
+    "end": 42180,
+    "confidence": 1.0
+  },
+  {
+    "text": "坂",
+    "start": 42180,
+    "end": 42960,
+    "confidence": 0.99
+  },
+  {
+    "text": "の",
+    "start": 42960,
+    "end": 43500,
+    "confidence": 0.82
+  },
+  {
+    "text": "途",
+    "start": 43500,
+    "end": 43920,
+    "confidence": 1.0
+  },
+  {
+    "text": "中",
+    "start": 43920,
+    "end": 44220,
+    "confidence": 1.0
+  },
+  {
+    "text": "は",
+    "start": 44220,
+    "end": 44700,
+    "confidence": 1.0
+  },
+  {
+    "text": "暖",
+    "start": 44700,
+    "end": 45780,
+    "confidence": 0.89
+  },
+  {
+    "text": "か",
+    "start": 45780,
+    "end": 46260,
+    "confidence": 1.0
+  },
+  {
+    "text": "な",
+    "start": 46260,
+    "end": 46440,
+    "confidence": 1.0
+  },
+  {
+    "text": "日",
+    "start": 46440,
+    "end": 46800,
+    "confidence": 0.69
+  },
+  {
+    "text": "だ",
+    "start": 46800,
+    "end": 47040,
+    "confidence": 0.99
+  },
+  {
+    "text": "ま",
+    "start": 47040,
+    "end": 47280,
+    "confidence": 0.99
+  },
+  {
+    "text": "り",
+    "start": 47280,
+    "end": 47460,
+    "confidence": 1.0
+  },
+  {
+    "text": "が",
+    "start": 47460,
+    "end": 47820,
+    "confidence": 1.0
+  },
+  {
+    "text": "い",
+    "start": 47820,
+    "end": 48240,
+    "confidence": 0.98
+  },
+  {
+    "text": "く",
+    "start": 48240,
+    "end": 48660,
+    "confidence": 0.96
+  },
+  {
+    "text": "つ",
+    "start": 48660,
+    "end": 49020,
+    "confidence": 0.92
+  },
+  {
+    "text": "も",
+    "start": 49020,
+    "end": 49380,
+    "confidence": 1.0
+  },
+  {
+    "text": "で",
+    "start": 49380,
+    "end": 49680,
+    "confidence": 0.97
+  },
+  {
+    "text": "き",
+    "start": 49680,
+    "end": 49860,
+    "confidence": 0.92
+  },
+  {
+    "text": "て",
+    "start": 49860,
+    "end": 50040,
+    "confidence": 1.0
+  },
+  {
+    "text": "た",
+    "start": 50040,
+    "end": 50280,
+    "confidence": 0.99
+  },
+  {
+    "text": "僕",
+    "start": 50280,
+    "end": 51240,
+    "confidence": 0.97
+  },
+  {
+    "text": "一",
+    "start": 51240,
+    "end": 52140,
+    "confidence": 0.64
+  },
+  {
+    "text": "人",
+    "start": 52140,
+    "end": 52440,
+    "confidence": 0.81
+  },
+  {
+    "text": "が",
+    "start": 52440,
+    "end": 52920,
+    "confidence": 1.0
+  },
+  {
+    "text": "こ",
+    "start": 53580,
+    "end": 53760,
+    "confidence": 1.0
+  },
+  {
+    "text": "こ",
+    "start": 53760,
+    "end": 53940,
+    "confidence": 1.0
+  },
+  {
+    "text": "で",
+    "start": 53940,
+    "end": 54240,
+    "confidence": 1.0
+  },
+  {
+    "text": "優",
+    "start": 54240,
+    "end": 55080,
+    "confidence": 0.97
+  },
+  {
+    "text": "し",
+    "start": 55080,
+    "end": 55380,
+    "confidence": 1.0
+  },
+  {
+    "text": "い",
+    "start": 55380,
+    "end": 55500,
+    "confidence": 0.99
+  },
+  {
+    "text": "暖",
+    "start": 55500,
+    "end": 56580,
+    "confidence": 0.53
+  },
+  {
+    "text": "か",
+    "start": 56580,
+    "end": 57300,
+    "confidence": 0.88
+  },
+  {
+    "text": "さ",
+    "start": 57300,
+    "end": 57780,
+    "confidence": 0.99
+  },
+  {
+    "text": "を",
+    "start": 57780,
+    "end": 58140,
+    "confidence": 0.99
+  },
+  {
+    "text": "思",
+    "start": 58140,
+    "end": 59220,
+    "confidence": 0.96
+  },
+  {
+    "text": "い",
+    "start": 59220,
+    "end": 59520,
+    "confidence": 1.0
+  },
+  {
+    "text": "返",
+    "start": 59520,
+    "end": 60060,
+    "confidence": 0.65
+  },
+  {
+    "text": "し",
+    "start": 60060,
+    "end": 60900,
+    "confidence": 0.98
+  },
+  {
+    "text": "て",
+    "start": 60900,
+    "end": 61560,
+    "confidence": 0.65
+  },
+  {
+    "text": "る",
+    "start": 61560,
+    "end": 61860,
+    "confidence": 0.92
+  },
+  {
+    "text": "。",
+    "start": 61860,
+    "end": 62340,
+    "confidence": 0.66
+  },
+  {
+    "text": "君",
+    "start": 64080,
+    "end": 64380,
+    "confidence": 0.99
+  },
+  {
+    "text": "だ",
+    "start": 64380,
+    "end": 65280,
+    "confidence": 1.0
+  },
+  {
+    "text": "け",
+    "start": 65280,
+    "end": 65640,
+    "confidence": 1.0
+  },
+  {
+    "text": "の",
+    "start": 65640,
+    "end": 66300,
+    "confidence": 0.95
+  },
+  {
+    "text": "君",
+    "start": 66300,
+    "end": 68280,
+    "confidence": 0.99
+  },
+  {
+    "text": "だ",
+    "start": 68280,
+    "end": 69360,
+    "confidence": 1.0
+  },
+  {
+    "text": "け",
+    "start": 69360,
+    "end": 69660,
+    "confidence": 1.0
+  },
+  {
+    "text": "も",
+    "start": 69660,
+    "end": 70080,
+    "confidence": 0.79
+  },
+  {
+    "text": "好",
+    "start": 72000,
+    "end": 72300,
+    "confidence": 0.95
+  },
+  {
+    "text": "き",
+    "start": 72300,
+    "end": 72780,
+    "confidence": 0.97
+  },
+  {
+    "text": "で",
+    "start": 72780,
+    "end": 73200,
+    "confidence": 0.36
+  },
+  {
+    "text": "い",
+    "start": 73200,
+    "end": 75720,
+    "confidence": 0.89
+  },
+  {
+    "text": "た",
+    "start": 75720,
+    "end": 76260,
+    "confidence": 0.36
+  },
+  {
+    "text": "よ",
+    "start": 76260,
+    "end": 76680,
+    "confidence": 0.99
+  },
+  {
+    "text": "風",
+    "start": 76680,
+    "end": 78240,
+    "confidence": 0.99
+  },
+  {
+    "text": "で",
+    "start": 78240,
+    "end": 78900,
+    "confidence": 0.97
+  },
+  {
+    "text": "願",
+    "start": 78900,
+    "end": 80280,
+    "confidence": 0.92
+  },
+  {
+    "text": "滲",
+    "start": 82860,
+    "end": 83160,
+    "confidence": 0.5
+  },
+  {
+    "text": "め",
+    "start": 83160,
+    "end": 83580,
+    "confidence": 0.67
+  },
+  {
+    "text": "て",
+    "start": 83580,
+    "end": 83880,
+    "confidence": 0.66
+  },
+  {
+    "text": "遠",
+    "start": 83880,
+    "end": 86640,
+    "confidence": 0.91
+  },
+  {
+    "text": "く",
+    "start": 86640,
+    "end": 87060,
+    "confidence": 0.77
+  },
+  {
+    "text": "な",
+    "start": 89160,
+    "end": 89460,
+    "confidence": 0.88
+  },
+  {
+    "text": "る",
+    "start": 89460,
+    "end": 89940,
+    "confidence": 0.93
+  },
+  {
+    "text": "よ",
+    "start": 89940,
+    "end": 90480,
+    "confidence": 1.0
+  },
+  {
+    "text": "。",
+    "start": 90480,
+    "end": 91200,
+    "confidence": 0.76
+  },
+  {
+    "text": "い",
+    "start": 91200,
+    "end": 92640,
+    "confidence": 0.87
+  },
+  {
+    "text": "つ",
+    "start": 92640,
+    "end": 92880,
+    "confidence": 0.95
+  },
+  {
+    "text": "ま",
+    "start": 92880,
+    "end": 93060,
+    "confidence": 0.89
+  },
+  {
+    "text": "で",
+    "start": 93060,
+    "end": 93240,
+    "confidence": 0.96
+  },
+  {
+    "text": "も",
+    "start": 93240,
+    "end": 93480,
+    "confidence": 0.93
+  },
+  {
+    "text": "覚",
+    "start": 93480,
+    "end": 93900,
+    "confidence": 0.24
+  },
+  {
+    "text": "え",
+    "start": 93900,
+    "end": 94080,
+    "confidence": 0.85
+  },
+  {
+    "text": "て",
+    "start": 94080,
+    "end": 94320,
+    "confidence": 0.87
+  },
+  {
+    "text": "る",
+    "start": 94320,
+    "end": 94500,
+    "confidence": 0.57
+  },
+  {
+    "text": "何",
+    "start": 94500,
+    "end": 94800,
+    "confidence": 0.92
+  },
+  {
+    "text": "も",
+    "start": 94800,
+    "end": 95160,
+    "confidence": 0.76
+  },
+  {
+    "text": "か",
+    "start": 95160,
+    "end": 95400,
+    "confidence": 0.82
+  },
+  {
+    "text": "も",
+    "start": 95400,
+    "end": 95640,
+    "confidence": 0.9
+  },
+  {
+    "text": "あ",
+    "start": 95640,
+    "end": 95940,
+    "confidence": 0.11
+  },
+  {
+    "text": "っ",
+    "start": 95940,
+    "end": 96300,
+    "confidence": 0.39
+  },
+  {
+    "text": "て",
+    "start": 96300,
+    "end": 96480,
+    "confidence": 0.52
+  },
+  {
+    "text": "も",
+    "start": 96480,
+    "end": 96660,
+    "confidence": 0.96
+  },
+  {
+    "text": "一",
+    "start": 96660,
+    "end": 97080,
+    "confidence": 0.53
+  },
+  {
+    "text": "つ",
+    "start": 97080,
+    "end": 97320,
+    "confidence": 0.96
+  },
+  {
+    "text": "だ",
+    "start": 97320,
+    "end": 97500,
+    "confidence": 0.92
+  },
+  {
+    "text": "け",
+    "start": 97500,
+    "end": 97680,
+    "confidence": 0.94
+  },
+  {
+    "text": "一",
+    "start": 97680,
+    "end": 98100,
+    "confidence": 0.37
+  },
+  {
+    "text": "つ",
+    "start": 98100,
+    "end": 98340,
+    "confidence": 0.95
+  },
+  {
+    "text": "だ",
+    "start": 98340,
+    "end": 98580,
+    "confidence": 0.92
+  },
+  {
+    "text": "け",
+    "start": 98580,
+    "end": 98760,
+    "confidence": 0.94
+  },
+  {
+    "text": "あ",
+    "start": 98760,
+    "end": 99120,
+    "confidence": 0.68
+  },
+  {
+    "text": "り",
+    "start": 99120,
+    "end": 99240,
+    "confidence": 0.6
+  },
+  {
+    "text": "触",
+    "start": 99240,
+    "end": 99480,
+    "confidence": 0.49
+  },
+  {
+    "text": "れ",
+    "start": 99480,
+    "end": 99660,
+    "confidence": 0.9
+  },
+  {
+    "text": "た",
+    "start": 99660,
+    "end": 99900,
+    "confidence": 0.92
+  },
+  {
+    "text": "も",
+    "start": 99900,
+    "end": 100140,
+    "confidence": 0.89
+  },
+  {
+    "text": "の",
+    "start": 100140,
+    "end": 100320,
+    "confidence": 0.91
+  },
+  {
+    "text": "だ",
+    "start": 100320,
+    "end": 100560,
+    "confidence": 0.93
+  },
+  {
+    "text": "け",
+    "start": 100560,
+    "end": 100800,
+    "confidence": 0.91
+  },
+  {
+    "text": "ど",
+    "start": 100800,
+    "end": 100980,
+    "confidence": 0.9
+  },
+  {
+    "text": "見",
+    "start": 100980,
+    "end": 101460,
+    "confidence": 0.89
+  },
+  {
+    "text": "せ",
+    "start": 101460,
+    "end": 101640,
+    "confidence": 0.87
+  },
+  {
+    "text": "て",
+    "start": 101640,
+    "end": 101820,
+    "confidence": 0.82
+  },
+  {
+    "text": "輝",
+    "start": 102480,
+    "end": 102720,
+    "confidence": 0.77
+  },
+  {
+    "text": "き",
+    "start": 102720,
+    "end": 103140,
+    "confidence": 0.74
+  },
+  {
+    "text": "に",
+    "start": 103140,
+    "end": 103380,
+    "confidence": 0.72
+  },
+  {
+    "text": "満",
+    "start": 103380,
+    "end": 103740,
+    "confidence": 0.94
+  },
+  {
+    "text": "ち",
+    "start": 103740,
+    "end": 103860,
+    "confidence": 0.88
+  },
+  {
+    "text": "た",
+    "start": 103860,
+    "end": 104040,
+    "confidence": 0.92
+  },
+  {
+    "text": "そ",
+    "start": 104040,
+    "end": 104280,
+    "confidence": 0.94
+  },
+  {
+    "text": "の",
+    "start": 104280,
+    "end": 104460,
+    "confidence": 0.97
+  },
+  {
+    "text": "一",
+    "start": 104460,
+    "end": 104820,
+    "confidence": 0.36
+  },
+  {
+    "text": "つ",
+    "start": 104820,
+    "end": 105060,
+    "confidence": 0.98
+  },
+  {
+    "text": "だ",
+    "start": 105060,
+    "end": 105300,
+    "confidence": 0.97
+  },
+  {
+    "text": "け",
+    "start": 105300,
+    "end": 105480,
+    "confidence": 0.98
+  },
+  {
+    "text": "い",
+    "start": 105480,
+    "end": 105780,
+    "confidence": 0.99
+  },
+  {
+    "text": "つ",
+    "start": 105780,
+    "end": 105960,
+    "confidence": 0.98
+  },
+  {
+    "text": "ま",
+    "start": 105960,
+    "end": 106140,
+    "confidence": 0.98
+  },
+  {
+    "text": "で",
+    "start": 106140,
+    "end": 106320,
+    "confidence": 0.98
+  },
+  {
+    "text": "も",
+    "start": 106320,
+    "end": 106560,
+    "confidence": 0.99
+  },
+  {
+    "text": "い",
+    "start": 106560,
+    "end": 106860,
+    "confidence": 0.97
+  },
+  {
+    "text": "つ",
+    "start": 106860,
+    "end": 107040,
+    "confidence": 0.97
+  },
+  {
+    "text": "ま",
+    "start": 107040,
+    "end": 107220,
+    "confidence": 0.98
+  },
+  {
+    "text": "で",
+    "start": 107220,
+    "end": 107400,
+    "confidence": 0.98
+  },
+  {
+    "text": "も",
+    "start": 107400,
+    "end": 107640,
+    "confidence": 0.99
+  },
+  {
+    "text": "守",
+    "start": 107640,
+    "end": 108060,
+    "confidence": 0.99
+  },
+  {
+    "text": "っ",
+    "start": 108060,
+    "end": 108300,
+    "confidence": 0.96
+  },
+  {
+    "text": "て",
+    "start": 108300,
+    "end": 108480,
+    "confidence": 0.98
+  },
+  {
+    "text": "ゆ",
+    "start": 108480,
+    "end": 108780,
+    "confidence": 0.96
+  },
+  {
+    "text": "く",
+    "start": 108780,
+    "end": 108960,
+    "confidence": 0.99
+  },
+  {
+    "text": "。",
+    "start": 108960,
+    "end": 109320,
+    "confidence": 0.99
+  },
+  {
+    "text": "肌",
+    "start": 121560,
+    "end": 121860,
+    "confidence": 0.99
+  },
+  {
+    "text": "寒",
+    "start": 121860,
+    "end": 122220,
+    "confidence": 1.0
+  },
+  {
+    "text": "い",
+    "start": 122220,
+    "end": 122580,
+    "confidence": 0.97
+  },
+  {
+    "text": "日",
+    "start": 122580,
+    "end": 123000,
+    "confidence": 0.99
+  },
+  {
+    "text": "が",
+    "start": 123000,
+    "end": 123180,
+    "confidence": 1.0
+  },
+  {
+    "text": "続",
+    "start": 123180,
+    "end": 123600,
+    "confidence": 0.99
+  },
+  {
+    "text": "く",
+    "start": 123600,
+    "end": 123960,
+    "confidence": 1.0
+  },
+  {
+    "text": "も",
+    "start": 123960,
+    "end": 124560,
+    "confidence": 0.81
+  },
+  {
+    "text": "う",
+    "start": 124560,
+    "end": 124860,
+    "confidence": 0.9
+  },
+  {
+    "text": "春",
+    "start": 124860,
+    "end": 125400,
+    "confidence": 1.0
+  },
+  {
+    "text": "な",
+    "start": 125400,
+    "end": 126060,
+    "confidence": 1.0
+  },
+  {
+    "text": "の",
+    "start": 126060,
+    "end": 126240,
+    "confidence": 1.0
+  },
+  {
+    "text": "に",
+    "start": 126240,
+    "end": 126420,
+    "confidence": 1.0
+  },
+  {
+    "text": "目",
+    "start": 126420,
+    "end": 127320,
+    "confidence": 0.97
+  },
+  {
+    "text": "覚",
+    "start": 127320,
+    "end": 127560,
+    "confidence": 0.98
+  },
+  {
+    "text": "ま",
+    "start": 127560,
+    "end": 127680,
+    "confidence": 0.54
+  },
+  {
+    "text": "し",
+    "start": 127680,
+    "end": 127860,
+    "confidence": 1.0
+  },
+  {
+    "text": "時",
+    "start": 127860,
+    "end": 128340,
+    "confidence": 1.0
+  },
+  {
+    "text": "計",
+    "start": 128340,
+    "end": 128640,
+    "confidence": 1.0
+  },
+  {
+    "text": "よ",
+    "start": 128640,
+    "end": 129060,
+    "confidence": 1.0
+  },
+  {
+    "text": "り",
+    "start": 129060,
+    "end": 129240,
+    "confidence": 1.0
+  },
+  {
+    "text": "早",
+    "start": 129240,
+    "end": 129780,
+    "confidence": 0.97
+  },
+  {
+    "text": "く",
+    "start": 129780,
+    "end": 130320,
+    "confidence": 1.0
+  },
+  {
+    "text": "起",
+    "start": 130320,
+    "end": 131040,
+    "confidence": 0.99
+  },
+  {
+    "text": "き",
+    "start": 131040,
+    "end": 131460,
+    "confidence": 0.99
+  },
+  {
+    "text": "た",
+    "start": 131460,
+    "end": 131760,
+    "confidence": 0.98
+  },
+  {
+    "text": "さ",
+    "start": 131760,
+    "end": 132120,
+    "confidence": 0.77
+  },
+  {
+    "text": "3",
+    "start": 132840,
+    "end": 133140,
+    "confidence": 0.93
+  },
+  {
+    "text": "人",
+    "start": 133140,
+    "end": 133620,
+    "confidence": 0.99
+  },
+  {
+    "text": "分",
+    "start": 133620,
+    "end": 134340,
+    "confidence": 0.99
+  },
+  {
+    "text": "の",
+    "start": 134340,
+    "end": 135540,
+    "confidence": 0.99
+  },
+  {
+    "text": "朝",
+    "start": 135540,
+    "end": 136080,
+    "confidence": 1.0
+  },
+  {
+    "text": "ご",
+    "start": 136080,
+    "end": 136560,
+    "confidence": 0.41
+  },
+  {
+    "text": "飯",
+    "start": 136560,
+    "end": 137040,
+    "confidence": 0.41
+  },
+  {
+    "text": "を",
+    "start": 137040,
+    "end": 137460,
+    "confidence": 0.84
+  },
+  {
+    "text": "作",
+    "start": 137460,
+    "end": 138360,
+    "confidence": 0.99
+  },
+  {
+    "text": "る",
+    "start": 138360,
+    "end": 138660,
+    "confidence": 1.0
+  },
+  {
+    "text": "君",
+    "start": 138660,
+    "end": 139200,
+    "confidence": 0.99
+  },
+  {
+    "text": "が",
+    "start": 139200,
+    "end": 139860,
+    "confidence": 1.0
+  },
+  {
+    "text": "そ",
+    "start": 139860,
+    "end": 140820,
+    "confidence": 0.99
+  },
+  {
+    "text": "こ",
+    "start": 140820,
+    "end": 141000,
+    "confidence": 1.0
+  },
+  {
+    "text": "に",
+    "start": 141000,
+    "end": 141300,
+    "confidence": 1.0
+  },
+  {
+    "text": "立",
+    "start": 141300,
+    "end": 141960,
+    "confidence": 0.99
+  },
+  {
+    "text": "っ",
+    "start": 141960,
+    "end": 142260,
+    "confidence": 1.0
+  },
+  {
+    "text": "て",
+    "start": 142260,
+    "end": 142500,
+    "confidence": 1.0
+  },
+  {
+    "text": "い",
+    "start": 142500,
+    "end": 143280,
+    "confidence": 0.99
+  },
+  {
+    "text": "る",
+    "start": 143280,
+    "end": 143520,
+    "confidence": 0.99
+  },
+  {
+    "text": "君",
+    "start": 145920,
+    "end": 146220,
+    "confidence": 0.98
+  },
+  {
+    "text": "だ",
+    "start": 146220,
+    "end": 147060,
+    "confidence": 1.0
+  },
+  {
+    "text": "け",
+    "start": 147060,
+    "end": 147420,
+    "confidence": 1.0
+  },
+  {
+    "text": "が",
+    "start": 147420,
+    "end": 148080,
+    "confidence": 1.0
+  },
+  {
+    "text": "君",
+    "start": 148080,
+    "end": 150120,
+    "confidence": 1.0
+  },
+  {
+    "text": "だ",
+    "start": 150120,
+    "end": 151080,
+    "confidence": 1.0
+  },
+  {
+    "text": "け",
+    "start": 151080,
+    "end": 151440,
+    "confidence": 1.0
+  },
+  {
+    "text": "が",
+    "start": 151440,
+    "end": 151860,
+    "confidence": 1.0
+  },
+  {
+    "text": "そ",
+    "start": 153720,
+    "end": 154020,
+    "confidence": 1.0
+  },
+  {
+    "text": "ん",
+    "start": 154020,
+    "end": 154320,
+    "confidence": 0.99
+  },
+  {
+    "text": "な",
+    "start": 154320,
+    "end": 154560,
+    "confidence": 0.99
+  },
+  {
+    "text": "に",
+    "start": 154560,
+    "end": 154980,
+    "confidence": 1.0
+  },
+  {
+    "text": "い",
+    "start": 154980,
+    "end": 156960,
+    "confidence": 0.99
+  },
+  {
+    "text": "な",
+    "start": 156960,
+    "end": 157320,
+    "confidence": 1.0
+  },
+  {
+    "text": "い",
+    "start": 157320,
+    "end": 157680,
+    "confidence": 1.0
+  },
+  {
+    "text": "よ",
+    "start": 157680,
+    "end": 158460,
+    "confidence": 0.98
+  },
+  {
+    "text": "。",
+    "start": 158460,
+    "end": 158880,
+    "confidence": 0.91
+  },
+  {
+    "text": "昨",
+    "start": 158880,
+    "end": 159900,
+    "confidence": 0.8
+  },
+  {
+    "text": "日",
+    "start": 159900,
+    "end": 160320,
+    "confidence": 0.85
+  },
+  {
+    "text": "ま",
+    "start": 160320,
+    "end": 161520,
+    "confidence": 0.32
+  },
+  {
+    "text": "で",
+    "start": 161520,
+    "end": 161880,
+    "confidence": 0.45
+  },
+  {
+    "text": "す",
+    "start": 163560,
+    "end": 163860,
+    "confidence": 0.89
+  },
+  {
+    "text": "ぐ",
+    "start": 163860,
+    "end": 164220,
+    "confidence": 0.92
+  },
+  {
+    "text": "そ",
+    "start": 164220,
+    "end": 164940,
+    "confidence": 0.85
+  },
+  {
+    "text": "ま",
+    "start": 164940,
+    "end": 165360,
+    "confidence": 0.8
+  },
+  {
+    "text": "で",
+    "start": 165360,
+    "end": 165660,
+    "confidence": 0.93
+  },
+  {
+    "text": "僕",
+    "start": 165660,
+    "end": 167940,
+    "confidence": 0.99
+  },
+  {
+    "text": "を",
+    "start": 167940,
+    "end": 168840,
+    "confidence": 0.61
+  },
+  {
+    "text": "見",
+    "start": 170760,
+    "end": 170820,
+    "confidence": 0.98
+  },
+  {
+    "text": "て",
+    "start": 170820,
+    "end": 171180,
+    "confidence": 0.99
+  },
+  {
+    "text": "た",
+    "start": 171180,
+    "end": 171780,
+    "confidence": 0.99
+  },
+  {
+    "text": "よ",
+    "start": 171780,
+    "end": 172260,
+    "confidence": 1.0
+  },
+  {
+    "text": "。",
+    "start": 172260,
+    "end": 172920,
+    "confidence": 0.98
+  },
+  {
+    "text": "君",
+    "start": 189360,
+    "end": 189660,
+    "confidence": 0.99
+  },
+  {
+    "text": "だ",
+    "start": 189660,
+    "end": 191040,
+    "confidence": 1.0
+  },
+  {
+    "text": "け",
+    "start": 191040,
+    "end": 191460,
+    "confidence": 1.0
+  },
+  {
+    "text": "を",
+    "start": 191460,
+    "end": 192120,
+    "confidence": 0.99
+  },
+  {
+    "text": "君",
+    "start": 192120,
+    "end": 194160,
+    "confidence": 0.99
+  },
+  {
+    "text": "だ",
+    "start": 194160,
+    "end": 195120,
+    "confidence": 1.0
+  },
+  {
+    "text": "け",
+    "start": 195120,
+    "end": 195540,
+    "confidence": 0.99
+  },
+  {
+    "text": "を",
+    "start": 195540,
+    "end": 195960,
+    "confidence": 0.96
+  },
+  {
+    "text": "好",
+    "start": 197820,
+    "end": 198120,
+    "confidence": 0.99
+  },
+  {
+    "text": "き",
+    "start": 198120,
+    "end": 198540,
+    "confidence": 0.99
+  },
+  {
+    "text": "で",
+    "start": 198540,
+    "end": 199020,
+    "confidence": 0.99
+  },
+  {
+    "text": "い",
+    "start": 199020,
+    "end": 201480,
+    "confidence": 0.97
+  },
+  {
+    "text": "た",
+    "start": 201480,
+    "end": 201960,
+    "confidence": 0.86
+  },
+  {
+    "text": "よ",
+    "start": 201960,
+    "end": 202440,
+    "confidence": 0.99
+  },
+  {
+    "text": "。",
+    "start": 202440,
+    "end": 202860,
+    "confidence": 0.67
+  },
+  {
+    "text": "君",
+    "start": 202860,
+    "end": 203940,
+    "confidence": 1.0
+  },
+  {
+    "text": "だ",
+    "start": 203940,
+    "end": 204840,
+    "confidence": 1.0
+  },
+  {
+    "text": "け",
+    "start": 204840,
+    "end": 205260,
+    "confidence": 1.0
+  },
+  {
+    "text": "と",
+    "start": 205260,
+    "end": 205920,
+    "confidence": 0.87
+  },
+  {
+    "text": "君",
+    "start": 207660,
+    "end": 207960,
+    "confidence": 0.99
+  },
+  {
+    "text": "だ",
+    "start": 207960,
+    "end": 208980,
+    "confidence": 1.0
+  },
+  {
+    "text": "け",
+    "start": 208980,
+    "end": 209280,
+    "confidence": 1.0
+  },
+  {
+    "text": "と",
+    "start": 209280,
+    "end": 209700,
+    "confidence": 0.99
+  },
+  {
+    "text": "歌",
+    "start": 209700,
+    "end": 212340,
+    "confidence": 0.98
+  },
+  {
+    "text": "う",
+    "start": 212340,
+    "end": 212760,
+    "confidence": 0.99
+  },
+  {
+    "text": "歌",
+    "start": 214920,
+    "end": 215220,
+    "confidence": 0.98
+  },
+  {
+    "text": "だ",
+    "start": 215220,
+    "end": 215880,
+    "confidence": 0.97
+  },
+  {
+    "text": "よ",
+    "start": 215880,
+    "end": 216180,
+    "confidence": 0.99
+  },
+  {
+    "text": "。",
+    "start": 216180,
+    "end": 216720,
+    "confidence": 0.62
+  },
+  {
+    "text": "街",
+    "start": 216720,
+    "end": 219240,
+    "confidence": 0.16
+  },
+  {
+    "text": "の",
+    "start": 219240,
+    "end": 219780,
+    "confidence": 0.76
+  },
+  {
+    "text": "僕",
+    "start": 219780,
+    "end": 221820,
+    "confidence": 0.97
+  },
+  {
+    "text": "た",
+    "start": 221820,
+    "end": 222600,
+    "confidence": 0.59
+  },
+  {
+    "text": "ち",
+    "start": 222600,
+    "end": 222900,
+    "confidence": 0.97
+  },
+  {
+    "text": "の",
+    "start": 222900,
+    "end": 223500,
+    "confidence": 0.99
+  },
+  {
+    "text": "刻",
+    "start": 225300,
+    "end": 225600,
+    "confidence": 1.0
+  },
+  {
+    "text": "む",
+    "start": 225600,
+    "end": 226020,
+    "confidence": 0.53
+  },
+  {
+    "text": "な",
+    "start": 226020,
+    "end": 226740,
+    "confidence": 0.71
+  },
+  {
+    "text": "時",
+    "start": 226740,
+    "end": 228720,
+    "confidence": 0.82
+  },
+  {
+    "text": "だ",
+    "start": 228720,
+    "end": 229740,
+    "confidence": 0.94
+  },
+  {
+    "text": "よ",
+    "start": 229740,
+    "end": 230160,
+    "confidence": 0.99
+  },
+  {
+    "text": "肩",
+    "start": 230160,
+    "end": 231900,
+    "confidence": 0.37
+  },
+  {
+    "text": "を",
+    "start": 231900,
+    "end": 232380,
+    "confidence": 0.91
+  },
+  {
+    "text": "投",
+    "start": 232380,
+    "end": 233160,
+    "confidence": 0.99
+  },
+  {
+    "text": "げ",
+    "start": 233160,
+    "end": 233520,
+    "confidence": 0.99
+  },
+  {
+    "text": "続",
+    "start": 235080,
+    "end": 235380,
+    "confidence": 1.0
+  },
+  {
+    "text": "く",
+    "start": 235380,
+    "end": 235740,
+    "confidence": 1.0
+  },
+  {
+    "text": "な",
+    "start": 235740,
+    "end": 236640,
+    "confidence": 0.59
+  },
+  {
+    "text": "の",
+    "start": 236640,
+    "end": 237000,
+    "confidence": 0.94
+  },
+  {
+    "text": "で",
+    "start": 237000,
+    "end": 237240,
+    "confidence": 0.96
+  },
+  {
+    "text": "、",
+    "start": 237240,
+    "end": 237780,
+    "confidence": 0.45
+  },
+  {
+    "text": "僕",
+    "start": 237780,
+    "end": 239580,
+    "confidence": 0.98
+  },
+  {
+    "text": "は",
+    "start": 239580,
+    "end": 240540,
+    "confidence": 0.87
+  },
+  {
+    "text": "嫌",
+    "start": 242400,
+    "end": 242700,
+    "confidence": 0.99
+  },
+  {
+    "text": "だ",
+    "start": 242700,
+    "end": 243420,
+    "confidence": 0.98
+  },
+  {
+    "text": "よ",
+    "start": 243420,
+    "end": 243840,
+    "confidence": 1.0
+  },
+  {
+    "text": "。",
+    "start": 243840,
+    "end": 244320,
+    "confidence": 0.99
+  },
+  {
+    "text": "い",
+    "start": 254580,
+    "end": 254880,
+    "confidence": 0.98
+  },
+  {
+    "text": "つ",
+    "start": 254880,
+    "end": 255120,
+    "confidence": 0.98
+  },
+  {
+    "text": "ま",
+    "start": 255120,
+    "end": 255360,
+    "confidence": 0.99
+  },
+  {
+    "text": "で",
+    "start": 255360,
+    "end": 255540,
+    "confidence": 0.98
+  },
+  {
+    "text": "も",
+    "start": 255540,
+    "end": 255780,
+    "confidence": 0.98
+  },
+  {
+    "text": "覚",
+    "start": 255780,
+    "end": 256200,
+    "confidence": 0.81
+  },
+  {
+    "text": "え",
+    "start": 256200,
+    "end": 256440,
+    "confidence": 0.94
+  },
+  {
+    "text": "て",
+    "start": 256440,
+    "end": 256620,
+    "confidence": 0.97
+  },
+  {
+    "text": "る",
+    "start": 256620,
+    "end": 256860,
+    "confidence": 0.92
+  },
+  {
+    "text": "よ",
+    "start": 256860,
+    "end": 257100,
+    "confidence": 0.44
+  },
+  {
+    "text": "街",
+    "start": 257100,
+    "end": 257700,
+    "confidence": 0.93
+  },
+  {
+    "text": "が",
+    "start": 257700,
+    "end": 257940,
+    "confidence": 0.95
+  },
+  {
+    "text": "変",
+    "start": 257940,
+    "end": 258240,
+    "confidence": 0.89
+  },
+  {
+    "text": "わ",
+    "start": 258240,
+    "end": 258420,
+    "confidence": 0.96
+  },
+  {
+    "text": "っ",
+    "start": 258420,
+    "end": 258540,
+    "confidence": 0.99
+  },
+  {
+    "text": "て",
+    "start": 258540,
+    "end": 258720,
+    "confidence": 0.98
+  },
+  {
+    "text": "も",
+    "start": 258720,
+    "end": 258960,
+    "confidence": 0.97
+  },
+  {
+    "text": "ど",
+    "start": 258960,
+    "end": 259320,
+    "confidence": 0.35
+  },
+  {
+    "text": "れ",
+    "start": 259320,
+    "end": 259380,
+    "confidence": 0.71
+  },
+  {
+    "text": "だ",
+    "start": 259380,
+    "end": 259620,
+    "confidence": 0.97
+  },
+  {
+    "text": "け",
+    "start": 259620,
+    "end": 259800,
+    "confidence": 0.97
+  },
+  {
+    "text": "の",
+    "start": 259800,
+    "end": 260040,
+    "confidence": 0.5
+  },
+  {
+    "text": "悲",
+    "start": 260040,
+    "end": 260400,
+    "confidence": 0.94
+  },
+  {
+    "text": "し",
+    "start": 260400,
+    "end": 260640,
+    "confidence": 0.94
+  },
+  {
+    "text": "い",
+    "start": 260640,
+    "end": 260880,
+    "confidence": 0.36
+  },
+  {
+    "text": "あ",
+    "start": 260880,
+    "end": 261600,
+    "confidence": 0.82
+  },
+  {
+    "text": "の",
+    "start": 261600,
+    "end": 261780,
+    "confidence": 0.9
+  },
+  {
+    "text": "こ",
+    "start": 261780,
+    "end": 262020,
+    "confidence": 0.66
+  },
+  {
+    "text": "と",
+    "start": 262020,
+    "end": 262140,
+    "confidence": 0.7
+  },
+  {
+    "text": "に",
+    "start": 262140,
+    "end": 262500,
+    "confidence": 0.78
+  },
+  {
+    "text": "な",
+    "start": 262500,
+    "end": 262740,
+    "confidence": 0.91
+  },
+  {
+    "text": "っ",
+    "start": 262740,
+    "end": 262860,
+    "confidence": 0.95
+  },
+  {
+    "text": "て",
+    "start": 262860,
+    "end": 263040,
+    "confidence": 0.91
+  },
+  {
+    "text": "も",
+    "start": 263040,
+    "end": 263340,
+    "confidence": 0.94
+  },
+  {
+    "text": "見",
+    "start": 263340,
+    "end": 263760,
+    "confidence": 0.94
+  },
+  {
+    "text": "せ",
+    "start": 263760,
+    "end": 263940,
+    "confidence": 0.96
+  },
+  {
+    "text": "て",
+    "start": 263940,
+    "end": 264180,
+    "confidence": 0.92
+  },
+  {
+    "text": "や",
+    "start": 264180,
+    "end": 264420,
+    "confidence": 0.63
+  },
+  {
+    "text": "る",
+    "start": 264420,
+    "end": 264600,
+    "confidence": 0.64
+  },
+  {
+    "text": "終",
+    "start": 265440,
+    "end": 265500,
+    "confidence": 0.33
+  },
+  {
+    "text": "わ",
+    "start": 265500,
+    "end": 265740,
+    "confidence": 0.21
+  },
+  {
+    "text": "強",
+    "start": 265740,
+    "end": 265920,
+    "confidence": 0.52
+  },
+  {
+    "text": "か",
+    "start": 265920,
+    "end": 266340,
+    "confidence": 0.81
+  },
+  {
+    "text": "っ",
+    "start": 266340,
+    "end": 266520,
+    "confidence": 0.87
+  },
+  {
+    "text": "た",
+    "start": 266520,
+    "end": 266760,
+    "confidence": 0.96
+  },
+  {
+    "text": "時",
+    "start": 266760,
+    "end": 267120,
+    "confidence": 0.84
+  },
+  {
+    "text": "の",
+    "start": 267120,
+    "end": 267360,
+    "confidence": 0.97
+  },
+  {
+    "text": "こ",
+    "start": 267360,
+    "end": 267600,
+    "confidence": 0.95
+  },
+  {
+    "text": "と",
+    "start": 267600,
+    "end": 267780,
+    "confidence": 0.94
+  },
+  {
+    "text": "さ",
+    "start": 267780,
+    "end": 268140,
+    "confidence": 0.94
+  },
+  {
+    "text": "え",
+    "start": 268140,
+    "end": 268260,
+    "confidence": 0.7
+  },
+  {
+    "text": "行",
+    "start": 268260,
+    "end": 268500,
+    "confidence": 0.47
+  },
+  {
+    "text": "く",
+    "start": 268500,
+    "end": 268680,
+    "confidence": 0.89
+  },
+  {
+    "text": "よ",
+    "start": 268680,
+    "end": 268860,
+    "confidence": 0.93
+  },
+  {
+    "text": "。",
+    "start": 268860,
+    "end": 269100,
+    "confidence": 0.4
+  },
+  {
+    "text": "歩",
+    "start": 269100,
+    "end": 269340,
+    "confidence": 0.85
+  },
+  {
+    "text": "き",
+    "start": 269340,
+    "end": 269520,
+    "confidence": 0.84
+  },
+  {
+    "text": "出",
+    "start": 269520,
+    "end": 269760,
+    "confidence": 0.89
+  },
+  {
+    "text": "す",
+    "start": 269760,
+    "end": 269940,
+    "confidence": 0.94
+  },
+  {
+    "text": "坂",
+    "start": 269940,
+    "end": 270300,
+    "confidence": 0.7
+  },
+  {
+    "text": "の",
+    "start": 270300,
+    "end": 270660,
+    "confidence": 0.95
+  },
+  {
+    "text": "道",
+    "start": 270660,
+    "end": 271080,
+    "confidence": 0.95
+  },
+  {
+    "text": "を",
+    "start": 271080,
+    "end": 271320,
+    "confidence": 0.96
+  },
+  {
+    "text": "。",
+    "start": 271320,
+    "end": 271620,
+    "confidence": 0.95
+  }
+]

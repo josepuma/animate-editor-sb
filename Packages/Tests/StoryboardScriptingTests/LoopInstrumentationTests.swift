@@ -133,4 +133,73 @@ struct LoopInstrumentationTests {
             return "\(sprite.id);\(commands)"
         }.joined(separator: "\n")
     }
+
+    // ─── Comments ────────────────────────────────────────────────────────────
+
+    /// A loop keyword inside a **comment** is not a loop.
+    ///
+    /// Found from a real script: a line reading `// …a comb, while an angle
+    /// that comes…` was followed a few lines later by
+    /// `const angleAt = (u) => {`. The `while` was taken for a keyword, the
+    /// next `(` found was the arrow function's parameter list, and it came out
+    /// as `const angleAt = ((__tick(), u)) => {` — *"Expected a parameter
+    /// pattern"*, from a file that is valid JavaScript.
+    ///
+    /// The word-boundary check already here is not enough: `while` in prose is
+    /// a whole word. What matters is whether it is **code**.
+    @Test("a loop keyword in a line comment is left alone")
+    func lineCommentIsNotCode() {
+        let source = """
+        // a comb, while an angle that comes
+        const angleAt = (u) => u * 2
+        const value = angleAt(3)
+        """
+
+        let instrumented = LoopInstrumenter.instrument(source)
+
+        // The arrow's parameter list survives untouched.
+        #expect(instrumented.contains("(u) =>"))
+        #expect(!instrumented.contains("((__tick(), u))"))
+    }
+
+    @Test("a loop keyword in a block comment is left alone")
+    func blockCommentIsNotCode() {
+        let source = """
+        /* runs for a while */
+        const f = (x) => x
+        """
+
+        let instrumented = LoopInstrumenter.instrument(source)
+
+        #expect(instrumented.contains("(x) =>"))
+    }
+
+    @Test("a loop keyword in a string is left alone")
+    func stringIsNotCode() {
+        let source = """
+        const label = "wait for it"
+        const f = (x) => x
+        """
+
+        let instrumented = LoopInstrumenter.instrument(source)
+
+        #expect(instrumented.contains("(x) =>"))
+    }
+
+    /// And a real loop after a comment mentioning one still gets its guard —
+    /// skipping comments must not skip the code following them.
+    @Test("a real loop after such a comment is still guarded")
+    func realLoopAfterCommentIsGuarded() {
+        let source = """
+        // count up, while there is room
+        for (let i = 0; i < 10; i++) {
+            total += i
+        }
+        """
+
+        let instrumented = LoopInstrumenter.instrument(source)
+
+        #expect(instrumented.contains("__tick()"))
+        #expect(instrumented.contains("(let i = 0;"))
+    }
 }

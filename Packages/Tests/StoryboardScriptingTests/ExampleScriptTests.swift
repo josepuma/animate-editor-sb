@@ -115,4 +115,191 @@ struct ExampleScriptTests {
 
         #expect(printed == outcome.sprites.count)
     }
+
+    // ─── aurora ──────────────────────────────────────────────────────────────
+
+    @Test("aurora runs clean")
+    func auroraRuns() throws {
+        let outcome = try run("aurora.js")
+
+        #expect(outcome.diagnostics.isEmpty, "\(outcome.diagnostics)")
+        #expect(!outcome.sprites.isEmpty)
+    }
+
+    /// Additive is not decoration here: without it the columns occlude each
+    /// other instead of summing, and a curtain of light becomes a row of bars.
+    ///
+    /// It also has to be **asked for correctly**. `additive` takes a span, and
+    /// called with no arguments the bridge drops the command in silence —
+    /// measured, 0 of 108 sprites were additive while the script read as
+    /// though every one was.
+    @Test("every column adds its light rather than covering its neighbour")
+    func auroraIsAdditive() throws {
+        let sprites = try run("aurora.js").sprites
+        let states = StoryboardResolver.resolve(
+            StoryboardResolver.prepare(sprites), at: 2000,
+        )
+
+        #expect(!states.isEmpty)
+        // Counted rather than `allSatisfy(\.additive)`: a key path inside the
+        // macro is read as possibly throwing, and the count says how many when
+        // it fails.
+        let plain = states.count { !$0.additive }
+        #expect(plain == 0, "\(plain) of \(states.count) columns are not additive")
+    }
+
+    /// A curtain is fog, not bars.
+    ///
+    /// The complaint that drove the rewrite was hard vertical edges, and the
+    /// answer is two sprites per piece: a `streak` for the shaft and a much
+    /// wider `smoke` for the haze around it. The haze is what removes the
+    /// edges, so its absence is the failure to guard against — and it was
+    /// absent once already, when the layer declared `Image.smoke` and every
+    /// sprite was built with `Image.streak` regardless.
+    @Test("every shaft has haze around it")
+    func auroraHasHaze() throws {
+        let sprites = try run("aurora.js").sprites
+
+        var byImage: [String: Int] = [:]
+        for sprite in sprites { byImage[sprite.filePath, default: 0] += 1 }
+
+        let shafts = byImage["__builtin__/streak.png"] ?? 0
+        let haze = byImage["__builtin__/smoke.png"] ?? 0
+        #expect(shafts > 0, "no shafts")
+        #expect(haze == shafts, "\(haze) haze sprites for \(shafts) shafts")
+    }
+
+    /// And the haze is much wider than the shaft it softens, or it is a second
+    /// bar rather than fog.
+    @Test("the haze is wider than the shaft")
+    func auroraHazeIsWide() throws {
+        let sprites = try run("aurora.js").sprites
+        let prepared = StoryboardResolver.prepare(sprites)
+        let states = StoryboardResolver.resolve(prepared, at: 2000)
+
+        var shaftWidth = 0.0
+        var hazeWidth = 0.0
+        for (index, state) in states.enumerated() where state.visible {
+            let width = state.scaleX * 64
+            if sprites[index].filePath.contains("smoke") {
+                hazeWidth = max(hazeWidth, width)
+            } else {
+                shaftWidth = max(shaftWidth, width)
+            }
+        }
+
+        #expect(shaftWidth > 0)
+        #expect(hazeWidth > shaftWidth * 2, "haze \(Int(hazeWidth)) vs shaft \(Int(shaftWidth))")
+    }
+
+    /// The colour changes **along** a column, which is why a column is a stack
+    /// of pieces rather than one tall sprite: a sprite carries one tint, so a
+    /// gradient up a curtain has to be several. Green at the base going violet
+    /// at the crown is the palette of the thing.
+    @Test("the colour ramps along a column")
+    func auroraColourRamps() throws {
+        let sprites = try run("aurora.js").sprites
+
+        var tints: Set<String> = []
+        for sprite in sprites {
+            for command in sprite.commands {
+                if case let .color(startR, startG, startB, _, _, _) = command.payload {
+                    tints.insert("\(Int(startR)),\(Int(startG)),\(Int(startB))")
+                }
+            }
+        }
+        #expect(tints.count >= 3, "\(tints.count) tints: a ramp needs at least three")
+    }
+
+    /// Columns are **not parallel**: they follow the tangent of the arc the
+    /// curtain hangs in. Straight vertical columns read as a barcode however
+    /// they ripple, which is exactly what the first version looked like.
+    @Test("the columns fan along an arc rather than standing parallel")
+    func auroraColumnsFan() throws {
+        let sprites = try run("aurora.js").sprites
+        let states = StoryboardResolver.resolve(
+            StoryboardResolver.prepare(sprites), at: 2000,
+        ).filter(\.visible)
+
+        let angles = Set(states.map { Int($0.rotation * 100) })
+        #expect(angles.count > 5, "\(angles.count) distinct angles: the curtain is flat")
+
+        // And they lean both ways from the middle, which is what an arc does.
+        let rotations = states.map(\.rotation)
+        #expect(rotations.contains { $0 > 0.05 })
+        #expect(rotations.contains { $0 < -0.05 })
+    }
+
+    /// The ripple travels **sideways**: neighbouring columns move together with
+    /// a lag, which is what reads as cloth in a draught. Columns swaying in
+    /// unison are a slab leaning over, and that is what a single shared wobble
+    /// would give.
+    @Test("the ripple travels along the curtain rather than moving it as one")
+    func auroraRipplesSideways() throws {
+        let sprites = try run("aurora.js").sprites
+        let prepared = StoryboardResolver.prepare(sprites)
+
+        // Two moments, and how far each column moved between them.
+        let early = StoryboardResolver.resolve(prepared, at: 800)
+        let later = StoryboardResolver.resolve(prepared, at: 2400)
+        let shifts = zip(early, later).map { $1.x - $0.x }
+
+        #expect(shifts.count > 8)
+        // Neighbours differ — a shared wobble would move them all alike.
+        // Counted against the *column* count rather than the sprite count:
+        // each column is now six sprites — three pieces, each with its haze —
+        // and every piece of one column shares its column's shift by design.
+        let distinct = Set(shifts.map { Int($0 * 10) })
+        #expect(distinct.count > 10, "\(distinct.count) distinct shifts: the sheet moves as one")
+        // And some go one way while others go the other, which a leaning slab
+        // cannot do.
+        #expect(shifts.contains { $0 > 0.5 })
+        #expect(shifts.contains { $0 < -0.5 })
+    }
+
+    /// Brightness ripples on its own period, so light appears and dies in place
+    /// while the curtain drifts. Tied to the shape, the sheet reads as a solid
+    /// object sliding about.
+    @Test("columns light up at different times")
+    func auroraBrightnessVaries() throws {
+        let sprites = try run("aurora.js").sprites
+        let states = StoryboardResolver.resolve(
+            StoryboardResolver.prepare(sprites), at: 2000,
+        ).filter(\.visible)
+
+        let opacities = states.map(\.opacity)
+        let spread = (opacities.max() ?? 0) - (opacities.min() ?? 0)
+        #expect(spread > 0.01, "every column is at \(opacities.first ?? 0)")
+        // None fully dark: a column that vanishes leaves a hole in the sheet.
+        #expect(opacities.allSatisfy { $0 > 0 })
+    }
+
+    /// Commands written for something off the frame are commands nobody sees,
+    /// and they still take up room in the file.
+    @Test("the curtain stays on the stage")
+    func auroraStaysOnStage() throws {
+        let sprites = try run("aurora.js").sprites
+        let states = StoryboardResolver.resolve(
+            StoryboardResolver.prepare(sprites), at: 2000,
+        ).filter(\.visible)
+
+        // Measured at the original default width of 900, ten of forty-four
+        // columns drew off-stage.
+        let off = states.count { $0.x < -107 || $0.x > 747 }
+        #expect(off == 0, "\(off) of \(states.count) columns are off the stage")
+    }
+
+    @Test("aurora declares its controls")
+    func auroraDeclaresControls() throws {
+        let declared = try #require(try run("aurora.js").declared)
+        let ids = Set(declared.map(\.id))
+
+        // The axes the effect is actually tuned on.
+        // `bands` is gone with the rewrite: the colour ramps along a column
+        // rather than between stacked sheets, so `arc` and `haze` are the axes
+        // that replaced it.
+        for id in ["columns", "arc", "haze", "sway", "ripples", "speed", "segments"] {
+            #expect(ids.contains(id), "missing \(id)")
+        }
+    }
 }

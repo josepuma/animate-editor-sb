@@ -46,7 +46,23 @@ struct InspectorView: View {
                 // of deciding what to draw. `LazyVStack` builds the rows that
                 // are on screen and leaves the rest until they scroll into
                 // view.
-                LazyVStack(alignment: .leading, spacing: Theme.Spacing.compact) {
+                // `loose` between groups, matching the lyrics panel: `compact`
+                // is the spacing *within* a group, so using it between them
+                // gave the panel no hierarchy — every heading read as one more
+                // field label in a single long list.
+                // `FieldGroups` puts the rule between its children, so a
+                // group generated in a `ForEach` gets one without anybody
+                // remembering to add it.
+                //
+                // Not lazy any more, and that is a real trade: `LazyVStack`
+                // was here because an emitter has thirty parameters, several
+                // of them AppKit menus and colour wells, and building them all
+                // at once measured 83 to 207ms. A variadic container has to
+                // see its children to separate them, so they are all built.
+                // Watch this if a thirty-parameter effect feels slow to
+                // select — the fix would be grouping lazily *inside* each
+                // group rather than going back to no separators.
+                FieldGroups {
                     trackSummary
 
                     if let node = shell.selectedEffect, let descriptor = shell.selectedDescriptor {
@@ -746,6 +762,7 @@ struct InspectorView: View {
 
     // ─── Sections ────────────────────────────────────────────────────────────
 
+
     private var header: some View {
         SectionHeader("Script Settings") {
             IconButton(
@@ -985,66 +1002,75 @@ private struct FilterCard: View {
                     // own stepper — no room left to read or type the value.
                     // The same lesson `ColorField` already taught with three
                     // controls in one row, and the alignment buttons after it.
-                    VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
-                        ParameterControl(
-                            parameter: parameter,
-                            // While animating, the field shows the value at the
-                            // playhead — so scrubbing moves the number, exactly
-                            // as a transform's does.
-                            value: animatedValue(parameter.id).map { EffectValue.number($0) }
-                                ?? filter.values[parameter.id] ?? parameter.defaultValue,
-                            onChange: { value in
-                                // Typing while animating plants a key here
-                                // rather than moving the resting value, which
-                                // is what a timeline editor means by editing an
-                                // animated property.
-                                if case let .number(number) = value,
-                                   animation(parameter.id)?.isActive == true
-                                {
-                                    addKeyframe(parameter.id, number)
-                                } else {
-                                    onChange(parameter.id, value)
-                                }
-                            },
-                            onEditingChanged: onEditingChanged,
-                            isDrawingPath: isDrawingPath,
-                            onToggleDrawing: onToggleDrawing,
-                        )
-
-                        if parameter.animation.isAnimatable {
-                            // Indented to the field it belongs to, so a column
-                            // of parameters does not read as a column of
-                            // unattached buttons.
-                            FilterKeyframeControls(
-                                track: animation(parameter.id),
-                                keyTime: keyTime,
-                                current: animatedValue(parameter.id)
-                                    ?? number(of: parameter, in: filter),
-                                costWarning: costWarning(for: parameter),
-                                beginAnimating: { beginAnimating(parameter.id) },
-                                setEnabled: { setAnimationEnabled(parameter.id, $0) },
-                                addKey: {
-                                    addKeyframe(
-                                        parameter.id,
-                                        animatedValue(parameter.id)
-                                            ?? number(of: parameter, in: filter),
-                                    )
-                                },
-                                clear: { clearAnimation(parameter.id) },
-                                goToTime: goToTime,
+                    ParameterControl(
+                        parameter: parameter,
+                        // While animating, the field shows the value at the
+                        // playhead — so scrubbing moves the number, exactly
+                        // as a transform's does.
+                        value: animatedValue(parameter.id).map { EffectValue.number($0) }
+                            ?? filter.values[parameter.id] ?? parameter.defaultValue,
+                        onChange: { value in
+                            // Typing while animating plants a key here rather
+                            // than moving the resting value, which is what a
+                            // timeline editor means by editing an animated
+                            // property.
+                            if case let .number(number) = value,
+                               animation(parameter.id)?.isActive == true
+                            {
+                                addKeyframe(parameter.id, number)
+                            } else {
+                                onChange(parameter.id, value)
+                            }
+                        },
+                        onEditingChanged: onEditingChanged,
+                        isDrawingPath: isDrawingPath,
+                        onToggleDrawing: onToggleDrawing,
+                        // In the row, after the field it belongs to.
+                        //
+                        // It used to sit on a line of its own, indented by the
+                        // usual spacing — which is 12 points against a label
+                        // column of 78, so it landed well left of the field it
+                        // refers to and five parameters read as ten rows of
+                        // alternating field and orphaned button.
+                        trailing: parameter.animation.isAnimatable
+                            ? AnyView(
+                                FilterKeyframeControls(
+                                    track: animation(parameter.id),
+                                    keyTime: keyTime,
+                                    current: animatedValue(parameter.id)
+                                        ?? number(of: parameter, in: filter),
+                                    costWarning: costWarning(for: parameter),
+                                    beginAnimating: { beginAnimating(parameter.id) },
+                                    setEnabled: { setAnimationEnabled(parameter.id, $0) },
+                                    addKey: {
+                                        addKeyframe(
+                                            parameter.id,
+                                            animatedValue(parameter.id)
+                                                ?? number(of: parameter, in: filter),
+                                        )
+                                    },
+                                    clear: { clearAnimation(parameter.id) },
+                                    goToTime: goToTime,
+                                ),
                             )
-                            .padding(.leading, Theme.Spacing.compact)
-                        }
-                    }
+                            : nil,
+                    )
                 }
                 .disabled(!filter.isEnabled)
                 .opacity(filter.isEnabled ? 1 : 0.5)
             }
         }
         .padding(Theme.Spacing.snug)
+        // This one keeps a surface, and the distinction is worth naming: a
+        // filter is a **row of a list** — collapsible, switchable, removable —
+        // not a section of a panel. Several of them stacked need to read as
+        // separate items, which spacing alone cannot say.
+        //
+        // `rowSelected`, not `well`: a well is the recess a *field* sits in,
+        // and at that opacity a column of these read as a stack of inputs.
         .background {
             RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                .fill(Theme.Fill.well)
+                .fill(Theme.Fill.rowSelected)
         }
         .animation(Theme.Motion.quick, value: isExpanded)
     }
@@ -1091,11 +1117,19 @@ private struct ParameterControl: View {
     /// threaded through every other call site.
     var isDrawingPath = false
     var onToggleDrawing: () -> Void = {}
+    /// Drawn after the control, in the same row.
+    ///
+    /// For a stopwatch, which belongs to the field rather than beside it: on a
+    /// line of its own it aligned with nothing, and five parameters became ten
+    /// rows of alternating field and orphaned button.
+    var trailing: AnyView?
 
     var body: some View {
-        PropertyRow(parameter.name) {
+        PropertyRow(parameter.name, control: {
             control
-        }
+        }, trailing: {
+            trailing
+        })
     }
 
     @ViewBuilder
@@ -1366,7 +1400,11 @@ private struct LayerOption: Hashable, Identifiable {
 }
 
 /// Wraps a plain string so it can drive an identifiable menu.
-private struct ChoiceOption: Hashable, Identifiable {
+/// A plain string, made pickable.
+///
+/// `MenuField` wants an `Identifiable` item and a `String` is not one. Shared
+/// rather than private now that two panels need it.
+struct ChoiceOption: Hashable, Identifiable {
     let id: String
 
     init(_ id: String) {

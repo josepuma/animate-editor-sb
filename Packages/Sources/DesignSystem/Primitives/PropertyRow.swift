@@ -1,13 +1,27 @@
 import SwiftUI
 
-/// A labelled field in an inspector: label on the left, control on the right.
-public struct PropertyRow<Control: View>: View {
+/// A labelled field in an inspector: label on the left, control on the right,
+/// and an optional slot after it.
+///
+/// The trailing slot exists for a control that belongs *to* the field rather
+/// than beside it — a keyframe stopwatch, say. Put on a line of its own it
+/// aligns with nothing: the label column is 78 points wide, so a button
+/// indented by the usual spacing lands well left of the field it refers to,
+/// and a panel of five parameters becomes ten rows of alternating field and
+/// orphan.
+public struct PropertyRow<Control: View, Trailing: View>: View {
     private let label: String
     private let control: Control
+    private let trailing: Trailing
 
-    public init(_ label: String, @ViewBuilder control: () -> Control) {
+    public init(
+        _ label: String,
+        @ViewBuilder control: () -> Control,
+        @ViewBuilder trailing: () -> Trailing,
+    ) {
         self.label = label
         self.control = control()
+        self.trailing = trailing()
     }
 
     public var body: some View {
@@ -22,6 +36,8 @@ public struct PropertyRow<Control: View>: View {
 
             control
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+            trailing
         }
         // Centred on the row rather than on the stack's baseline: a label long
         // enough to wrap ("Velocity Random") is two lines against a one-line
@@ -32,6 +48,13 @@ public struct PropertyRow<Control: View>: View {
         // with a wrapped label is visibly taller than its neighbours, and a
         // column of fields reads as unevenly spaced rather than as a form.
         .frame(minHeight: Theme.Size.field, alignment: .center)
+    }
+}
+
+public extension PropertyRow where Trailing == EmptyView {
+    /// A row with nothing after its control, which is most of them.
+    init(_ label: String, @ViewBuilder control: () -> Control) {
+        self.init(label, control: control, trailing: { EmptyView() })
     }
 }
 

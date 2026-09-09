@@ -53,6 +53,21 @@ struct ButtonsPage: View {
         }
 
         Specimen(
+            "Full width",
+            note: "For the one action a section exists for. Sized to its own label it reads as one control among the fields above it; filling the row makes it the thing to press. The width lives in the style, so the fill stretches — a .frame at the call site only centres the label inside a wider box.",
+        ) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.hair) {
+                Button("Transcribe", systemImage: "waveform") {}
+                    .buttonStyle(.themed(.primary, size: .small, fullWidth: true))
+                // Beside its own default, which is what the difference looks
+                // like: a specimen shown alone says nothing about what changed.
+                Button("Transcribe", systemImage: "waveform") {}
+                    .buttonStyle(.themed(.primary, size: .small))
+            }
+            .frame(width: 240, alignment: .leading)
+        }
+
+        Specimen(
             "Capsule",
             note: "For controls floating over content. Bars read as pills; buttons inside a panel do not.",
         ) {

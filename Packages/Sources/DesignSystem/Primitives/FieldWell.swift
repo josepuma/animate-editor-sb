@@ -73,6 +73,18 @@ public struct FieldWell<Content: View>: View {
 }
 
 /// A titled block of fields, separated from its neighbours by its own surface.
+/// A titled block of fields.
+///
+/// **A heading and space, not a card.** It used to draw its own filled
+/// rectangle, and a panel of them was boxes inside a box: the inspector already
+/// sits on `.panel`, so every group added a second surface over the first, and
+/// several stacked read as a list of tiles rather than as one panel with
+/// sections in it.
+///
+/// What separates one group from the next is the heading and the gap around
+/// it — the same thing that separates paragraphs in any document, and what the
+/// lyrics panel does. `Theme.Fill.subtle` is still there for a surface that
+/// genuinely needs to read as inset; a group of fields is not one.
 public struct FieldGroup<Content: View>: View {
     private let title: String?
     private let content: Content
@@ -83,18 +95,52 @@ public struct FieldGroup<Content: View>: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.compact) {
             if let title {
-                Text(title)
-                    .font(Theme.Typography.micro)
-                    .foregroundStyle(Theme.Palette.tertiary)
+                SectionHeader(title)
             }
             content
         }
-        .padding(Theme.Spacing.compact)
-        .background {
-            RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
-                .fill(Theme.Fill.subtle)
+    }
+}
+
+/// A column of ``FieldGroup``s with a rule between them.
+///
+/// Between, not before: a group cannot know whether it is first, and a rule on
+/// the first one separates it from nothing. Placed at each call site instead it
+/// gets forgotten — the inspector had one before its filters and one after the
+/// track summary, while Timing, Transform and Content, generated in a
+/// `ForEach`, ran together with nothing between them.
+///
+/// A separator that has to be remembered is a separator that will be missing
+/// somewhere.
+public struct FieldGroups<Content: View>: View {
+    private let content: Content
+
+    public init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    public var body: some View {
+        // `_VariadicView` is what lets a container see its children
+        // individually — a plain `VStack` receives them already composed, with
+        // no way to put anything between.
+        _VariadicView.Tree(Layout()) { content }
+    }
+
+    private struct Layout: _VariadicView_MultiViewRoot {
+        func body(children: _VariadicView.Children) -> some View {
+            VStack(alignment: .leading, spacing: Theme.Spacing.loose) {
+                ForEach(children) { child in
+                    if child.id != children.first?.id {
+                        // Dimmed: a hairline at full contrast in a dark panel
+                        // reads as a border around what follows, which is the
+                        // card `FieldGroup` stopped drawing.
+                        Divider().opacity(0.4)
+                    }
+                    child
+                }
+            }
         }
     }
 }

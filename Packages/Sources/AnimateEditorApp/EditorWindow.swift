@@ -323,10 +323,56 @@ struct EditorWindow: View {
             // bug read as "the effect is broken until you poke it".
             playback.onTrackLoaded = { [weak shell] url in
                 audioURL.url = url
+                shell?.lyricAudioURL = url
                 shell?.beat = playback.timing.map { BeatGrid(timing: $0) }
                 shell?.inputsChanged()
             }
             audioURL.url = playback.trackURL
+            shell.lyricAudioURL = playback.trackURL
+
+            // Reads the song for its words. Installed here for the reason the
+            // spectrum analyser is: `StoryboardPersistence` talks to the
+            // speech framework and `EditorShellFeature` does not import it.
+            //
+            // Gated on the OS rather than raising the package's minimum:
+            // everything else here runs on macOS 14 and has no reason to stop.
+            // With nothing installed the panel says transcription is
+            // unavailable, which beats a language picker that fails on use.
+            if #available(macOS 26, *), LyricTranscriber.isAvailable {
+                shell.lyricTranscriptionHandler = { audio, locale in
+                    // The URL arrives as an argument, not read from playback:
+                    // `PlaybackModel` is `@MainActor`, so touching it here
+                    // would hop to the main thread and take the seconds of
+                    // audio decoding with it.
+                    try await LyricTranscriber.words(from: audio, locale: locale)
+                }
+                shell.lyricLocalesHandler = {
+                    await (
+                        available: LyricTranscriber.availableLocales(),
+                        installed: LyricTranscriber.installedLocales()
+                    )
+                }
+                // Grouped and named here because `LyricLanguage` reads
+                // `Locale`, and the shell imports neither it nor the engine.
+                shell.lyricLanguagesHandler = {
+                    let available = await LyricTranscriber.availableLocales()
+                    let installed = await LyricTranscriber.installedLocales()
+                    return LyricLanguage
+                        .languages(from: available, installed: installed)
+                        .map { language in
+                            LyricTranscription.LanguageOption(
+                                name: language.name,
+                                variants: language.variants.map {
+                                    .init(
+                                        identifier: $0.identifier,
+                                        label: $0.name,
+                                        isInstalled: $0.isInstalled,
+                                    )
+                                },
+                            )
+                        }
+                }
+            }
 
             shell.assetThumbnail = { path in
                 // Resolved through the folder's own index, not by joining the

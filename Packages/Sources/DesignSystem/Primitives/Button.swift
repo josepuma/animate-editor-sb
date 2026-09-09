@@ -41,13 +41,20 @@ public struct ThemedButtonStyle: ButtonStyle {
     private let variant: ButtonVariant
     private let size: ButtonSize
     private let isCapsule: Bool
+    private let isFullWidth: Bool
 
     @Environment(\.isEnabled) private var isEnabled
 
-    public init(variant: ButtonVariant, size: ButtonSize, isCapsule: Bool) {
+    public init(
+        variant: ButtonVariant,
+        size: ButtonSize,
+        isCapsule: Bool,
+        isFullWidth: Bool = false,
+    ) {
         self.variant = variant
         self.size = size
         self.isCapsule = isCapsule
+        self.isFullWidth = isFullWidth
     }
 
     public func makeBody(configuration: Configuration) -> some View {
@@ -56,6 +63,7 @@ public struct ThemedButtonStyle: ButtonStyle {
             variant: variant,
             size: size,
             isCapsule: isCapsule,
+            isFullWidth: isFullWidth,
             isEnabled: isEnabled,
         )
     }
@@ -68,6 +76,7 @@ private struct ThemedButtonBody: View {
     let variant: ButtonVariant
     let size: ButtonSize
     let isCapsule: Bool
+    let isFullWidth: Bool
     let isEnabled: Bool
 
     @State private var isHovered = false
@@ -77,6 +86,14 @@ private struct ThemedButtonBody: View {
             .font(size.font)
             .foregroundStyle(variant.foreground(isHovered: isHovered))
             .padding(.horizontal, size.horizontalPadding)
+            // Inside the style, so the fill stretches with it.
+            //
+            // A `.frame(maxWidth: .infinity)` at the call site widens the
+            // layout box and centres the label inside it, leaving the
+            // background sized to the text — a pill floating in the middle of
+            // the row rather than a button filling it. The background is
+            // applied below this line, which is why the width has to be here.
+            .frame(maxWidth: isFullWidth ? .infinity : nil)
             .frame(height: size.height)
             .contentShape(.rect)
             .modifier(
@@ -99,14 +116,24 @@ private struct ThemedButtonBody: View {
 public extension ButtonStyle where Self == ThemedButtonStyle {
     /// The app's button.
     ///
-    /// - Parameter capsule: fully rounded, for controls floating over content.
-    ///   Bars and clusters read as pills; buttons inside a panel do not.
+    /// - Parameters:
+    ///   - capsule: fully rounded, for controls floating over content. Bars and
+    ///     clusters read as pills; buttons inside a panel do not.
+    ///   - fullWidth: fills the row it is in. For the one action a section
+    ///     exists for — sized to its own label, such a button reads as one
+    ///     control among the fields above it rather than as the thing to press.
+    ///     Here rather than a `.frame` at the call site, which widens the
+    ///     layout box and centres the label while the fill stays the size of
+    ///     the text.
     static func themed(
         _ variant: ButtonVariant = .secondary,
         size: ButtonSize = .regular,
         capsule: Bool = false,
+        fullWidth: Bool = false,
     ) -> ThemedButtonStyle {
-        ThemedButtonStyle(variant: variant, size: size, isCapsule: capsule)
+        ThemedButtonStyle(
+            variant: variant, size: size, isCapsule: capsule, isFullWidth: fullWidth,
+        )
     }
 }
 
