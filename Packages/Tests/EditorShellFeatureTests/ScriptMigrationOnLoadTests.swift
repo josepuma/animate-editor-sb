@@ -139,6 +139,46 @@ struct ScriptMigrationOnLoadTests {
         #expect(stops.count == 1, "the first project's watcher has to be stopped")
     }
 
+    /// A handler installed after the project loaded still gets used.
+    ///
+    /// This is the bug the app actually had: `loadProject` runs early in
+    /// `.onAppear` and the handlers were installed a couple of hundred lines
+    /// further down the same block, so `watchScriptsHandler` was still `nil`
+    /// when the load consulted it. The watcher was never installed — for an
+    /// hour, while every test passed, because every test installs its handlers
+    /// first.
+    ///
+    /// Ordering is a real constraint for a caller and an unreasonable one to
+    /// impose: a model that only works when its seams are filled in the right
+    /// order fails silently the moment someone moves a line.
+    @Test("a watcher installed after loading still starts")
+    func handlerInstalledAfterLoadStillStarts() throws {
+        let folder = try folderWithInlineScript(source: "sprite(Image.soft)")
+        let shell = EditorShellModel()
+        shell.writeScriptTypesHandler = writeTypes
+
+        // Loaded *before* the watcher is installed, which is the app's order.
+        shell.loadProject(fromFolder: folder)
+
+        let started = StopCounter()
+        shell.watchScriptsHandler = { _, _ in { started.record() } }
+
+        #expect(shell.isWatchingScripts, "installing a watcher on an open project has to start it")
+    }
+
+    /// And the ordinary order still works.
+    @Test("a watcher installed before loading starts too")
+    func handlerInstalledBeforeLoadStarts() throws {
+        let folder = try folderWithInlineScript(source: "sprite(Image.soft)")
+        let shell = EditorShellModel()
+        shell.writeScriptTypesHandler = writeTypes
+        shell.watchScriptsHandler = { _, _ in {} }
+
+        shell.loadProject(fromFolder: folder)
+
+        #expect(shell.isWatchingScripts)
+    }
+
     // MARK: -
 
     /// What the app installs: the generator, writing into the folder.

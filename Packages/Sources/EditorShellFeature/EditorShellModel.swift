@@ -1060,13 +1060,10 @@ public final class EditorShellModel {
                 try? writeScriptTypesHandler?(folder)
             }
 
-            // The previous project's watcher first: left running, it would
-            // reload this project every time someone edited a script in the
-            // beatmap folder they just closed.
-            stopWatchingScripts?()
-            stopWatchingScripts = watchScriptsHandler?(folder) { [weak self] in
-                Task { @MainActor in self?.reloadScripts() }
-            }
+            // Through the same helper, which stops the previous project's
+            // watcher first: left running, it would reload this project every
+            // time someone edited a script in the folder they just closed.
+            startWatchingScripts()
             // Loading is not a change: a project opened and closed untouched
             // should not claim to need saving.
             hasUnsavedChanges = false
@@ -1152,8 +1149,39 @@ public final class EditorShellModel {
     /// The handler is handed a closure to call when scripts change, and gives
     /// back the way to stop — so this model never holds a platform object, and
     /// a shell with no handler installed simply does not auto-reload.
+    ///
+    /// Setting it starts watching straight away when a project is already
+    /// open. Waiting for the next load is what the app actually did — the
+    /// handlers are installed further down the same `.onAppear` that loads the
+    /// project, so this was still `nil` when the load consulted it and the
+    /// watcher was **never installed**. Every test passed, because every test
+    /// installs its handlers first.
+    ///
+    /// A model that only works when its seams are filled in the right order
+    /// fails silently the moment someone moves a line, so it does not depend
+    /// on the order.
     @ObservationIgnored
-    public var watchScriptsHandler: ((_ folder: URL, _ changed: @escaping @Sendable () -> Void) -> (() -> Void))?
+    public var watchScriptsHandler: ((_ folder: URL, _ changed: @escaping @Sendable () -> Void) -> (() -> Void))? {
+        didSet { startWatchingScripts() }
+    }
+
+    /// Whether a watcher is running for the project currently open.
+    public var isWatchingScripts: Bool { stopWatchingScripts != nil }
+
+    /// Starts watching the open project's folder, replacing any watcher.
+    ///
+    /// One place, called from the load and from the handler landing, because
+    /// two copies of "start the watcher" is how one of them ends up not being
+    /// called.
+    private func startWatchingScripts() {
+        stopWatchingScripts?()
+        stopWatchingScripts = nil
+
+        guard let projectFolder, let watchScriptsHandler else { return }
+        stopWatchingScripts = watchScriptsHandler(projectFolder) { [weak self] in
+            Task { @MainActor in self?.reloadScripts() }
+        }
+    }
 
     /// Stops the watcher started for the project currently open.
     @ObservationIgnored
