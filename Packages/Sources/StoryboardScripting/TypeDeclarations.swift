@@ -66,7 +66,10 @@ public enum TypeDeclarations {
             "noEmit": true,
             "target": "es2020",
             "//lib": "No 'dom': our Image would resolve to HTMLImageElement.",
-            "lib": ["es2020"]
+            "lib": ["es2020"],
+            "//moduleDetection": "Each script is its own scope. Without this every script in the folder shares one global scope, so a second clip declaring `count` is flagged as redeclaring the first one's — an error about code in another file the author is not editing.",
+            "moduleDetection": "force",
+            "module": "esnext"
           },
           "include": ["*.js", "\(fileName)"]
         }

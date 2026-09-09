@@ -112,6 +112,23 @@ struct TypeDeclarationsTests {
         #expect(!config.lowercased().contains("\"dom\""), "our Image would resolve to HTMLImageElement")
     }
 
+    /// Each script is its own scope.
+    ///
+    /// A `.js` with no import or export is a **script**, not a module, so
+    /// every one in the folder shares a single global scope: a second clip
+    /// declaring `const count` was flagged as redeclaring the first one's,
+    /// pointing at a file the author is not even editing. Reported from a real
+    /// project, and measured — two files each declaring `count` give the error
+    /// without this and nothing with it, while the four deliberate mistakes
+    /// are still caught either way.
+    @Test("each script gets its own scope")
+    func eachScriptIsItsOwnScope() {
+        let config = TypeDeclarations.configuration
+
+        #expect(config.contains("\"moduleDetection\": \"force\""))
+        #expect(config.contains("\"module\""), "moduleDetection needs a module system to name")
+    }
+
     /// Regenerating writes the same bytes, so staleness heals itself.
     @Test("generation is idempotent")
     func generationIsIdempotent() {
