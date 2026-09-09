@@ -2642,10 +2642,41 @@ public final class EditorShellModel {
         evaluateNow()
     }
 
+    /// Re-reads every script file and redraws.
+    ///
+    /// Deliberately **not** an edit. It does not write through `effects`, so
+    /// `EditHistory` never sees it and no undo entry appears: an app-side undo
+    /// cannot rewrite a file on disk, and offering one would let the document
+    /// and the file disagree silently. It does not mark the project dirty
+    /// either — the change already happened, in a file the author owns.
+    ///
+    /// Resolution happens inside the evaluation pass, so this only has to ask
+    /// for one.
+    public func reloadScripts() {
+        effectsChanged()
+    }
+
+    /// `document` with every script node's code read from its file.
+    ///
+    /// A pass-through when there is no project folder yet: a document built in
+    /// memory — which is every test that never opens one — has nothing to
+    /// resolve against, and its nodes already carry whatever they were given.
+    private func resolvedForScripts(_ document: EffectDocument) -> EffectDocument {
+        guard let projectFolder else { return document }
+        return ScriptResolver(folder: projectFolder).resolving(document)
+    }
+
     private func evaluateNow() {
         evaluationTask?.cancel()
 
-        let document = effects
+        // Resolved here, on the snapshot, before the work leaves this actor.
+        //
+        // `ScriptEffect.evaluate` is synchronous and cannot throw, so it has no
+        // way to reach the file its node names — and a seam called from inside
+        // it would read one per node per evaluation. Doing it once on the way
+        // past costs a read per distinct file per pass, and the detached task
+        // receives nodes that already carry their code.
+        let document = resolvedForScripts(effects)
         let evaluator = evaluator
         let revision = effectsRevision
 

@@ -185,7 +185,7 @@ let package = Package(
         ),
         .testTarget(
             name: "EditorShellFeatureTests",
-            dependencies: ["EditorShellFeature", "StoryboardCore"],
+            dependencies: ["EditorShellFeature", "StoryboardCore", "StoryboardScripting"],
         ),
 
         // ── Apps ────────────────────────────────────────────────────────────
