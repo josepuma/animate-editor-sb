@@ -51,11 +51,18 @@ struct ScriptPanel: View {
         }
     }
 
+    /// Full width, because it is the only action on the panel.
+    ///
+    /// A capsule sized to its label reads as one option among several; this
+    /// panel has exactly one thing to do, and a button that fills the column
+    /// says so — and lines up with the field above it, which is where the eye
+    /// already is.
     private var openButton: some View {
         Button("Open in Editor", systemImage: "arrow.up.forward.app") {
             shell.openScriptExternally(nodeID)
         }
-        .buttonStyle(.themed(.primary, size: .small, capsule: true))
+        .buttonStyle(.themed(.primary, size: .regular))
+        .frame(maxWidth: .infinity)
         .disabled(!shell.canOpenScript(nodeID))
     }
 
