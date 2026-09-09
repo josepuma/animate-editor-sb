@@ -85,6 +85,61 @@ struct OpenScriptTests {
         #expect(shell.saveError != nil, "a click that does nothing has to say why")
     }
 
+    /// A script clip placed from the library arrives with a file.
+    ///
+    /// The decision was "creating a clip creates a file; duplicating does
+    /// not" — and without the first half the panel has nothing to open, which
+    /// is what a fresh clip actually showed: "No script file" and no button.
+    /// A clip you cannot edit is not a clip.
+    @Test("a newly placed script clip has a file to open")
+    func newClipHasAFile() throws {
+        let folder = try temporaryFolder()
+        let shell = EditorShellModel()
+        shell.loadProject(fromFolder: folder)
+        let track = shell.addTrack()
+
+        let node = shell.addEffect(ScriptEffect.descriptor, at: 0, on: track.id)
+
+        let file = try #require(node.scriptFile, "a placed clip must name a file")
+        #expect(shell.canOpenScript(node.id), "and that file has to exist to open")
+        #expect(
+            try ScriptStore.read(file, inFolder: folder)?.contains("params(") == true,
+            "the starter template is what lands in it",
+        )
+    }
+
+    /// Two clips placed separately get separate files.
+    ///
+    /// Sharing is what *duplicating* means. Placing two is placing two
+    /// independent things, and one overwriting the other would lose the first
+    /// one's code the moment the second arrived.
+    @Test("two placed clips get two files")
+    func twoPlacedClipsGetTwoFiles() throws {
+        let folder = try temporaryFolder()
+        let shell = EditorShellModel()
+        shell.loadProject(fromFolder: folder)
+        let track = shell.addTrack()
+
+        let first = shell.addEffect(ScriptEffect.descriptor, at: 0, on: track.id)
+        let second = shell.addEffect(ScriptEffect.descriptor, at: 4000, on: track.id)
+
+        #expect(first.scriptFile != second.scriptFile)
+    }
+
+    /// Duplicating still shares, which is the other half of the rule.
+    @Test("a duplicate shares the original's file")
+    func duplicateSharesTheFile() throws {
+        let folder = try temporaryFolder()
+        let shell = EditorShellModel()
+        shell.loadProject(fromFolder: folder)
+        let track = shell.addTrack()
+        let original = shell.addEffect(ScriptEffect.descriptor, at: 0, on: track.id)
+
+        let copy = try #require(shell.duplicateEffect(original.id))
+
+        #expect(copy.scriptFile == original.scriptFile, "duplicating shares, placing does not")
+    }
+
     // MARK: -
 
     private func shellWithScript(

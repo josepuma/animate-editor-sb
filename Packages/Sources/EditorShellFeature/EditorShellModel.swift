@@ -562,6 +562,46 @@ public final class EditorShellModel {
     }
 
     @discardableResult
+    /// Gives a freshly placed script clip a file of its own.
+    ///
+    /// "Creating a clip creates a file; duplicating does not" — and without
+    /// this half the panel has nothing to open: a placed clip showed "No
+    /// script file" and no button, which is a clip nobody can edit.
+    ///
+    /// Placed separately means separate files. Sharing is what *duplicating*
+    /// means; two clips placed one after the other are two independent things,
+    /// and one overwriting the other would lose the first one's code the
+    /// moment the second arrived.
+    ///
+    /// Called from both `addEffect` and `addPreset` rather than from
+    /// `EffectDocument.add`, because Core has no folder — and from a helper
+    /// rather than inline in each, because a second route that forgets is how
+    /// this bug existed in the first place.
+    private func placeScriptFile(for node: EffectNode) -> EffectNode {
+        guard node.scriptFile == nil,
+              let source = node.scriptSource,
+              let projectFolder,
+              let file = ScriptStore.availableName(like: node.name, inFolder: projectFolder)
+        else { return node }
+
+        // A folder that cannot take the file leaves the clip working from its
+        // inline source: it draws, it just cannot be opened in an editor yet.
+        // Refusing to place the clip at all would be worse.
+        guard (try? ScriptStore.write(source, to: file, inFolder: projectFolder)) != nil else {
+            return node
+        }
+
+        var placed = node
+        placed.scriptFile = file
+        effects[node.id] = placed
+
+        // The declarations, so the editor has types the moment it opens — and
+        // this is the first script in a project that had none.
+        try? writeScriptTypesHandler?(projectFolder)
+
+        return placed
+    }
+
     public func addEffect(
         _ descriptor: EffectDescriptor,
         at startTime: Double,
@@ -574,9 +614,10 @@ public final class EditorShellModel {
             duration: duration,
             on: trackID ?? destinationTrackID,
         )
-        selectedNodeID = node.id
+        let placed = placeScriptFile(for: node)
+        selectedNodeID = placed.id
         effectsChanged()
-        return node
+        return placed
     }
 
     /// Places a preset, using the length the preset asks for.
@@ -643,9 +684,12 @@ public final class EditorShellModel {
 
         effects[node.id] = node
 
-        selectedNodeID = node.id
+        // A preset can be a script's too, so it takes the same route.
+        let placed = placeScriptFile(for: node)
+
+        selectedNodeID = placed.id
         effectsChanged()
-        return node
+        return placed
     }
 
     /// Places an image on the timeline.
