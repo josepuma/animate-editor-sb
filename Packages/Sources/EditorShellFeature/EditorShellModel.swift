@@ -1004,6 +1004,17 @@ public final class EditorShellModel {
             selectedNodeID = nil
             selectedTrackID = effects.tracks.last?.id
             effectsChanged()
+            // After migration, so a v1 project's freshly written scripts get
+            // their declarations too — and only when there is a script to read
+            // them: two generated files nothing references would land in the
+            // mapper's published beatmap folder for nothing.
+            //
+            // A failure is ignored on purpose. These exist for an external
+            // editor to read, so a folder that cannot take them costs
+            // autocompletion, not the project.
+            if document.nodes.contains(where: { $0.scriptFile != nil }) {
+                try? writeScriptTypesHandler?(folder)
+            }
             // Loading is not a change: a project opened and closed untouched
             // should not claim to need saving.
             hasUnsavedChanges = false
@@ -1064,6 +1075,21 @@ public final class EditorShellModel {
     public var previewImage: ((PreviewSubject) -> [CGImage])?
 
     public var exportHandler: ((_ sprites: [StoryboardSprite], _ folder: URL) throws -> URL)?
+
+    /// Writes the editor's type declarations into a project folder.
+    ///
+    /// A seam like `exportHandler`, and for the same reason: the declarations
+    /// are derived from what the script engine installs, and this target
+    /// deliberately does not depend on it — `StoryboardScripting` imports
+    /// JavaScriptCore, and the shell is arrangement rather than runtime. The
+    /// app connects the two, at the same seam where it already connects the
+    /// canvas and the export.
+    ///
+    /// Optional, so the shell runs without one: a folder with no declarations
+    /// is a folder whose scripts have no autocompletion, which is a degraded
+    /// editor rather than a broken app.
+    @ObservationIgnored
+    public var writeScriptTypesHandler: ((_ folder: URL) throws -> Void)?
 
 
     /// Where the selected clip's pixels are, as the canvas last measured them.

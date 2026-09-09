@@ -3,6 +3,7 @@ import Testing
 
 @testable import EditorShellFeature
 @testable import StoryboardCore
+@testable import StoryboardScripting
 
 /// Opening a project whose scripts still hold their code inline.
 ///
@@ -73,7 +74,74 @@ struct ScriptMigrationOnLoadTests {
         #expect(shell.effects.tracks.first?.nodes.first?.scriptSource == "sprite(Image.soft)")
     }
 
+    /// Opening a project with a script leaves the editor's types beside it.
+    ///
+    /// Both files, because measured they only work together: with the `.d.ts`
+    /// alone the declarations are silently ignored while completion still
+    /// appears to work, offering identifiers scraped from the file's own text.
+    @Test("opening a project writes the type declarations")
+    func loadWritesTypeDeclarations() throws {
+        let folder = try folderWithInlineScript(source: "sprite(Image.soft)")
+        let shell = EditorShellModel()
+        shell.writeScriptTypesHandler = writeTypes
+
+        shell.loadProject(fromFolder: folder)
+
+        let declarations = folder.appending(path: TypeDeclarations.fileName)
+        let config = folder.appending(path: TypeDeclarations.configurationFileName)
+        #expect(FileManager.default.fileExists(atPath: declarations.path))
+        #expect(FileManager.default.fileExists(atPath: config.path))
+        #expect(
+            try String(contentsOf: declarations, encoding: .utf8) == TypeDeclarations.text,
+            "what is on disk has to be what the generator produces",
+        )
+    }
+
+    /// A project with no scripts gets no generated files.
+    ///
+    /// They are for an external editor to read, so a folder nobody will open
+    /// in one does not need them — and two files nothing references would land
+    /// in the mapper's published beatmap folder for nothing.
+    @Test("a project without scripts is left clean")
+    func noScriptsNoFiles() throws {
+        let folder = try folderWithoutScripts()
+        let shell = EditorShellModel()
+        shell.writeScriptTypesHandler = writeTypes
+
+        shell.loadProject(fromFolder: folder)
+
+        #expect(!FileManager.default.fileExists(
+            atPath: folder.appending(path: TypeDeclarations.fileName).path,
+        ))
+    }
+
     // MARK: -
+
+    /// What the app installs: the generator, writing into the folder.
+    private func writeTypes(_ folder: URL) throws {
+        try TypeDeclarations.text.write(
+            to: folder.appending(path: TypeDeclarations.fileName),
+            atomically: true,
+            encoding: .utf8,
+        )
+        try TypeDeclarations.configuration.write(
+            to: folder.appending(path: TypeDeclarations.configurationFileName),
+            atomically: true,
+            encoding: .utf8,
+        )
+    }
+
+    private func folderWithoutScripts() throws -> URL {
+        let folder = FileManager.default.temporaryDirectory
+            .appending(path: "no-scripts-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        var document = EffectDocument()
+        let track = document.addTrack(layer: .foreground)
+        _ = document.add(EmitterEffect.descriptor, at: 0, duration: 4000, on: track.id)
+        try ProjectFile.write(Project(document: document), toFolder: folder)
+        return folder
+    }
 
     private func folderWithInlineScript(source: String) throws -> URL {
         let folder = FileManager.default.temporaryDirectory

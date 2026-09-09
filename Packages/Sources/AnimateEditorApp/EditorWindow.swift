@@ -5,6 +5,7 @@ import ImageIO
 import PlaybackFeature
 import StoryboardCore
 import StoryboardPersistence
+import StoryboardScripting
 import StoryboardRendering
 import SwiftUI
 import UniformTypeIdentifiers
@@ -400,6 +401,23 @@ struct EditorWindow: View {
             // import each other, so the window joins them — the same seam that
             // already carries export, thumbnails and the selection bounds.
             shell.seekHandler = { playback.seek(to: $0) }
+
+            // Type declarations for whatever editor the author opens the
+            // script in. Derived from what the engine installs, so this is
+            // just a write — and it belongs here because the shell does not
+            // depend on the scripting target.
+            shell.writeScriptTypesHandler = { projectFolder in
+                try TypeDeclarations.text.write(
+                    to: projectFolder.appending(path: TypeDeclarations.fileName),
+                    atomically: true,
+                    encoding: .utf8,
+                )
+                try TypeDeclarations.configuration.write(
+                    to: projectFolder.appending(path: TypeDeclarations.configurationFileName),
+                    atomically: true,
+                    encoding: .utf8,
+                )
+            }
 
             shell.exportHandler = { sprites, projectFolder in
                 let prepared = StoryboardExport.prepareUsingAppImages(sprites) { path in
