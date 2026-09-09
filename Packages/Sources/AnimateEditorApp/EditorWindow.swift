@@ -1,6 +1,5 @@
 import AppKit
 import EditorShellFeature
-import ScriptEditorFeature
 import ImageIO
 import PlaybackFeature
 import StoryboardCore
@@ -91,23 +90,10 @@ struct EditorWindow: View {
             seek: { playback.seek(to: $0) },
             canvas: { view.canvas },
         )
-        // The code editor, provided here for the same reason the canvas is:
-        // the shell is arrangement, and a real editor means a syntax
-        // highlighter it should not have to build against.
-        .scriptEditor { text, run in
-            AnyView(ScriptCodeEditor(text: text, run: run))
-        }
-        // The scripting reference, in a window of its own.
-        //
-        // Here rather than in the shell for the same reason as the editor:
-        // opening a window is not arrangement, and the reference is generated
-        // from the table that feeds completion — which lives in the editor's
-        // target.
         .onAppear {
-            shell.openScriptReference = { ScriptReferenceWindow.show() }
-            // Read from Core's ledger rather than copied into the shell: the
-            // evaluation pass writes it, and a copy here would be a second
-            // place for the same facts.
+            // Read from Core's ledger rather than copied into the shell:
+            // the evaluation pass writes it, and a copy here would be a
+            // second place for the same facts.
             shell.scriptReport = { ScriptRuntime.report(for: $0) }
         }
         .onChange(of: playback.isCanvasFullScreen, initial: true) { _, isFullScreen in

@@ -4,8 +4,13 @@ import Testing
 @testable import EditorShellFeature
 @testable import StoryboardCore
 
-/// Editing a script's source from the side panel.
-@Suite("Script editor", .serialized)
+/// How the shell treats a script clip.
+///
+/// What used to be an in-app editor: the code is written in whatever editor
+/// the author already uses, so the tests that drove a text field are gone with
+/// it. What survives is what still belongs to the shell — which clip declares
+/// what, and when the script panel opens.
+@Suite("Script clips", .serialized)
 @MainActor
 struct ScriptEditorTests {
     /// Built through the model's own API, not by assembling a document.
@@ -20,92 +25,11 @@ struct ScriptEditorTests {
         return (shell, node.id)
     }
 
-    /// The panel writes through the model, not into the node directly.
-    ///
-    /// Everything that changes a document goes through the model so undo sees
-    /// it: `EditHistory` captures in `effects`' `willSet`, and a write that
-    /// side-steps it is a step the author cannot take back.
-    @Test("committing source updates the node")
-    func commitUpdatesTheNode() {
-        let (shell, id) = shellWithScript()
 
-        shell.setScriptSource("sprite(Image.glow)", on: id)
 
-        #expect(shell.effects[id]?.scriptSource == "sprite(Image.glow)")
-    }
 
-    /// The whole point of draft-then-commit.
-    ///
-    /// Writing on every keystroke would recompile and re-evaluate per letter —
-    /// and this codebase has already measured what per-keystroke evaluation
-    /// does to a slider. A commit is a deliberate act: Return, or leaving the
-    /// field.
-    @Test("committing the same source changes nothing")
-    func committingUnchangedSourceIsANoOp() {
-        let (shell, id) = shellWithScript()
-        let before = shell.effectsRevision
 
-        shell.setScriptSource(shell.effects[id]?.scriptSource ?? "", on: id)
 
-        #expect(shell.effectsRevision == before, "an unchanged commit re-evaluated the document")
-    }
-
-    /// One editing session is one undo entry.
-    @Test("an edit can be undone")
-    func editCanBeUndone() {
-        let (shell, id) = shellWithScript()
-        let original = shell.effects[id]?.scriptSource
-
-        shell.setScriptSource("sprite(Image.star)", on: id)
-        shell.undo()
-
-        #expect(shell.effects[id]?.scriptSource == original)
-    }
-
-    /// A locked track refuses the edit, as it refuses every other change.
-    @Test("a locked track refuses a source edit")
-    func lockedTrackRefuses() throws {
-        let (shell, id) = shellWithScript()
-        let original = shell.effects[id]?.scriptSource
-        let track = try #require(shell.effects.trackID(of: id))
-        shell.toggleLock(of: track)
-
-        shell.setScriptSource("sprite(Image.smoke)", on: id)
-
-        #expect(shell.effects[id]?.scriptSource == original)
-    }
-
-    /// ⌘S runs the script when the editor is open, and saves otherwise.
-    ///
-    /// It did nothing at all for a while: two buttons claimed the shortcut,
-    /// the shell's won, and it guarded on a text field having focus and
-    /// returned — so the editor's never ran and the footer sat on "⌘S to run"
-    /// while nothing ran. One owner that delegates is the only arrangement
-    /// where both meanings work.
-    @Test("the editor takes over cmd-S while it is open")
-    func editorTakesOverSave() {
-        let (shell, id) = shellWithScript()
-        #expect(shell.runScriptHandler == nil, "nothing is registered before the editor appears")
-
-        var ran = false
-        shell.runScriptHandler = { ran = true }
-
-        // What the shell's ⌘S does now: ask whoever is in front of it.
-        shell.runScriptHandler?()
-
-        #expect(ran)
-        #expect(shell.effects[id] != nil)
-    }
-
-    /// And hands it back, so ⌘S saves again once the editor is gone.
-    @Test("the handler is released when the editor goes away")
-    func handlerIsReleased() {
-        let (shell, _) = shellWithScript()
-        shell.runScriptHandler = {}
-        shell.runScriptHandler = nil
-
-        #expect(shell.runScriptHandler == nil)
-    }
 
     /// A declared control reaches the inspector.
     ///
@@ -136,7 +60,10 @@ struct ScriptEditorTests {
         }
         defer { ScriptRuntime.run = nil }
 
-        shell.setScriptSource("params({ count: { type: 'integer', default: 24 } })", on: node.id)
+        // Through a reload rather than by writing source onto the node: the
+        // code lives in a file now, and `reloadScripts()` is the path a save
+        // in an external editor actually takes.
+        shell.reloadScripts()
         _ = await shell.settledSprites()
 
         #expect(shell.effects[node.id]?.scriptParameters.count == 1)
@@ -159,7 +86,7 @@ struct ScriptEditorTests {
         }
         defer { ScriptRuntime.run = nil }
 
-        shell.setScriptSource("const count = param('count') ?? 24", on: node.id)
+        shell.reloadScripts()
         _ = await shell.settledSprites()
 
         #expect(shell.selectedDescriptor?.parameters.isEmpty == true)

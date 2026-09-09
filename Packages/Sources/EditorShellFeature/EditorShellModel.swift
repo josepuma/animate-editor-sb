@@ -1534,31 +1534,7 @@ public final class EditorShellModel {
     /// be a second place for the same facts, kept in step by hand.
     @ObservationIgnored public var scriptReport: ((EffectNode.ID) -> ScriptRuntime.Report?)?
 
-    /// Opens the scripting reference.
-    ///
-    /// Provided by the app, like the editor itself: opening a window is not
-    /// something arrangement does, and the reference is generated from the
-    /// same table that feeds completion — which lives in the editor's target.
-    @ObservationIgnored public var openScriptReference: (() -> Void)?
 
-    /// Replaces a script's source.
-    ///
-    /// Through the model rather than onto the node directly, so `EditHistory`
-    /// sees it: capture happens in `effects`' `willSet`, and a write that
-    /// side-steps that is an edit the author cannot take back.
-    ///
-    /// An unchanged commit does nothing at all. The editor commits on losing
-    /// focus as well as on Return, so clicking away from a script nobody
-    /// touched would otherwise re-evaluate the whole document and spend an undo
-    /// entry saying nothing happened.
-    public func setScriptSource(_ source: String, on nodeID: EffectNode.ID) {
-        guard var node = effects[nodeID], !isLocked(nodeID) else { return }
-        guard node.scriptSource != source else { return }
-
-        node.scriptSource = source
-        effects[nodeID] = node
-        effectsChanged(node: nodeID)
-    }
 
     /// Sets a parameter on one layer of a compound effect.
     public func setLayerValue(

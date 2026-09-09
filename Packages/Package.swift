@@ -42,34 +42,7 @@ let package = Package(
         .executable(name: "RendererHarness", targets: ["RendererHarness"]),
         .executable(name: "DesignSystemGallery", targets: ["DesignSystemGallery"]),
     ],
-    // ─────────────────────────────────────────────────────────────────────────
-    //  The first external dependency this package has ever taken.
-    //
-    //  A plain text field is not an editor: no highlighting, no line numbers,
-    //  no bracket matching. This buys all three, plus inline diagnostic
-    //  markers, for one transitive dependency (Rearrange).
-    //
-    //  `CodeEditSourceEditor` was the first choice, since it ships tree-sitter
-    //  with a real JavaScript grammar rather than a regex tokenizer. **It does
-    //  not build on Swift 6.3**: it pins `CodeEditSymbols` exactly at 0.2.3,
-    //  whose code calls `Bundle.module` while its own manifest declares no
-    //  resources — so the bundle accessor is never generated. `main` still pins
-    //  the same version and 0.2.3 is the newest tag, so there is no version to
-    //  move to. Its year-old release cadence stopped being a caution and became
-    //  the blocker. Ten packages attempted, none of them usable.
-    //
-    //  The cost of this one instead: highlighting is regex-based, so genuinely
-    //  awkward JavaScript — a regex literal holding a quote, a template literal
-    //  with nested interpolation — will occasionally colour wrong. That is a
-    //  cosmetic fault in a working editor, which is a far better trade than a
-    //  correct grammar that will not compile.
-    //
-    //  Reached from exactly one target, so if it ever has to go the blast
-    //  radius is this file and one view.
-    // ─────────────────────────────────────────────────────────────────────────
-    dependencies: [
-        .package(url: "https://github.com/mchakravarty/CodeEditorView.git", from: "0.16.0"),
-    ],
+    dependencies: [],
     targets: [
         // ── Core ────────────────────────────────────────────────────────────
         .target(
@@ -115,23 +88,6 @@ let package = Package(
 
         // The code editor: highlighting, line numbers, bracket matching.
         //
-        // Its own target so exactly one place imports the dependency. The shell
-        // is arrangement, not behaviour, and it receives the editor from the
-        // app through the environment — so it stays buildable, and testable,
-        // with no editor dependency in it.
-        .target(
-            name: "ScriptEditorFeature",
-            dependencies: [
-                "DesignSystem",
-                "StoryboardCore",
-                .product(name: "CodeEditorView", package: "CodeEditorView"),
-            ],
-        ),
-        .testTarget(
-            name: "ScriptEditorFeatureTests",
-            dependencies: ["ScriptEditorFeature"],
-        ),
-
         // Running author-written scripts on JavaScriptCore.
         //
         // Platform, not a feature: it has no UI, and it talks to a framework on
@@ -198,11 +154,9 @@ let package = Package(
                 "PlaybackFeature",
                 "ProjectBrowserFeature",
                 "EditorShellFeature",
-                // The app installs the scripting runtime into the core's seam,
-                // and hands the shell its code editor, which is why no feature
-                // needs to know either one exists.
+                // The app installs the scripting runtime into the core's
+                // seam, which is why no feature needs to know it exists.
                 "StoryboardScripting",
-                "ScriptEditorFeature",
                 // Declared although `PlaybackFeature` already brings it: this
                 // target imports it directly, and an undeclared import
                 // compiles only because another target's artefacts happen to
