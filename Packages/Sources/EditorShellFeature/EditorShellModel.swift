@@ -1015,6 +1015,14 @@ public final class EditorShellModel {
             if document.nodes.contains(where: { $0.scriptFile != nil }) {
                 try? writeScriptTypesHandler?(folder)
             }
+
+            // The previous project's watcher first: left running, it would
+            // reload this project every time someone edited a script in the
+            // beatmap folder they just closed.
+            stopWatchingScripts?()
+            stopWatchingScripts = watchScriptsHandler?(folder) { [weak self] in
+                Task { @MainActor in self?.reloadScripts() }
+            }
             // Loading is not a change: a project opened and closed untouched
             // should not claim to need saving.
             hasUnsavedChanges = false
@@ -1090,6 +1098,22 @@ public final class EditorShellModel {
     /// editor rather than a broken app.
     @ObservationIgnored
     public var writeScriptTypesHandler: ((_ folder: URL) throws -> Void)?
+
+    /// Starts watching a project folder for script edits, returning a stop.
+    ///
+    /// A seam for the same reason as the one above: the watcher belongs to the
+    /// persistence layer and this target does not depend on it. The app
+    /// connects them.
+    ///
+    /// The handler is handed a closure to call when scripts change, and gives
+    /// back the way to stop — so this model never holds a platform object, and
+    /// a shell with no handler installed simply does not auto-reload.
+    @ObservationIgnored
+    public var watchScriptsHandler: ((_ folder: URL, _ changed: @escaping @Sendable () -> Void) -> (() -> Void))?
+
+    /// Stops the watcher started for the project currently open.
+    @ObservationIgnored
+    private var stopWatchingScripts: (() -> Void)?
 
 
     /// Where the selected clip's pixels are, as the canvas last measured them.

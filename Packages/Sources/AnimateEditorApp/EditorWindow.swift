@@ -419,6 +419,13 @@ struct EditorWindow: View {
                 )
             }
 
+            // Auto-reload: an edit saved in an external editor redraws the
+            // canvas without anyone asking.
+            shell.watchScriptsHandler = { projectFolder, changed in
+                let stream = ScriptFolderStream(folder: projectFolder) { _ in changed() }
+                return { stream.stop() }
+            }
+
             shell.exportHandler = { sprites, projectFolder in
                 let prepared = StoryboardExport.prepareUsingAppImages(sprites) { path in
                     // Read straight off the folder being edited. A sprite path

@@ -115,6 +115,30 @@ struct ScriptMigrationOnLoadTests {
         ))
     }
 
+    /// Opening a second project stops watching the first.
+    ///
+    /// Left running, the old watcher reloads **this** project every time
+    /// someone edits a script in the beatmap folder they just closed — and the
+    /// reload would be silent, because nothing about it looks like a bug from
+    /// the outside.
+    @Test("opening another project stops the previous watcher")
+    func openingAnotherProjectStopsTheWatcher() throws {
+        let first = try folderWithInlineScript(source: "sprite(Image.soft)")
+        let second = try folderWithInlineScript(source: "sprite(Image.glow)")
+        let stops = StopCounter()
+
+        let shell = EditorShellModel()
+        shell.writeScriptTypesHandler = writeTypes
+        shell.watchScriptsHandler = { _, _ in { stops.record() } }
+
+        shell.loadProject(fromFolder: first)
+        #expect(stops.count == 0, "nothing to stop yet")
+
+        shell.loadProject(fromFolder: second)
+
+        #expect(stops.count == 1, "the first project's watcher has to be stopped")
+    }
+
     // MARK: -
 
     /// What the app installs: the generator, writing into the folder.
@@ -158,4 +182,13 @@ struct ScriptMigrationOnLoadTests {
         try ProjectFile.write(Project(document: document), toFolder: folder)
         return folder
     }
+}
+
+/// Counts how many times a watcher was stopped.
+private final class StopCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stops = 0
+
+    func record() { lock.withLock { stops += 1 } }
+    var count: Int { lock.withLock { stops } }
 }
