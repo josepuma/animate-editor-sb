@@ -109,7 +109,14 @@ enum LoopInstrumenter {
         for (word, isFor) in [("for", true), ("while", false)] {
             var search = start
             while let found = source.range(of: word, range: search..<source.endIndex) {
-                let inProse = true
+                // Consulted rather than assumed. Hardcoded to `true`, this made
+                // `!inProse` permanently false, so no candidate was ever
+                // recorded, `nextLoop` always returned nil, and **no guard was
+                // injected at all** — the runaway protection was present,
+                // compiled, and inert. A `while (true)` ran forever, taking the
+                // editor with it; the suite did not go red, it stopped
+                // finishing.
+                let inProse = skippable.contains { $0.contains(found.lowerBound) }
                 if isWord(in: source, range: found), !inProse {
                     candidates.append(Keyword(start: found.lowerBound, end: found.upperBound, isFor: isFor))
                     break

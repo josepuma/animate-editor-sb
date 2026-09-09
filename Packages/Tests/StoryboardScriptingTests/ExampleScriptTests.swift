@@ -296,9 +296,12 @@ struct ExampleScriptTests {
 
         // The axes the effect is actually tuned on.
         // `bands` is gone with the rewrite: the colour ramps along a column
-        // rather than between stacked sheets, so `arc` and `haze` are the axes
-        // that replaced it.
-        for id in ["columns", "arc", "haze", "sway", "ripples", "speed", "segments"] {
+        // rather than between stacked sheets, so `tilt` and `haze` are the axes
+        // that replaced it. `tilt` is the arc made visible — a column follows
+        // the slope of the hem rather than standing vertical — and the guard
+        // named it `arc` while the script declared `tilt`, so it asserted a
+        // control that never existed.
+        for id in ["columns", "tilt", "haze", "sway", "ripples", "speed", "segments"] {
             #expect(ids.contains(id), "missing \(id)")
         }
     }
