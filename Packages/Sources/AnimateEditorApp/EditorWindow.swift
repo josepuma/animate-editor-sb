@@ -419,6 +419,8 @@ struct EditorWindow: View {
                 )
             }
 
+            shell.openScriptHandler = { ScriptLauncher.open($0) }
+
             // Auto-reload: an edit saved in an external editor redraws the
             // canvas without anyone asking.
             shell.watchScriptsHandler = { projectFolder, changed in

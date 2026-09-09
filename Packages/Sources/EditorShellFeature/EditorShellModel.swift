@@ -1115,6 +1115,64 @@ public final class EditorShellModel {
     @ObservationIgnored
     private var stopWatchingScripts: (() -> Void)?
 
+    /// Hands a script file to whatever editor the author uses.
+    ///
+    /// Returns whether anything took it. A seam because launching belongs to
+    /// AppKit, and because "whatever editor" is a decision for the app rather
+    /// than for the shell: this target should not know that VSCode exists.
+    @ObservationIgnored
+    public var openScriptHandler: ((_ file: URL) -> Bool)?
+
+    /// Sets which file a script node reads.
+    ///
+    /// Through the model so `EditHistory` sees it: pointing a clip at another
+    /// file is an edit, unlike a reload, and one the author has to be able to
+    /// take back.
+    public func setScriptFile(_ file: ScriptFile, on nodeID: EffectNode.ID) {
+        guard var node = effects[nodeID], !isLocked(nodeID) else { return }
+        guard node.scriptFile != file else { return }
+
+        node.scriptFile = file
+        effects[nodeID] = node
+        effectsChanged(node: nodeID)
+    }
+
+    /// Whether this clip has a script file that exists to be opened.
+    ///
+    /// Both halves matter. Offering the action on a clip that is not a script
+    /// is a menu item that cannot work, and handing a **missing** path to an
+    /// editor opens an empty untitled window — which reads as the script
+    /// having been lost rather than as a file that is not there.
+    public func canOpenScript(_ nodeID: EffectNode.ID) -> Bool {
+        scriptURL(for: nodeID) != nil
+    }
+
+    /// Opens a clip's script in an external editor.
+    ///
+    /// Two clips sharing a file open the same file, which is the point of
+    /// sharing: whichever clip you reach for, you are editing the one script.
+    public func openScriptExternally(_ nodeID: EffectNode.ID) {
+        guard let url = scriptURL(for: nodeID) else { return }
+        guard openScriptHandler?(url) == true else {
+            // A click that silently does nothing is worse than one that
+            // fails: the author cannot tell the app from their setup.
+            saveError = "Could not open \(url.lastPathComponent) in an editor."
+            return
+        }
+        saveError = nil
+    }
+
+    /// Where a clip's script lives, when it has one and it is on disk.
+    private func scriptURL(for nodeID: EffectNode.ID) -> URL? {
+        guard let projectFolder,
+              let file = effects[nodeID]?.scriptFile
+        else { return nil }
+
+        let url = ScriptStore.url(of: file, inFolder: projectFolder)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
 
     /// Where the selected clip's pixels are, as the canvas last measured them.
     ///
