@@ -15,14 +15,16 @@ import StoryboardCore
 /// one list. Adding an easing, an image or a sprite method reaches the editor
 /// with no work here at all.
 public enum TypeDeclarations {
-    /// What a script file is called on disk.
-    public static let fileName = "animate.d.ts"
+    /// What the declarations file is called.
+    ///
+    /// Taken from `ScriptStore` rather than declared again: the watcher has to
+    /// recognise these names without depending on this target, and two
+    /// spellings of one file name is how a watcher starts reacting to our own
+    /// writes.
+    public static let fileName = ScriptStore.declarationsFileName
 
     /// What the editor config is called.
-    ///
-    /// `jsconfig.json` rather than `tsconfig.json`: the scripts are JavaScript,
-    /// and this is the name the editor looks for beside plain `.js`.
-    public static let configurationFileName = "jsconfig.json"
+    public static let configurationFileName = ScriptStore.configurationFileName
 
     /// The declarations, as one file.
     public static var text: String {

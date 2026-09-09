@@ -8,6 +8,26 @@ import Foundation
 /// validated name is a single path component, so every path below is the folder
 /// plus one name and there is no traversal left to check at the call site.
 public enum ScriptStore {
+    /// What the generated type declarations are called.
+    ///
+    /// Here rather than beside the generator because this is the layer that
+    /// knows what files a project folder holds — the watcher has to recognise
+    /// them without depending on the scripting runtime, which imports
+    /// JavaScriptCore for reasons a file name has nothing to do with.
+    public static let declarationsFileName = "animate.d.ts"
+
+    /// What the editor configuration is called.
+    ///
+    /// `jsconfig.json` rather than `tsconfig.json`: the scripts are
+    /// JavaScript, and this is the name an editor looks for beside plain `.js`.
+    public static let configurationFileName = "jsconfig.json"
+
+    /// Files a project folder holds that are generated rather than authored.
+    ///
+    /// A watcher must not react to these: they are written on project open, so
+    /// treating one as an edit is a reload firing on our own write.
+    public static let generatedFileNames = [declarationsFileName, configurationFileName]
+
     /// Reads a script's code, or `nil` when the file is not there.
     ///
     /// A missing file is an absence to report rather than an error to throw. It
