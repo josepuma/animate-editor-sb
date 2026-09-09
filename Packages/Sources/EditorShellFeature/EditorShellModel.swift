@@ -1286,6 +1286,7 @@ public final class EditorShellModel {
         // And its code, with the controls it declares: a paste that drops the
         // script pastes an empty clip that reads as broken.
         node.scriptSource = source.scriptSource
+        node.scriptFile = source.scriptFile
         node.scriptParameters = source.scriptParameters
         effects[node.id] = node
 

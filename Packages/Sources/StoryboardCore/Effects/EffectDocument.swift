@@ -487,6 +487,9 @@ public struct EffectDocument: Sendable, Codable {
             // filters: a copy of a script that drops the script is a copy of
             // nothing.
             scriptSource: original.scriptSource,
+            // The reference, not a copy of the file: duplicating a clip shares
+            // one source of truth, so editing it reloads both.
+            scriptFile: original.scriptFile,
             scriptParameters: original.scriptParameters,
         )
 
