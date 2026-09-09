@@ -982,13 +982,24 @@ public final class EditorShellModel {
         loadFailed = false
         do {
             guard let project = try ProjectFile.read(fromFolder: folder) else { return }
+            // Scripts written before they had files hold their code in the
+            // `.aesb`, which was the only place it existed — so it moves out to
+            // disk here, on the one path that has the folder.
+            //
+            // A failure is swallowed on purpose: the code is still in the
+            // document, so the clip keeps working from its resolved source, and
+            // refusing to open would lose a whole project over a permission on
+            // one file. The next save writes the old key, so nothing is lost by
+            // trying again later.
+            let document = (try? ScriptStore.migrate(project.document, inFolder: folder))
+                ?? project.document
             // Cleared before the write, and the write itself is not recorded.
             //
             // Undoing into the previous beatmap's document would restore
             // effects belonging to a different map — worse than having no undo
             // at all, because it looks like it worked.
             history.clear()
-            withoutRecording { effects = project.document }
+            withoutRecording { effects = document }
             timelineView = project.view
             selectedNodeID = nil
             selectedTrackID = effects.tracks.last?.id
