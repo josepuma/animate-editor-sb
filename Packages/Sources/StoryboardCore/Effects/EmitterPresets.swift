@@ -27,6 +27,7 @@ public extension EmitterEffect {
             summary: summary,
             duration: duration,
             values: descriptor.defaultValues.merging(values) { _, override in override },
+            overrides: values,
         )
     }
 
@@ -613,6 +614,7 @@ public extension EmitterEffect {
             summary: summary,
             duration: duration,
             values: descriptor.defaultValues.merging(values) { _, override in override },
+            overrides: values,
             layers: layers,
             pack: pack,
         )

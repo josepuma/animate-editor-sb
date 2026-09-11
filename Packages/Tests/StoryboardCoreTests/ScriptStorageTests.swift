@@ -170,13 +170,22 @@ struct ScriptStorageTests {
         #expect(decoded.isVisible)
     }
 
-    /// The format version must not move for an additive field.
+    /// An additive field does not move the version. Moving the code does.
     ///
-    /// A bumped version makes older builds refuse projects they could read
-    /// perfectly well, and nothing about two optional keys warrants that.
-    @Test("adding these fields does not bump the format version")
-    func formatVersionUnchanged() {
-        #expect(Project.currentVersion == 1)
+    /// This guard was right for the change it was written for: `scriptSource`
+    /// and `scriptParameters` were two optional keys, and bumping the version
+    /// for them would have made older builds refuse projects they could read
+    /// perfectly well.
+    ///
+    /// Scripts moving **out** of the document is a different shape. A build
+    /// that has not learned about `scriptFile` opens those clips empty, and a
+    /// node with source and no file is indistinguishable from one written
+    /// before the change — so the version has to say which. Version 1 stays
+    /// readable, which is the half of the policy that protects the work.
+    @Test("the version moved because the code moved out of the document")
+    func formatVersionReflectsWhereCodeLives() {
+        #expect(Project.currentVersion == 2)
+        #expect(Project.minimumReadableVersion == 1, "a v1 project must never be stranded")
     }
 
     // MARK: - The three copy paths

@@ -109,7 +109,7 @@ public struct EffectNode: Identifiable, Sendable, Equatable, Codable {
     private enum CodingKeys: String, CodingKey {
         case id, type, name, layer, startTime, duration, seed, values
         case transform, filters, layers, isVisible, isLocked
-        case scriptSource, scriptParameters
+        case scriptSource, scriptFile, scriptParameters
     }
 
     /// Written before filters moved onto the clip, a node has none of its own.
@@ -138,6 +138,13 @@ public struct EffectNode: Identifiable, Sendable, Equatable, Codable {
         // every node that is not a script. Nothing distinguishes "no script
         // here" from "no scripts existed yet", and nothing needs to.
         scriptSource = try container.decodeIfPresent(String.self, forKey: .scriptSource)
+        // Through a `String?` rather than decoded as `ScriptFile` directly, so
+        // an unsafe name costs this clip its source and not the whole project:
+        // a throw here fails the node, which fails the document, which is one
+        // hostile reference in a downloaded `.aesb` destroying someone's work.
+        scriptFile = try container
+            .decodeIfPresent(String.self, forKey: .scriptFile)
+            .flatMap(ScriptFile.init(name:))
         scriptParameters = try container
             .decodeIfPresent([EffectParameter].self, forKey: .scriptParameters) ?? []
     }
@@ -193,13 +200,27 @@ public struct EffectNode: Identifiable, Sendable, Equatable, Codable {
     public var isVisible: Bool
     public var isLocked: Bool
 
-    /// The code this node runs, for a scripted effect. `nil` for every other.
+    /// The code this node runs, resolved from its file.
     ///
-    /// Held on the node rather than in a file beside the beatmap because it is
-    /// part of the document: `storyboard.aesb` lives inside the beatmap folder
-    /// so the project travels with the map, and a script in a loose file would
-    /// be left behind by the copy that carries everything else.
+    /// **Transient.** It is still written by the encoder so a project saved by
+    /// this build stays readable by one that has not learned about files yet,
+    /// but the file is the source of truth: this is what a resolution pass
+    /// filled in, and `evaluate` reads it because it is synchronous and cannot
+    /// go to disk. `nil` for every node that is not a script, and for a script
+    /// whose file could not be read — which is a clip that reports missing
+    /// source rather than one that quietly draws nothing.
     public var scriptSource: String?
+
+    /// Which file in the project folder holds this node's code.
+    ///
+    /// One shared source of truth: duplicating a clip copies this reference,
+    /// so editing the file reloads every clip that names it. The per-instance
+    /// part of a script clip is its `values`, its `seed` and the controls it
+    /// declared — never its code.
+    ///
+    /// `nil` on a node decoded from a project written before scripts had
+    /// files, which is what `needsScriptMigration` reports.
+    public var scriptFile: ScriptFile?
 
     /// The controls this node's script declares, for the inspector to draw.
     ///
@@ -224,6 +245,7 @@ public struct EffectNode: Identifiable, Sendable, Equatable, Codable {
         isVisible: Bool = true,
         isLocked: Bool = false,
         scriptSource: String? = nil,
+        scriptFile: ScriptFile? = nil,
         scriptParameters: [EffectParameter] = [],
     ) {
         self.id = id
@@ -240,10 +262,21 @@ public struct EffectNode: Identifiable, Sendable, Equatable, Codable {
         self.isVisible = isVisible
         self.isLocked = isLocked
         self.scriptSource = scriptSource
+        self.scriptFile = scriptFile
         self.scriptParameters = scriptParameters
     }
 
     public var endTime: Double { startTime + duration }
+
+    /// Whether this node's code still lives inline, in a project written
+    /// before scripts had files.
+    ///
+    /// Asked by the layer that owns the folder, because Core cannot write one.
+    /// Source with no file is the only shape that means "not migrated": a node
+    /// that names a file is done, and a node with neither is not a script.
+    public var needsScriptMigration: Bool {
+        scriptFile == nil && !(scriptSource ?? "").isEmpty
+    }
 
     /// How many times a loop filter repeats this clip, or 1 if none does.
     ///
@@ -320,6 +353,7 @@ public extension EffectNode {
                 isVisible: layer.isVisible,
                 isLocked: layer.isLocked,
                 scriptSource: layer.scriptSource,
+                scriptFile: layer.scriptFile,
                 scriptParameters: layer.scriptParameters,
             )
         }

@@ -487,11 +487,66 @@ public struct EffectDocument: Sendable, Codable {
             // filters: a copy of a script that drops the script is a copy of
             // nothing.
             scriptSource: original.scriptSource,
+            // The reference, not a copy of the file: duplicating a clip shares
+            // one source of truth, so editing it reloads both.
+            scriptFile: original.scriptFile,
             scriptParameters: original.scriptParameters,
         )
 
         tracks[location.track].nodes.insert(copy, at: location.node + 1)
         return copy
+    }
+
+    /// Swaps a placed clip's preset, keeping what makes the clip itself.
+    ///
+    /// Only the preset's `overrides` land, so the author's text, font, colour
+    /// and size survive — trying a second movement used to mean rebuilding the
+    /// clip, which is the work presets exist to remove.
+    ///
+    /// Everything the **previous** preset set and this one does not name goes
+    /// back to the effect's defaults rather than lingering. Left additive, a
+    /// clip swapped twice would be a mixture of two movements and read as
+    /// neither: the second preset is what was asked for, not the second on top
+    /// of the first.
+    ///
+    /// A preset for another effect does nothing. Its keys would mean nothing
+    /// here, and half-applying them is a clip nobody asked for.
+    /// - Parameters:
+    ///   - siblings: The other presets this effect ships, which is what says
+    ///     which parameters a preset is allowed to own. Passing `[preset]`
+    ///     alone is valid and simply clears less.
+    public mutating func applyPreset(
+        _ preset: EffectPreset,
+        to nodeID: EffectNode.ID,
+        siblings: [EffectPreset] = [],
+        defaults: [String: EffectValue]? = nil,
+    ) {
+        guard let location = locate(nodeID) else { return }
+        var node = tracks[location.track].nodes[location.node]
+        guard node.type == preset.effectType else { return }
+
+        // Cleared first: only the keys some preset of this effect can touch,
+        // and only the ones this preset does not name.
+        //
+        // Not every default. That takes the author's text, font, colour and
+        // size with it — measured: swapping put the text back to "HELLO" and
+        // the size back to 48. And not nothing either, or a value the previous
+        // preset set and this one omits would linger, leaving a clip that is a
+        // mixture of two movements and reads as neither.
+        //
+        // The set is derived from the presets themselves rather than listed as
+        // "animation" keys by hand. A hand-kept list is one to maintain, and
+        // forgetting an entry there does not fail — it silently keeps
+        // somebody's old movement, or silently discards their content.
+        let animated = Set(siblings.flatMap(\.overrides.keys))
+        for key in animated where preset.overrides[key] == nil {
+            if let resting = defaults?[key] ?? preset.values[key] {
+                node.values[key] = resting
+            }
+        }
+        node.values.merge(preset.overrides) { _, new in new }
+
+        tracks[location.track].nodes[location.node] = node
     }
 
     /// Changes one parameter on one effect.

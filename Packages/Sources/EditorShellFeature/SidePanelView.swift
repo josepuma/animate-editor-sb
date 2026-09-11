@@ -17,18 +17,6 @@ struct SidePanelView: View {
     /// affordable.
     static let width: CGFloat = 300
 
-    /// The width while a script is being written.
-    ///
-    /// Two and a half times the browsing width, because the panel stops being
-    /// a list and becomes a page: at 240 points a line of code wraps every few
-    /// words, which is not somewhere anyone can work — the screenshot of it
-    /// wrapping `Ease.outQuad` across two lines made that plain.
-    ///
-    /// The panel grows rather than the editor moving elsewhere, and the
-    /// inspector closes to pay for it: a clip's parameters are not what you are
-    /// looking at while typing its code, and giving up that column costs
-    /// nothing at the moment it is taken.
-    static let scriptWidth: CGFloat = 620
 
     @Bindable var shell: EditorShellModel
     /// Where a newly added effect is placed.
@@ -66,7 +54,7 @@ struct SidePanelView: View {
     /// the canvas is what has room to give. One width per state is also one
     /// fewer thing to reason about while typing.
     private var panelWidth: CGFloat {
-        shell.selectedScriptID == nil ? Self.width : Self.scriptWidth
+        Self.width
     }
 
     var body: some View {
@@ -212,7 +200,7 @@ struct SidePanelView: View {
         // the code is what you came here for, so giving it the whole panel is
         // both the fix and the right arrangement.
         if let scriptID = shell.selectedScriptID {
-            ScriptEditorPanel(shell: shell, nodeID: scriptID)
+            ScriptPanel(shell: shell, nodeID: scriptID)
         } else {
             library
         }

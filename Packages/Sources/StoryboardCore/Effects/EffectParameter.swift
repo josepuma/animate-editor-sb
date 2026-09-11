@@ -113,7 +113,7 @@ public enum EffectValue: Sendable, Equatable, Codable {
 /// declarations, never the effect that produced them.
 public struct EffectParameter: Sendable, Equatable, Codable {
     /// What kind of control this parameter needs.
-    public enum Kind: String, Sendable, Equatable, Codable {
+    public enum Kind: String, Sendable, Equatable, Codable, CaseIterable {
         case number
         case integer
         case toggle

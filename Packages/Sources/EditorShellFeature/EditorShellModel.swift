@@ -528,6 +528,39 @@ public final class EditorShellModel {
         return evaluated
     }
 
+    /// The presets a placed clip could swap to.
+    ///
+    /// Empty for an effect that ships none, which is what hides the control
+    /// rather than showing an empty menu.
+    public func presets(forEffectType type: String) -> [EffectPreset] {
+        presets.filter { $0.effectType == type }
+    }
+
+    /// Swaps a placed clip's preset, keeping what makes the clip itself.
+    ///
+    /// The reason this exists: picking a template, placing it, and then
+    /// wanting to try a different movement on the *same* clip meant building
+    /// it again — so only the preset's own overrides land, and the author's
+    /// text, font, colour and size survive.
+    ///
+    /// Through the model so `EditHistory` sees it: this is an edit, and one
+    /// somebody trying presets one after another needs to be able to take
+    /// back.
+    public func applyPreset(_ preset: EffectPreset, to nodeID: EffectNode.ID) {
+        guard !isLocked(nodeID) else { return }
+
+        effects.applyPreset(
+            preset,
+            to: nodeID,
+            // Its siblings say which parameters a preset of this effect is
+            // allowed to own, which is what keeps the swap from reaching into
+            // the author's content.
+            siblings: presets(forEffectType: preset.effectType),
+            defaults: library.descriptor(for: preset.effectType)?.defaultValues,
+        )
+        effectsChanged(node: nodeID)
+    }
+
     /// Presets available for the effects in the library.
     public var presets: [EffectPreset] {
         // Every effect's presets, filtered to what the library can actually
@@ -562,6 +595,46 @@ public final class EditorShellModel {
     }
 
     @discardableResult
+    /// Gives a freshly placed script clip a file of its own.
+    ///
+    /// "Creating a clip creates a file; duplicating does not" — and without
+    /// this half the panel has nothing to open: a placed clip showed "No
+    /// script file" and no button, which is a clip nobody can edit.
+    ///
+    /// Placed separately means separate files. Sharing is what *duplicating*
+    /// means; two clips placed one after the other are two independent things,
+    /// and one overwriting the other would lose the first one's code the
+    /// moment the second arrived.
+    ///
+    /// Called from both `addEffect` and `addPreset` rather than from
+    /// `EffectDocument.add`, because Core has no folder — and from a helper
+    /// rather than inline in each, because a second route that forgets is how
+    /// this bug existed in the first place.
+    private func placeScriptFile(for node: EffectNode) -> EffectNode {
+        guard node.scriptFile == nil,
+              let source = node.scriptSource,
+              let projectFolder,
+              let file = ScriptStore.availableName(like: node.name, inFolder: projectFolder)
+        else { return node }
+
+        // A folder that cannot take the file leaves the clip working from its
+        // inline source: it draws, it just cannot be opened in an editor yet.
+        // Refusing to place the clip at all would be worse.
+        guard (try? ScriptStore.write(source, to: file, inFolder: projectFolder)) != nil else {
+            return node
+        }
+
+        var placed = node
+        placed.scriptFile = file
+        effects[node.id] = placed
+
+        // The declarations, so the editor has types the moment it opens — and
+        // this is the first script in a project that had none.
+        try? writeScriptTypesHandler?(projectFolder)
+
+        return placed
+    }
+
     public func addEffect(
         _ descriptor: EffectDescriptor,
         at startTime: Double,
@@ -574,9 +647,10 @@ public final class EditorShellModel {
             duration: duration,
             on: trackID ?? destinationTrackID,
         )
-        selectedNodeID = node.id
+        let placed = placeScriptFile(for: node)
+        selectedNodeID = placed.id
         effectsChanged()
-        return node
+        return placed
     }
 
     /// Places a preset, using the length the preset asks for.
@@ -643,9 +717,12 @@ public final class EditorShellModel {
 
         effects[node.id] = node
 
-        selectedNodeID = node.id
+        // A preset can be a script's too, so it takes the same route.
+        let placed = placeScriptFile(for: node)
+
+        selectedNodeID = placed.id
         effectsChanged()
-        return node
+        return placed
     }
 
     /// Places an image on the timeline.
@@ -752,7 +829,7 @@ public final class EditorShellModel {
 
     /// Places one line, so it can carry a movement of its own.
     public func importLyricLine(_ line: LyricTranscription.Line, preset: EffectPreset? = nil) {
-        importLyrics([line], preset: preset)
+        importLyrics([line], preset: preset, into: .selectionOrNew)
         placedLyricLines.insert(line.id)
     }
 
@@ -853,7 +930,11 @@ public final class EditorShellModel {
     ///     should: thirty-eight clips with every animation parameter resting at
     ///     zero are thirty-eight captions, and a preset is only a bag of values
     ///     so this costs nothing.
-    public func importLyrics(_ lines: [LyricTranscription.Line], preset: EffectPreset? = nil) {
+    public func importLyrics(
+        _ lines: [LyricTranscription.Line],
+        preset: EffectPreset? = nil,
+        into destination: LyricDestination = .newTrack,
+    ) {
         guard !lines.isEmpty else { return }
         guard let descriptor = library.descriptor(for: TextEffect.descriptor.type) else { return }
 
@@ -877,10 +958,7 @@ public final class EditorShellModel {
             effectsChanged()
         }
 
-        // Their own lane, and a fresh one each time. A second import — another
-        // language, or a corrected pass — piled into the same lane would
-        // overlap the first and leave neither pickable.
-        let track = effects.addTrack(named: lyricsTrackName())
+        let trackID = lyricsTrackID(for: destination)
 
         for line in lines {
             var node = effects.add(
@@ -890,7 +968,7 @@ public final class EditorShellModel {
                 // adds this offset once.
                 at: line.start,
                 duration: max(line.duration, Self.minimumLyricDuration),
-                on: track.id,
+                on: trackID,
             )
 
             // The line is the name. `add` numbers duplicates — "Text 2", "Text
@@ -938,6 +1016,44 @@ public final class EditorShellModel {
     private static let minimumLyricDuration: Double = 200
 
     /// The name for a new lyrics lane, numbered if one is already there.
+    /// Where placed lyric clips go.
+    ///
+    /// Passed rather than decided inside, because the two callers want
+    /// opposite things and the batch's reasoning does not transfer to a single
+    /// line — which is how the per-line button came to open a lane per click.
+    public enum LyricDestination: Sendable {
+        /// A lane of its own, every time. What **Place All** wants: a second
+        /// batch — another language, or a corrected pass — piled into the
+        /// first would overlap it and leave neither pickable.
+        case newTrack
+
+        /// The selected lane, or a new one when nothing is selected.
+        ///
+        /// What placing one line wants. Ten clicks gave ten lanes named
+        /// `Lyrics` through `Lyrics 10`, which is unusable for the thing the
+        /// button exists to do — and with a lane selected, that selection is
+        /// the only statement of intent there is.
+        case selectionOrNew
+    }
+
+    private func lyricsTrackID(for destination: LyricDestination) -> EffectTrack.ID {
+        if case .selectionOrNew = destination,
+           let selectedTrackID,
+           effects.track(id: selectedTrackID) != nil
+        {
+            return selectedTrackID
+        }
+        let track = effects.addTrack(named: lyricsTrackName())
+        // Selected, the way `addTrack` does it for a lane made by hand.
+        //
+        // Without this the second line placed found nothing selected and made
+        // its own lane, and the third did it again — so `.selectionOrNew` fixed
+        // the case with a lane already picked and left the ordinary one, an
+        // empty project, giving a lane per click.
+        selectedTrackID = track.id
+        return track.id
+    }
+
     private func lyricsTrackName() -> String {
         let base = "Lyrics"
         let existing = effects.tracks.count { $0.name == base || $0.name.hasPrefix("\(base) ") }
@@ -982,17 +1098,44 @@ public final class EditorShellModel {
         loadFailed = false
         do {
             guard let project = try ProjectFile.read(fromFolder: folder) else { return }
+            // Scripts written before they had files hold their code in the
+            // `.aesb`, which was the only place it existed — so it moves out to
+            // disk here, on the one path that has the folder.
+            //
+            // A failure is swallowed on purpose: the code is still in the
+            // document, so the clip keeps working from its resolved source, and
+            // refusing to open would lose a whole project over a permission on
+            // one file. The next save writes the old key, so nothing is lost by
+            // trying again later.
+            let document = (try? ScriptStore.migrate(project.document, inFolder: folder))
+                ?? project.document
             // Cleared before the write, and the write itself is not recorded.
             //
             // Undoing into the previous beatmap's document would restore
             // effects belonging to a different map — worse than having no undo
             // at all, because it looks like it worked.
             history.clear()
-            withoutRecording { effects = project.document }
+            withoutRecording { effects = document }
             timelineView = project.view
             selectedNodeID = nil
             selectedTrackID = effects.tracks.last?.id
             effectsChanged()
+            // After migration, so a v1 project's freshly written scripts get
+            // their declarations too — and only when there is a script to read
+            // them: two generated files nothing references would land in the
+            // mapper's published beatmap folder for nothing.
+            //
+            // A failure is ignored on purpose. These exist for an external
+            // editor to read, so a folder that cannot take them costs
+            // autocompletion, not the project.
+            if document.nodes.contains(where: { $0.scriptFile != nil }) {
+                try? writeScriptTypesHandler?(folder)
+            }
+
+            // Through the same helper, which stops the previous project's
+            // watcher first: left running, it would reload this project every
+            // time someone edited a script in the folder they just closed.
+            startWatchingScripts()
             // Loading is not a change: a project opened and closed untouched
             // should not claim to need saving.
             hasUnsavedChanges = false
@@ -1053,6 +1196,126 @@ public final class EditorShellModel {
     public var previewImage: ((PreviewSubject) -> [CGImage])?
 
     public var exportHandler: ((_ sprites: [StoryboardSprite], _ folder: URL) throws -> URL)?
+
+    /// Writes the editor's type declarations into a project folder.
+    ///
+    /// A seam like `exportHandler`, and for the same reason: the declarations
+    /// are derived from what the script engine installs, and this target
+    /// deliberately does not depend on it — `StoryboardScripting` imports
+    /// JavaScriptCore, and the shell is arrangement rather than runtime. The
+    /// app connects the two, at the same seam where it already connects the
+    /// canvas and the export.
+    ///
+    /// Optional, so the shell runs without one: a folder with no declarations
+    /// is a folder whose scripts have no autocompletion, which is a degraded
+    /// editor rather than a broken app.
+    @ObservationIgnored
+    public var writeScriptTypesHandler: ((_ folder: URL) throws -> Void)?
+
+    /// Starts watching a project folder for script edits, returning a stop.
+    ///
+    /// A seam for the same reason as the one above: the watcher belongs to the
+    /// persistence layer and this target does not depend on it. The app
+    /// connects them.
+    ///
+    /// The handler is handed a closure to call when scripts change, and gives
+    /// back the way to stop — so this model never holds a platform object, and
+    /// a shell with no handler installed simply does not auto-reload.
+    ///
+    /// Setting it starts watching straight away when a project is already
+    /// open. Waiting for the next load is what the app actually did — the
+    /// handlers are installed further down the same `.onAppear` that loads the
+    /// project, so this was still `nil` when the load consulted it and the
+    /// watcher was **never installed**. Every test passed, because every test
+    /// installs its handlers first.
+    ///
+    /// A model that only works when its seams are filled in the right order
+    /// fails silently the moment someone moves a line, so it does not depend
+    /// on the order.
+    @ObservationIgnored
+    public var watchScriptsHandler: ((_ folder: URL, _ changed: @escaping @Sendable () -> Void) -> (() -> Void))? {
+        didSet { startWatchingScripts() }
+    }
+
+    /// Whether a watcher is running for the project currently open.
+    public var isWatchingScripts: Bool { stopWatchingScripts != nil }
+
+    /// Starts watching the open project's folder, replacing any watcher.
+    ///
+    /// One place, called from the load and from the handler landing, because
+    /// two copies of "start the watcher" is how one of them ends up not being
+    /// called.
+    private func startWatchingScripts() {
+        stopWatchingScripts?()
+        stopWatchingScripts = nil
+
+        guard let projectFolder, let watchScriptsHandler else { return }
+        stopWatchingScripts = watchScriptsHandler(projectFolder) { [weak self] in
+            Task { @MainActor in self?.reloadScripts() }
+        }
+    }
+
+    /// Stops the watcher started for the project currently open.
+    @ObservationIgnored
+    private var stopWatchingScripts: (() -> Void)?
+
+    /// Hands a script file to whatever editor the author uses.
+    ///
+    /// Returns whether anything took it. A seam because launching belongs to
+    /// AppKit, and because "whatever editor" is a decision for the app rather
+    /// than for the shell: this target should not know that VSCode exists.
+    @ObservationIgnored
+    public var openScriptHandler: ((_ file: URL) -> Bool)?
+
+    /// Sets which file a script node reads.
+    ///
+    /// Through the model so `EditHistory` sees it: pointing a clip at another
+    /// file is an edit, unlike a reload, and one the author has to be able to
+    /// take back.
+    public func setScriptFile(_ file: ScriptFile, on nodeID: EffectNode.ID) {
+        guard var node = effects[nodeID], !isLocked(nodeID) else { return }
+        guard node.scriptFile != file else { return }
+
+        node.scriptFile = file
+        effects[nodeID] = node
+        effectsChanged(node: nodeID)
+    }
+
+    /// Whether this clip has a script file that exists to be opened.
+    ///
+    /// Both halves matter. Offering the action on a clip that is not a script
+    /// is a menu item that cannot work, and handing a **missing** path to an
+    /// editor opens an empty untitled window — which reads as the script
+    /// having been lost rather than as a file that is not there.
+    public func canOpenScript(_ nodeID: EffectNode.ID) -> Bool {
+        scriptURL(for: nodeID) != nil
+    }
+
+    /// Opens a clip's script in an external editor.
+    ///
+    /// Two clips sharing a file open the same file, which is the point of
+    /// sharing: whichever clip you reach for, you are editing the one script.
+    public func openScriptExternally(_ nodeID: EffectNode.ID) {
+        guard let url = scriptURL(for: nodeID) else { return }
+        guard openScriptHandler?(url) == true else {
+            // A click that silently does nothing is worse than one that
+            // fails: the author cannot tell the app from their setup.
+            saveError = "Could not open \(url.lastPathComponent) in an editor."
+            return
+        }
+        saveError = nil
+    }
+
+    /// Where a clip's script lives, when it has one and it is on disk.
+    private func scriptURL(for nodeID: EffectNode.ID) -> URL? {
+        guard let projectFolder,
+              let file = effects[nodeID]?.scriptFile
+        else { return nil }
+
+        let url = ScriptStore.url(of: file, inFolder: projectFolder)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
 
 
     /// Where the selected clip's pixels are, as the canvas last measured them.
@@ -1286,6 +1549,7 @@ public final class EditorShellModel {
         // And its code, with the controls it declares: a paste that drops the
         // script pastes an empty clip that reads as broken.
         node.scriptSource = source.scriptSource
+        node.scriptFile = source.scriptFile
         node.scriptParameters = source.scriptParameters
         effects[node.id] = node
 
@@ -1414,31 +1678,7 @@ public final class EditorShellModel {
     /// be a second place for the same facts, kept in step by hand.
     @ObservationIgnored public var scriptReport: ((EffectNode.ID) -> ScriptRuntime.Report?)?
 
-    /// Opens the scripting reference.
-    ///
-    /// Provided by the app, like the editor itself: opening a window is not
-    /// something arrangement does, and the reference is generated from the
-    /// same table that feeds completion — which lives in the editor's target.
-    @ObservationIgnored public var openScriptReference: (() -> Void)?
 
-    /// Replaces a script's source.
-    ///
-    /// Through the model rather than onto the node directly, so `EditHistory`
-    /// sees it: capture happens in `effects`' `willSet`, and a write that
-    /// side-steps that is an edit the author cannot take back.
-    ///
-    /// An unchanged commit does nothing at all. The editor commits on losing
-    /// focus as well as on Return, so clicking away from a script nobody
-    /// touched would otherwise re-evaluate the whole document and spend an undo
-    /// entry saying nothing happened.
-    public func setScriptSource(_ source: String, on nodeID: EffectNode.ID) {
-        guard var node = effects[nodeID], !isLocked(nodeID) else { return }
-        guard node.scriptSource != source else { return }
-
-        node.scriptSource = source
-        effects[nodeID] = node
-        effectsChanged(node: nodeID)
-    }
 
     /// Sets a parameter on one layer of a compound effect.
     public func setLayerValue(
@@ -2630,10 +2870,41 @@ public final class EditorShellModel {
         evaluateNow()
     }
 
+    /// Re-reads every script file and redraws.
+    ///
+    /// Deliberately **not** an edit. It does not write through `effects`, so
+    /// `EditHistory` never sees it and no undo entry appears: an app-side undo
+    /// cannot rewrite a file on disk, and offering one would let the document
+    /// and the file disagree silently. It does not mark the project dirty
+    /// either — the change already happened, in a file the author owns.
+    ///
+    /// Resolution happens inside the evaluation pass, so this only has to ask
+    /// for one.
+    public func reloadScripts() {
+        effectsChanged()
+    }
+
+    /// `document` with every script node's code read from its file.
+    ///
+    /// A pass-through when there is no project folder yet: a document built in
+    /// memory — which is every test that never opens one — has nothing to
+    /// resolve against, and its nodes already carry whatever they were given.
+    private func resolvedForScripts(_ document: EffectDocument) -> EffectDocument {
+        guard let projectFolder else { return document }
+        return ScriptResolver(folder: projectFolder).resolving(document)
+    }
+
     private func evaluateNow() {
         evaluationTask?.cancel()
 
-        let document = effects
+        // Resolved here, on the snapshot, before the work leaves this actor.
+        //
+        // `ScriptEffect.evaluate` is synchronous and cannot throw, so it has no
+        // way to reach the file its node names — and a seam called from inside
+        // it would read one per node per evaluation. Doing it once on the way
+        // past costs a read per distinct file per pass, and the detached task
+        // receives nodes that already carry their code.
+        let document = resolvedForScripts(effects)
         let evaluator = evaluator
         let revision = effectsRevision
 

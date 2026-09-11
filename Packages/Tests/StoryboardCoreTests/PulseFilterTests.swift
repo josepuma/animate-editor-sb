@@ -441,4 +441,79 @@ struct PulseFilterTests {
             #expect(abs(ratio - 1.4) < 0.01, "expected a 40% kick, got \(ratio)")
         }
     }
+
+    /// The tempo takes fractions, and the stepper walks in them.
+    ///
+    /// Real tempos are not whole numbers — 169.4 is what a map declares — and
+    /// the model always carried the fraction: `coerce` and a save/load round
+    /// trip both leave it untouched. What made it unusable was the **step**: at
+    /// a whole beat per minute the stepper walks 169.4 to 170.4 rather than to
+    /// 169.5, so the only thing it could do was take a correctly-set tempo
+    /// further from the music.
+    ///
+    /// Measured, the cost of rounding: against a true 169.4, a pulse at 170
+    /// drifts 200ms over forty bars — more than half a beat, and plainly
+    /// audible.
+    @Test("BPM accepts fractional tempos")
+    func fractionalTempo() throws {
+        let parameter = try #require(
+            PulseFilter.descriptor.parameters.first { $0.id == "bpm" })
+
+        let step = try #require(parameter.step)
+        #expect(step < 1, "a whole-number step cannot reach 169.4 from 169")
+
+        // The value itself survives, which is the half that already worked.
+        #expect(parameter.coerce(.number(169.4)) == .number(169.4))
+
+        var node = FilterNode(id: "f1", type: PulseFilter.descriptor.type)
+        node.values["bpm"] = .number(169.4)
+        let data = try JSONEncoder().encode(node)
+        let restored = try JSONDecoder().decode(FilterNode.self, from: data)
+        #expect(restored.values["bpm"] == .number(169.4))
+    }
+
+    /// A fractional tempo actually spaces the beats it claims to.
+    ///
+    /// The declaration is only half the promise: a filter that read the tempo
+    /// as an integer somewhere downstream would pass the test above and still
+    /// pulse at 169.
+    @Test("a fractional tempo spaces the pulses by it")
+    func fractionalTempoSpacesPulses() throws {
+        let spacing = { (bpm: Double) -> Double in
+            var node = FilterNode(id: "f1", type: PulseFilter.descriptor.type)
+            node.values["bpm"] = .number(bpm)
+
+            let sprite = StoryboardSprite(
+                id: "s", layer: .foreground, origin: .centre,
+                filePath: "a.png", defaultX: 320, defaultY: 240,
+                commands: [Command(easing: .linear, startTime: 0, endTime: 8000,
+                                   payload: .fade(start: 1, end: 1))],
+            )
+            let context = FilterContext(
+                descriptor: PulseFilter.descriptor, node: node,
+            )
+            let out = PulseFilter().apply(to: [sprite], in: context)
+            // Pulses are scale commands; their starts are the beats.
+            let starts = out.flatMap { s in
+                s.commands.compactMap { c -> Double? in
+                    if case .scale = c.payload { c.startTime } else { nil }
+                }
+            }.sorted()
+            guard starts.count > 2 else { return 0 }
+            return starts[1] - starts[0]
+        }
+
+        let at169 = spacing(169)
+        let at1694 = spacing(169.4)
+        #expect(at169 > 0 && at1694 > 0, "no pulses produced")
+        #expect(at169 != at1694, "169 and 169.4 spaced the pulses identically")
+
+        // The **ratio** rather than the absolute spacing, because the pulse
+        // fires every `interval` beats and that multiplier is not what this is
+        // testing. Tempo and spacing are inversely proportional whatever the
+        // interval, so 169.4 must land 169/169.4 of the way from 169.
+        let expected = 169.0 / 169.4
+        #expect(abs(at1694 / at169 - expected) < 0.001,
+                "spacing ratio \(at1694 / at169) is not the tempo ratio \(expected)")
+    }
 }

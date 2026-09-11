@@ -23,6 +23,26 @@ public struct EffectPreset: Sendable, Identifiable {
     public var duration: Double
     public var values: [String: EffectValue]
 
+    /// What this preset changes from its effect's defaults.
+    ///
+    /// `values` holds **every** parameter, because a preset is built as
+    /// `defaultValues.merging(…)` — so applying it whole to a clip somebody
+    /// already placed takes their text, font, colour and size back to the
+    /// defaults. Trying a second movement meant rebuilding the clip, which is
+    /// the work presets exist to remove.
+    ///
+    /// Stored at construction rather than derived on read: the diff is right
+    /// there when the preset is made, and deriving it later needs the effect's
+    /// descriptor at every call site. Derived from the values rather than
+    /// listed by hand, because a hand-kept set of "content" keys is a list to
+    /// maintain — and forgetting an entry there does not fail, it silently
+    /// discards work.
+    ///
+    /// The one thing this cannot express is a preset deliberately setting a
+    /// parameter **to** its default. Nothing does, and a preset that wanted to
+    /// would be saying "leave this alone", which is what omitting it means.
+    public var overrides: [String: EffectValue]
+
     /// Further layers the preset brings with it.
     ///
     /// What makes a compound preset: a circle of fire is a base, embers and a
@@ -64,6 +84,7 @@ public struct EffectPreset: Sendable, Identifiable {
         summary: String,
         duration: Double = 4000,
         values: [String: EffectValue],
+        overrides: [String: EffectValue]? = nil,
         layers: [Layer] = [],
         pack: String? = nil,
     ) {
@@ -75,6 +96,9 @@ public struct EffectPreset: Sendable, Identifiable {
         self.summary = summary
         self.duration = duration
         self.values = values
+        // Everything, when a caller does not say — the honest answer for a
+        // preset built without a known set of defaults to diff against.
+        self.overrides = overrides ?? values
     }
 }
 

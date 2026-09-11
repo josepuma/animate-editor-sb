@@ -403,17 +403,20 @@ public extension ShapeEffect {
         width: Double,
         height: Double,
     ) -> EffectPreset {
-        EffectPreset(
+        // Named once so the full set and the diff cannot disagree.
+        let overrides: [String: EffectValue] = [
+            Param.kind: .choice(kind.rawValue),
+            Param.width: .number(width),
+            Param.height: .number(height),
+        ]
+        return EffectPreset(
             id: "shape-\(kind.rawValue.lowercased())",
             name: name,
             effectType: descriptor.type,
             summary: summary,
             duration: 2000,
-            values: descriptor.defaultValues.merging([
-                Param.kind: .choice(kind.rawValue),
-                Param.width: .number(width),
-                Param.height: .number(height),
-            ]) { _, override in override },
+            values: descriptor.defaultValues.merging(overrides) { _, override in override },
+            overrides: overrides,
         )
     }
 }

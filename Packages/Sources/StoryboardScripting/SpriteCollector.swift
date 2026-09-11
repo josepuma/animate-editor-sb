@@ -14,7 +14,7 @@ final class SpriteCollector {
     private var built: [StoryboardSprite] = []
 
     /// Set when a call was given a name that does not exist.
-    private(set) var undefinedArgument = false
+    var undefinedArgument = false
 
     /// How many sprites the script asked for beyond the ceiling.
     ///
@@ -63,7 +63,15 @@ final class SpriteCollector {
     /// because each block writes straight into the Swift sprite: a JS-side
     /// object would need converting afterwards, and every field in that
     /// conversion is a field that can be forgotten.
-    private func builder(path: String, options: JSValue?, in context: JSContext) -> JSValue? {
+    /// - Parameter position: Where the sprite rests when nothing moves it.
+    ///   Text passes the glyph's place on the line; a plain `sprite()` call
+    ///   takes the stage centre, which is what an effect with no opinion wants.
+    func builder(
+        path: String,
+        options: JSValue?,
+        in context: JSContext,
+        at position: (x: Double, y: Double) = (320, 240),
+    ) -> JSValue? {
         // Past the ceiling, a builder that accepts calls and keeps nothing.
         //
         // The iteration guard stops an endless loop, but `while (true) {
@@ -88,8 +96,8 @@ final class SpriteCollector {
             layer: layer(from: options),
             origin: origin(from: options),
             filePath: path,
-            defaultX: 320,
-            defaultY: 240,
+            defaultX: position.x,
+            defaultY: position.y,
         ))
 
         guard let handle = JSValue(newObjectIn: context) else { return nil }
@@ -97,7 +105,7 @@ final class SpriteCollector {
         // Captured by index rather than by reference to the sprite: `built` is
         // an array of value types, so a captured copy would collect commands
         // that never reach the stored one.
-        add(to: handle, name: "fade") { arguments in
+        add(to: handle, name: .fade) { arguments in
             guard let timing = Timing(arguments, values: 2) else { return }
             self.append(Command(
                 easing: timing.easing,
@@ -107,7 +115,7 @@ final class SpriteCollector {
             ), at: index)
         }
 
-        add(to: handle, name: "move") { arguments in
+        add(to: handle, name: .move) { arguments in
             guard let timing = Timing(arguments, values: 4) else { return }
             self.append(Command(
                 easing: timing.easing,
@@ -122,7 +130,7 @@ final class SpriteCollector {
             ), at: index)
         }
 
-        add(to: handle, name: "scale") { arguments in
+        add(to: handle, name: .scale) { arguments in
             guard let timing = Timing(arguments, values: 2) else { return }
             self.append(Command(
                 easing: timing.easing,
@@ -132,7 +140,7 @@ final class SpriteCollector {
             ), at: index)
         }
 
-        add(to: handle, name: "rotate") { arguments in
+        add(to: handle, name: .rotate) { arguments in
             guard let timing = Timing(arguments, values: 2) else { return }
             self.append(Command(
                 easing: timing.easing,
@@ -142,7 +150,7 @@ final class SpriteCollector {
             ), at: index)
         }
 
-        add(to: handle, name: "moveX") { arguments in
+        add(to: handle, name: .moveX) { arguments in
             guard let timing = Timing(arguments, values: 2) else { return }
             self.append(Command(
                 easing: timing.easing,
@@ -152,7 +160,7 @@ final class SpriteCollector {
             ), at: index)
         }
 
-        add(to: handle, name: "moveY") { arguments in
+        add(to: handle, name: .moveY) { arguments in
             guard let timing = Timing(arguments, values: 2) else { return }
             self.append(Command(
                 easing: timing.easing,
@@ -165,7 +173,7 @@ final class SpriteCollector {
         // `_V`, without which a letterbox bar cannot be written at all: a bar
         // is a rectangle with very different axes, and a uniform scale has no
         // way to say that.
-        add(to: handle, name: "scaleVec") { arguments in
+        add(to: handle, name: .scaleVec) { arguments in
             guard let timing = Timing(arguments, values: 4) else { return }
             self.append(Command(
                 easing: timing.easing,
@@ -183,7 +191,7 @@ final class SpriteCollector {
         // `_C`, channels in [0, 255] as the format has them — not 0–1. A colour
         // ramp is what makes a particle field read as material rather than as
         // dots, so this is not an optional extra.
-        add(to: handle, name: "color") { arguments in
+        add(to: handle, name: .color) { arguments in
             guard let timing = Timing(arguments, values: 6) else { return }
             self.append(Command(
                 easing: timing.easing,
@@ -200,7 +208,7 @@ final class SpriteCollector {
             ), at: index)
         }
 
-        add(to: handle, name: "at") { arguments in
+        add(to: handle, name: .at) { arguments in
             guard arguments.count >= 2 else { return }
             self.place(x: arguments[0], y: arguments[1], at: index)
         }
@@ -208,9 +216,9 @@ final class SpriteCollector {
         // `_P` — the flags. A span rather than values, so `Timing` with zero
         // values reads them.
         for (name, kind) in [
-            ("additive", ParameterKind.additive),
-            ("flipH", ParameterKind.flipHorizontal),
-            ("flipV", ParameterKind.flipVertical),
+            (SpriteMethod.additive, ParameterKind.additive),
+            (SpriteMethod.flipH, ParameterKind.flipHorizontal),
+            (SpriteMethod.flipV, ParameterKind.flipVertical),
         ] {
             add(to: handle, name: name) { arguments in
                 guard let timing = Timing(arguments, values: 0) else { return }
@@ -238,12 +246,18 @@ final class SpriteCollector {
         if let existing = context.objectForKeyedSubscript("__inert"), !existing.isUndefined {
             return existing
         }
+        // Generated from `SpriteMethod`, never listed by hand. Written out, it
+        // held five of the twelve the real builder registers, so a script past
+        // the ceiling chaining `.color(…)` threw and produced **nothing** —
+        // truncation that only survived the methods a test happened to call.
+        let methods = SpriteMethod.allCases
+            .map { "\($0.rawValue): noop" }
+            .joined(separator: ", ")
+
         return context.evaluateScript("""
         globalThis.__inert = (function () {
             const noop = function () { return globalThis.__inert }
-            return {
-                fade: noop, move: noop, scale: noop, rotate: noop, at: noop,
-            }
+            return { \(methods) }
         })()
         """)
     }
@@ -254,7 +268,7 @@ final class SpriteCollector {
     /// side is wrapped once in `builder(path:options:in:)` to pass one. A
     /// `@convention(block)` cannot be variadic, and a command needs up to nine
     /// numbers — read by count, since an omitted easing shifts them all left.
-    private func add(to handle: JSValue, name: String, body: @escaping ([Double]) -> Void) {
+    private func add(to handle: JSValue, name: SpriteMethod, body: @escaping ([Double]) -> Void) {
         let method: @convention(block) (JSValue) -> JSValue = { arguments in
             let count = Int(arguments.forProperty("length")?.toInt32() ?? 0)
             // An `undefined` argument is refused rather than made finite.
@@ -282,7 +296,7 @@ final class SpriteCollector {
             body(values.compactMap { $0 })
             return handle
         }
-        handle.setObject(method, forKeyedSubscript: "__\(name)" as NSString)
+        handle.setObject(method, forKeyedSubscript: "__\(name.rawValue)" as NSString)
     }
 
     /// Wraps every `__name` block in a variadic function of the same name.

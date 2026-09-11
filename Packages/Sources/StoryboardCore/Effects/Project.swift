@@ -29,9 +29,21 @@ public struct Project: Codable, Sendable {
     public var view: TimelineView?
 
     /// The version this build writes.
-    public static let currentVersion = 1
+    ///
+    /// **2** since a script's code moved out of the document and into a file
+    /// beside it. Without the bump the two shapes are indistinguishable: a
+    /// node holding `scriptSource` and no `scriptFile` is either a project
+    /// written before the change or one whose reference did not survive, and
+    /// nothing in the file says which.
+    public static let currentVersion = 2
 
     /// The oldest version this build can still read.
+    ///
+    /// Still 1, deliberately. The `.aesb` was the **only** place a script's
+    /// code lived, so refusing to open a version 1 project would strand
+    /// exactly the work migration exists to rescue — and it is one-way for
+    /// script clips, so a downgraded build drawing them empty is why a v1
+    /// backup must never be unreadable.
     public static let minimumReadableVersion = 1
 
     /// The timeline's window, saved with the project.

@@ -666,6 +666,49 @@ struct InspectorView: View {
                     ),
                 )
             }
+            // Swapping the movement without rebuilding the clip.
+            //
+            // It sits with the name rather than in the library panel because
+            // this acts on the clip already selected — the library places new
+            // things, and reaching there to change this one would read as
+            // placing another.
+            //
+            // Hidden when the effect ships none, rather than shown empty.
+            if !shell.presets(forEffectType: node.type).isEmpty {
+                PropertyRow("Preset") {
+                    // A `Menu` of actions rather than `MenuField`, which needs
+                    // a selection to bind to.
+                    //
+                    // Nothing records which preset a clip came from, and once
+                    // one parameter is tuned the answer would be wrong anyway
+                    // — a field naming a preset the clip no longer matches is
+                    // worse than one naming none. So this is a verb, not a
+                    // value.
+                    Menu {
+                        ForEach(shell.presets(forEffectType: node.type)) { preset in
+                            Button(preset.name) { shell.applyPreset(preset, to: node.id) }
+                        }
+                    } label: {
+                        HStack(spacing: Theme.Spacing.tight) {
+                            Text("Change\u{2026}")
+                                .font(Theme.Typography.micro)
+                                .foregroundStyle(Theme.Palette.secondary)
+                            Spacer(minLength: Theme.Spacing.tight)
+                            Image(systemName: "chevron.down")
+                                .font(Theme.Typography.micro)
+                                .foregroundStyle(Theme.Palette.tertiary)
+                        }
+                        // Widening the label is what makes the menu grow: a
+                        // `Menu` keeps its intrinsic width otherwise, so the
+                        // `Spacer` would have nothing to push against.
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(.rect)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .frame(maxWidth: .infinity)
+                }
+            }
             PropertyRow("Start") {
                 NumberField(
                     value: Binding(

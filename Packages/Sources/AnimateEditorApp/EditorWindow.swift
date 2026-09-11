@@ -1,10 +1,10 @@
 import AppKit
 import EditorShellFeature
-import ScriptEditorFeature
 import ImageIO
 import PlaybackFeature
 import StoryboardCore
 import StoryboardPersistence
+import StoryboardScripting
 import StoryboardRendering
 import SwiftUI
 import UniformTypeIdentifiers
@@ -90,23 +90,10 @@ struct EditorWindow: View {
             seek: { playback.seek(to: $0) },
             canvas: { view.canvas },
         )
-        // The code editor, provided here for the same reason the canvas is:
-        // the shell is arrangement, and a real editor means a syntax
-        // highlighter it should not have to build against.
-        .scriptEditor { text, run in
-            AnyView(ScriptCodeEditor(text: text, run: run))
-        }
-        // The scripting reference, in a window of its own.
-        //
-        // Here rather than in the shell for the same reason as the editor:
-        // opening a window is not arrangement, and the reference is generated
-        // from the table that feeds completion — which lives in the editor's
-        // target.
         .onAppear {
-            shell.openScriptReference = { ScriptReferenceWindow.show() }
-            // Read from Core's ledger rather than copied into the shell: the
-            // evaluation pass writes it, and a copy here would be a second
-            // place for the same facts.
+            // Read from Core's ledger rather than copied into the shell:
+            // the evaluation pass writes it, and a copy here would be a
+            // second place for the same facts.
             shell.scriptReport = { ScriptRuntime.report(for: $0) }
         }
         .onChange(of: playback.isCanvasFullScreen, initial: true) { _, isFullScreen in
@@ -400,6 +387,32 @@ struct EditorWindow: View {
             // import each other, so the window joins them — the same seam that
             // already carries export, thumbnails and the selection bounds.
             shell.seekHandler = { playback.seek(to: $0) }
+
+            // Type declarations for whatever editor the author opens the
+            // script in. Derived from what the engine installs, so this is
+            // just a write — and it belongs here because the shell does not
+            // depend on the scripting target.
+            shell.writeScriptTypesHandler = { projectFolder in
+                try TypeDeclarations.text.write(
+                    to: projectFolder.appending(path: TypeDeclarations.fileName),
+                    atomically: true,
+                    encoding: .utf8,
+                )
+                try TypeDeclarations.configuration.write(
+                    to: projectFolder.appending(path: TypeDeclarations.configurationFileName),
+                    atomically: true,
+                    encoding: .utf8,
+                )
+            }
+
+            shell.openScriptHandler = { ScriptLauncher.open($0) }
+
+            // Auto-reload: an edit saved in an external editor redraws the
+            // canvas without anyone asking.
+            shell.watchScriptsHandler = { projectFolder, changed in
+                let stream = ScriptFolderStream(folder: projectFolder) { _ in changed() }
+                return { stream.stop() }
+            }
 
             shell.exportHandler = { sprites, projectFolder in
                 let prepared = StoryboardExport.prepareUsingAppImages(sprites) { path in
