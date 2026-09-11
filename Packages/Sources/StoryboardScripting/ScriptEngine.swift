@@ -58,7 +58,7 @@ public struct ScriptEngine: Sendable {
         "parseInt", "undefined", "unescape",
         // The storyboard API.
         "Ease", "Image", "Layer", "Origin", "console", "duration", "param",
-        "params", "rng", "sprite",
+        "params", "rng", "sprite", "text",
         // The loop guard and its counter.
         //
         // Visible rather than hidden: they have to be callable from inside the
@@ -178,6 +178,7 @@ public struct ScriptEngine: Sendable {
         installRandom(in: context, seed: request.seed)
         installParameters(in: context, values: request.values, declarations: declarations)
         collector.install(in: context)
+        TextCollector(sprites: collector).install(in: context)
     }
 
     /// Removes a global by name.

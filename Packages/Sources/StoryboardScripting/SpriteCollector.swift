@@ -14,7 +14,7 @@ final class SpriteCollector {
     private var built: [StoryboardSprite] = []
 
     /// Set when a call was given a name that does not exist.
-    private(set) var undefinedArgument = false
+    var undefinedArgument = false
 
     /// How many sprites the script asked for beyond the ceiling.
     ///
@@ -63,7 +63,15 @@ final class SpriteCollector {
     /// because each block writes straight into the Swift sprite: a JS-side
     /// object would need converting afterwards, and every field in that
     /// conversion is a field that can be forgotten.
-    private func builder(path: String, options: JSValue?, in context: JSContext) -> JSValue? {
+    /// - Parameter position: Where the sprite rests when nothing moves it.
+    ///   Text passes the glyph's place on the line; a plain `sprite()` call
+    ///   takes the stage centre, which is what an effect with no opinion wants.
+    func builder(
+        path: String,
+        options: JSValue?,
+        in context: JSContext,
+        at position: (x: Double, y: Double) = (320, 240),
+    ) -> JSValue? {
         // Past the ceiling, a builder that accepts calls and keeps nothing.
         //
         // The iteration guard stops an endless loop, but `while (true) {
@@ -88,8 +96,8 @@ final class SpriteCollector {
             layer: layer(from: options),
             origin: origin(from: options),
             filePath: path,
-            defaultX: 320,
-            defaultY: 240,
+            defaultX: position.x,
+            defaultY: position.y,
         ))
 
         guard let handle = JSValue(newObjectIn: context) else { return nil }
