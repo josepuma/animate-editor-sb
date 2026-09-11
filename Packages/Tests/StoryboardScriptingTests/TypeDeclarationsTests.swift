@@ -189,4 +189,119 @@ struct TypeDeclarationsTests {
                 return String(line[start.upperBound ..< colon.lowerBound])
             }
     }
+
+    /// Every `type` the declarations offer is one the runtime accepts, and every
+    /// one it accepts is offered.
+    ///
+    /// Not a comparison against a second list — that agrees with any list. Each
+    /// name is *run through the engine*, and a declaration counts only if the
+    /// parameter comes back declared.
+    ///
+    /// This caught the block spelling three things wrong at once: it offered
+    /// `'boolean'`, which the runtime drops (the case is `toggle`), and left out
+    /// `'text'`, which the runtime takes. The first is the worse half — a script
+    /// writing `'boolean'` type-checks clean and the parameter silently does not
+    /// exist, with no diagnostic, which is the backwards-easing failure again.
+    @Test("the declared parameter types are the ones the runtime accepts", arguments: EffectParameter.Kind.allCases)
+    func parameterKindsMatchRuntime(kind: EffectParameter.Kind) {
+        // A motion path is drawn on the canvas, so a script cannot declare one.
+        guard kind != .path else {
+            #expect(!TypeDeclarations.text.contains("'path'"))
+            return
+        }
+
+        #expect(
+            TypeDeclarations.text.contains("'\(kind.rawValue)'"),
+            "the declarations do not offer '\(kind.rawValue)', which the runtime accepts",
+        )
+
+        let outcome = ScriptEngine().run(ScriptRuntime.Request(
+            nodeID: "fx", idPrefix: "fx",
+            source: "params({ a: { type: '\(kind.rawValue)', default: 'x' } })",
+            values: [:], duration: 1000, seed: 1,
+        ))
+        #expect(outcome.declared?.count == 1, "the runtime dropped '\(kind.rawValue)'")
+    }
+
+    /// A name the declarations offer but the runtime drops is the worst kind of
+    /// wrong, so it is worth naming the one that was actually shipped.
+    @Test("a type the runtime rejects is not offered")
+    func rejectedTypeIsNotOffered() {
+        #expect(EffectParameter.Kind(rawValue: "boolean") == nil)
+        #expect(!TypeDeclarations.text.contains("'boolean'"))
+    }
+
+    /// `rng` is an object with three methods, not a function.
+    ///
+    /// Declared as `rng(): number` it type-checked a call that fails at runtime
+    /// with "rng is not a function" — and the three methods a script is meant to
+    /// use were not declared at all, so the editor could not complete them.
+    @Test("rng is declared as the object it is", arguments: ["unit", "between", "integer"])
+    func rngIsAnObject(method: String) {
+        #expect(TypeDeclarations.text.contains("declare const rng"))
+        #expect(!TypeDeclarations.text.contains("declare function rng"))
+        #expect(TypeDeclarations.text.contains("\(method)("))
+
+        let call = method == "unit" ? "rng.unit()" : "rng.\(method)(0, 5)"
+        let outcome = ScriptEngine().run(ScriptRuntime.Request(
+            nodeID: "fx", idPrefix: "fx",
+            source: "\(call); sprite('a.png').fade(0, 10, 0, 1)",
+            values: [:], duration: 1000, seed: 1,
+        ))
+        #expect(outcome.diagnostics.isEmpty, "\(outcome.diagnostics)")
+    }
+
+    /// The config TypeScript reads carries no key TypeScript rejects.
+    ///
+    /// A `"//"` comment key is fine at the root and an **error** inside
+    /// `compilerOptions`, where every key is validated — and the generated file
+    /// shipped two of them, so every project opened with two errors nobody
+    /// wrote. That is worse than untidy: declarations that flag code the author
+    /// did not write are what teach somebody to switch checking off, and then
+    /// the real diagnostics go with it.
+    ///
+    /// Checked by parsing rather than by reading the string, so a comment moved
+    /// back inside fails here rather than in someone's editor.
+    @Test("no comment key sits where TypeScript validates keys")
+    func configurationHasNoInvalidOptions() throws {
+        let data = Data(TypeDeclarations.configuration.utf8)
+        let root = try #require(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            "the config is not valid JSON",
+        )
+        let options = try #require(root["compilerOptions"] as? [String: Any])
+
+        for key in options.keys {
+            #expect(
+                !key.hasPrefix("//"),
+                "'\(key)' is a comment inside compilerOptions, which TypeScript rejects",
+            )
+        }
+
+        // The comments themselves are worth keeping — at the root, where they
+        // are ignored rather than validated.
+        #expect(root.keys.contains { $0.hasPrefix("//") })
+    }
+
+    /// The declaration keys `params` offers are the ones the runtime reads.
+    ///
+    /// Run through the engine rather than compared against a second list, and
+    /// the check is that the declaration **arrives with its options**: the
+    /// block offered `choices` while the collector reads `options`, so a script
+    /// spelling it the declared way type-checked clean and produced a choice
+    /// with nothing to choose from. Silent, like every other drift between
+    /// these two halves.
+    @Test("a choice's options reach the runtime")
+    func choiceOptionsReachRuntime() throws {
+        #expect(TypeDeclarations.text.contains("options?: string[]"))
+        #expect(!TypeDeclarations.text.contains("choices?:"))
+
+        let outcome = ScriptEngine().run(ScriptRuntime.Request(
+            nodeID: "fx", idPrefix: "fx",
+            source: "params({ m: { type: 'choice', default: 'a', options: ['a', 'b'] } })",
+            values: [:], duration: 1000, seed: 1,
+        ))
+        let declared = try #require(outcome.declared?.first)
+        #expect(declared.options == ["a", "b"], "options did not reach the runtime")
+    }
 }
