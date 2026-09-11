@@ -319,6 +319,27 @@ public struct TextEffect: Effect {
         let fadeIn = max(0, context.number(Param.fadeIn))
         let fadeOut = max(0, context.number(Param.fadeOut))
 
+        // When *this* character leaves — never before it has finished
+        // arriving.
+        //
+        // `birth` carries the stagger and so differs per character, while
+        // `death` is the clip's end and is the same for all of them. Taken as
+        // `death - fadeOut` alone, every character's fade-out fired at the
+        // same moment while the late ones were still fading in — two commands
+        // fighting over opacity, which osu! settles by letting the last one
+        // written win. Measured on `cascade` over sixteen characters in a
+        // two-second clip: fade-outs at 1500 against fade-ins running to 2350.
+        //
+        // A character that cannot both arrive and leave inside the clip keeps
+        // its arrival and loses the exit: appearing and then vanishing is
+        // still the line being read, while a fade-out over an unfinished
+        // fade-in is a glyph that flickers and never lands.
+        //
+        // One place, because the fade, the travel and the exit all need the
+        // same answer — three copies of it is how one of them ends up a few
+        // hundred milliseconds off.
+        let exitStart = max(birth + fadeIn, death - fadeOut)
+
         var sprite = StoryboardSprite(
             id: "\(context.idPrefix)/c\(index)",
             layer: .foreground,
@@ -338,7 +359,11 @@ public struct TextEffect: Effect {
             ))
             // Held to the end, or the sprite is only alive for its own fade —
             // a character that appears and then stops existing.
-            if fadeOut == 0 {
+            // Held from arrival to whenever this character leaves. Without
+            // the hold a sprite lives only for its own fade — a character
+            // that appears and then stops existing — and a character whose
+            // exit was dropped for want of room needs it to reach `death`.
+            if exitStart >= death || fadeOut == 0 {
                 sprite.commands.append(Command(
                     easing: .linear, startTime: birth + fadeIn, endTime: death,
                     payload: .fade(start: 1, end: 1),
@@ -353,9 +378,10 @@ public struct TextEffect: Effect {
                 payload: .fade(start: 1, end: 1),
             ))
         }
-        if fadeOut > 0 {
+        // Only when there is room for it after the character has arrived.
+        if fadeOut > 0, exitStart < death {
             sprite.commands.append(Command(
-                easing: .linear, startTime: max(birth, death - fadeOut), endTime: death,
+                easing: .linear, startTime: exitStart, endTime: death,
                 payload: .fade(start: 1, end: 0),
             ))
         }
@@ -402,7 +428,6 @@ public struct TextEffect: Effect {
         // later one simply wins.
         let travelX = context.number(Param.driftX)
         let travelY = context.number(Param.driftY)
-        let exitStart = fadeOut > 0 ? max(birth, death - fadeOut) : death
         let travelStart = birth + fadeIn
         if travelX != 0 || travelY != 0, exitStart > travelStart {
             sprite.commands.append(Command(
@@ -418,8 +443,8 @@ public struct TextEffect: Effect {
 
         // The exit, which mirrors whichever entrance was chosen — text that
         // arrives with character and then merely dissolves is half a move.
-        if fadeOut > 0 {
-            let start = max(birth, death - fadeOut)
+        if fadeOut > 0, exitStart < death {
+            let start = exitStart
             switch context.choice(Param.exit) {
             case "Rise":
                 sprite.commands.append(Command(
