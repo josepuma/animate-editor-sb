@@ -796,7 +796,7 @@ public final class EditorShellModel {
 
     /// Places one line, so it can carry a movement of its own.
     public func importLyricLine(_ line: LyricTranscription.Line, preset: EffectPreset? = nil) {
-        importLyrics([line], preset: preset)
+        importLyrics([line], preset: preset, into: .selectionOrNew)
         placedLyricLines.insert(line.id)
     }
 
@@ -897,7 +897,11 @@ public final class EditorShellModel {
     ///     should: thirty-eight clips with every animation parameter resting at
     ///     zero are thirty-eight captions, and a preset is only a bag of values
     ///     so this costs nothing.
-    public func importLyrics(_ lines: [LyricTranscription.Line], preset: EffectPreset? = nil) {
+    public func importLyrics(
+        _ lines: [LyricTranscription.Line],
+        preset: EffectPreset? = nil,
+        into destination: LyricDestination = .newTrack,
+    ) {
         guard !lines.isEmpty else { return }
         guard let descriptor = library.descriptor(for: TextEffect.descriptor.type) else { return }
 
@@ -921,10 +925,7 @@ public final class EditorShellModel {
             effectsChanged()
         }
 
-        // Their own lane, and a fresh one each time. A second import — another
-        // language, or a corrected pass — piled into the same lane would
-        // overlap the first and leave neither pickable.
-        let track = effects.addTrack(named: lyricsTrackName())
+        let trackID = lyricsTrackID(for: destination)
 
         for line in lines {
             var node = effects.add(
@@ -934,7 +935,7 @@ public final class EditorShellModel {
                 // adds this offset once.
                 at: line.start,
                 duration: max(line.duration, Self.minimumLyricDuration),
-                on: track.id,
+                on: trackID,
             )
 
             // The line is the name. `add` numbers duplicates — "Text 2", "Text
@@ -982,6 +983,44 @@ public final class EditorShellModel {
     private static let minimumLyricDuration: Double = 200
 
     /// The name for a new lyrics lane, numbered if one is already there.
+    /// Where placed lyric clips go.
+    ///
+    /// Passed rather than decided inside, because the two callers want
+    /// opposite things and the batch's reasoning does not transfer to a single
+    /// line — which is how the per-line button came to open a lane per click.
+    public enum LyricDestination: Sendable {
+        /// A lane of its own, every time. What **Place All** wants: a second
+        /// batch — another language, or a corrected pass — piled into the
+        /// first would overlap it and leave neither pickable.
+        case newTrack
+
+        /// The selected lane, or a new one when nothing is selected.
+        ///
+        /// What placing one line wants. Ten clicks gave ten lanes named
+        /// `Lyrics` through `Lyrics 10`, which is unusable for the thing the
+        /// button exists to do — and with a lane selected, that selection is
+        /// the only statement of intent there is.
+        case selectionOrNew
+    }
+
+    private func lyricsTrackID(for destination: LyricDestination) -> EffectTrack.ID {
+        if case .selectionOrNew = destination,
+           let selectedTrackID,
+           effects.track(id: selectedTrackID) != nil
+        {
+            return selectedTrackID
+        }
+        let track = effects.addTrack(named: lyricsTrackName())
+        // Selected, the way `addTrack` does it for a lane made by hand.
+        //
+        // Without this the second line placed found nothing selected and made
+        // its own lane, and the third did it again — so `.selectionOrNew` fixed
+        // the case with a lane already picked and left the ordinary one, an
+        // empty project, giving a lane per click.
+        selectedTrackID = track.id
+        return track.id
+    }
+
     private func lyricsTrackName() -> String {
         let base = "Lyrics"
         let existing = effects.tracks.count { $0.name == base || $0.name.hasPrefix("\(base) ") }

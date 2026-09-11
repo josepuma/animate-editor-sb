@@ -537,6 +537,74 @@ struct PlaceOneLyricTests {
         #expect(nodes[0].values != nodes[1].values)
     }
 
+    /// Lines placed one at a time share a lane.
+    ///
+    /// `importLyricLine` delegated to `importLyrics`, which opens a fresh lane
+    /// on purpose — a second **batch** piled into the first would overlap it
+    /// and leave neither pickable. That reasoning does not transfer to a single
+    /// line: placing ten of them gave ten lanes named `Lyrics` through
+    /// `Lyrics 10`, so the panel's per-line button was unusable for what it
+    /// exists to do. The one-line path had borrowed a decision that belongs to
+    /// the batch.
+    @Test("lines placed one at a time go in one lane")
+    func singleLinesShareALane() {
+        let shell = EditorShellModel()
+
+        for (index, text) in ["a", "b", "c"].enumerated() {
+            shell.importLyricLine(Self.line(text, Double(index + 1) * 1000))
+        }
+
+        #expect(shell.effects.tracks.count == 1, "three lines are not three lanes")
+        #expect(shell.effects.tracks.first?.nodes.count == 3)
+    }
+
+    /// A line lands in the lane the author has selected.
+    ///
+    /// Placing into whatever lane happens to be last is the app deciding on
+    /// someone's behalf while they have a lane picked — and the selection is
+    /// the only statement of intent available.
+    @Test("a placed line goes into the selected lane")
+    func placedLineUsesSelection() {
+        let shell = EditorShellModel()
+        let first = shell.addTrack()
+        let second = shell.addTrack()
+        shell.selectedTrackID = first.id
+
+        shell.importLyricLine(Self.line("a", 1000))
+
+        #expect(shell.effects.tracks.count == 2, "an existing lane is enough")
+        #expect(
+            shell.effects.track(id: first.id)?.nodes.count == 1,
+            "the selected lane is where it goes",
+        )
+        #expect(shell.effects.track(id: second.id)?.nodes.isEmpty == true)
+    }
+
+    /// With nothing selected there is a lane to make.
+    @Test("a placed line makes a lane when there is none")
+    func placedLineMakesALaneWhenEmpty() {
+        let shell = EditorShellModel()
+
+        shell.importLyricLine(Self.line("a", 1000))
+
+        #expect(shell.effects.tracks.count == 1)
+        #expect(shell.effects.tracks.first?.nodes.count == 1)
+    }
+
+    /// Place All still opens its own lane, which is the case that reasoning
+    /// was written for.
+    @Test("placing the batch still opens its own lane")
+    func batchStillOpensItsOwnLane() {
+        let shell = EditorShellModel()
+        let existing = shell.addTrack()
+        shell.selectedTrackID = existing.id
+
+        shell.importLyrics([Self.line("a", 1000), Self.line("b", 5000)])
+
+        #expect(shell.effects.tracks.count == 2, "a batch does not land on top of other work")
+        #expect(shell.effects.track(id: existing.id)?.nodes.isEmpty == true)
+    }
+
     @Test("regrouping forgets what was placed, since the lines are new")
     func regroupClearsMarks() async {
         let shell = EditorShellModel()
