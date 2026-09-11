@@ -528,6 +528,39 @@ public final class EditorShellModel {
         return evaluated
     }
 
+    /// The presets a placed clip could swap to.
+    ///
+    /// Empty for an effect that ships none, which is what hides the control
+    /// rather than showing an empty menu.
+    public func presets(forEffectType type: String) -> [EffectPreset] {
+        presets.filter { $0.effectType == type }
+    }
+
+    /// Swaps a placed clip's preset, keeping what makes the clip itself.
+    ///
+    /// The reason this exists: picking a template, placing it, and then
+    /// wanting to try a different movement on the *same* clip meant building
+    /// it again — so only the preset's own overrides land, and the author's
+    /// text, font, colour and size survive.
+    ///
+    /// Through the model so `EditHistory` sees it: this is an edit, and one
+    /// somebody trying presets one after another needs to be able to take
+    /// back.
+    public func applyPreset(_ preset: EffectPreset, to nodeID: EffectNode.ID) {
+        guard !isLocked(nodeID) else { return }
+
+        effects.applyPreset(
+            preset,
+            to: nodeID,
+            // Its siblings say which parameters a preset of this effect is
+            // allowed to own, which is what keeps the swap from reaching into
+            // the author's content.
+            siblings: presets(forEffectType: preset.effectType),
+            defaults: library.descriptor(for: preset.effectType)?.defaultValues,
+        )
+        effectsChanged(node: nodeID)
+    }
+
     /// Presets available for the effects in the library.
     public var presets: [EffectPreset] {
         // Every effect's presets, filtered to what the library can actually

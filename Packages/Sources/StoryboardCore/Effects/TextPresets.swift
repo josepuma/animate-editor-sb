@@ -28,6 +28,7 @@ public extension TextEffect {
             summary: summary,
             duration: duration,
             values: descriptor.defaultValues.merging(values) { _, override in override },
+            overrides: values,
         )
     }
 
