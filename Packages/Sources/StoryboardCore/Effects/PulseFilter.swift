@@ -92,13 +92,25 @@ public struct PulseFilter: SpriteFilter {
             // want. Left as an invisible fallback, neither was reachable — and
             // a value the app is using is a value the author should be able to
             // see and override.
+            //
+            // Stepped in tenths, because real tempos are not whole numbers:
+            // 169.4 is what a map declares, and the model already carried the
+            // fraction — a value typed with a decimal survives `coerce` and a
+            // save/load round trip untouched. What did not survive was *using*
+            // the field, since a whole-number step walks 169.4 to 170.4 rather
+            // than to 169.5, so the stepper could only take the value further
+            // from the tempo it was set to.
+            //
+            // And a tenth of a beat per minute matters over a section: at 170
+            // against a true 169.4, a pulse drifts a full beat inside forty
+            // bars.
             EffectParameter(
                 id: Param.bpm,
                 name: "BPM",
                 group: "Beat",
                 defaultValue: .number(0),
                 range: 0...400,
-                step: 1,
+                step: 0.1,
             ),
             // How much larger it gets on the hit.
             //
