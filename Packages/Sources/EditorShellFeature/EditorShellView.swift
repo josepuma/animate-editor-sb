@@ -242,6 +242,52 @@ public struct EditorShellView<Canvas: View>: View {
     @ViewBuilder
     private var editingShortcuts: some View {
         Group {
+            // Arrow keys walk the playhead along the map's own beat.
+            //
+            // Handed back to a field that has the keyboard, like ⌘C and ⌘Z: a
+            // left arrow pressed while renaming a track has to move the caret,
+            // not the playhead. Without the guard, typing anywhere in the
+            // editor would scrub the song.
+            Button("Step Back") {
+                if EditingFocus.isActive {
+                    NSApp.sendAction(#selector(NSResponder.moveLeft(_:)), to: nil, from: nil)
+                } else {
+                    shell.nudgePlayhead(by: .beat, forward: false)
+                }
+            }
+            .keyboardShortcut(.leftArrow, modifiers: [])
+
+            Button("Step Forward") {
+                if EditingFocus.isActive {
+                    NSApp.sendAction(#selector(NSResponder.moveRight(_:)), to: nil, from: nil)
+                } else {
+                    shell.nudgePlayhead(by: .beat, forward: true)
+                }
+            }
+            .keyboardShortcut(.rightArrow, modifiers: [])
+
+            Button("Back a Bar") {
+                if EditingFocus.isActive {
+                    NSApp.sendAction(
+                        #selector(NSResponder.moveLeftAndModifySelection(_:)), to: nil, from: nil,
+                    )
+                } else {
+                    shell.nudgePlayhead(by: .bar, forward: false)
+                }
+            }
+            .keyboardShortcut(.leftArrow, modifiers: .shift)
+
+            Button("Forward a Bar") {
+                if EditingFocus.isActive {
+                    NSApp.sendAction(
+                        #selector(NSResponder.moveRightAndModifySelection(_:)), to: nil, from: nil,
+                    )
+                } else {
+                    shell.nudgePlayhead(by: .bar, forward: true)
+                }
+            }
+            .keyboardShortcut(.rightArrow, modifiers: .shift)
+
             // ⌘S saves — unless a code editor has the keyboard, where it means
             // "run this script", and the editor claims it first.
             //

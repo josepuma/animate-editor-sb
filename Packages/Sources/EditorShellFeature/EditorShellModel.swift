@@ -1193,6 +1193,83 @@ public final class EditorShellModel {
         }
     }
 
+    // ─── Nudging the playhead ────────────────────────────────────────────────
+
+    /// Which grid an arrow key steps along.
+    public enum PlayheadStep: Sendable {
+        /// One beat — what an arrow key does.
+        case beat
+        /// One bar — what shift and an arrow key do.
+        case bar
+    }
+
+    /// Moves the playhead one step earlier or later.
+    ///
+    /// Stepping by *beat* rather than by a fixed number of milliseconds,
+    /// because the map already declares its tempo: the playhead lands where
+    /// things get placed in a rhythm game, and it stays landed as the tempo
+    /// changes. A fixed step reaches a beat only by accident, and then only
+    /// until the next timing point.
+    ///
+    /// Falls back to a fixed step when a map has no timing points at all —
+    /// arrow keys that do nothing on a map missing its BPM would read as the
+    /// editor being broken rather than as the map being incomplete.
+    public func nudgePlayhead(by step: PlayheadStep, forward: Bool) {
+        guard let seekHandler else { return }
+        let now = playheadTime
+        let target = nudgeTarget(from: now, by: step, forward: forward)
+        // Clamped to the piece rather than to the song: a storyboard can open
+        // before zero and run past the end of the track.
+        let range = playedTimeRange ?? 0...now
+        seekHandler(min(max(range.lowerBound, target), range.upperBound))
+    }
+
+    /// Where a nudge lands, in absolute time.
+    private func nudgeTarget(
+        from now: Double,
+        by step: PlayheadStep,
+        forward: Bool,
+    ) -> Double {
+        guard let beat, !beat.isEmpty else {
+            return now + (forward ? 1 : -1) * Self.fixedNudge
+        }
+
+        switch step {
+        case .beat:
+            return forward ? beat.nextBeat(after: now) : beat.previousBeat(before: now)
+        case .bar:
+            // Downbeats come from the same lines the ruler draws, so a bar
+            // step and a bar mark cannot disagree about where a measure
+            // begins.
+            //
+            // Searched over a window rather than the whole track: `lines(in:)`
+            // walks every beat in the range it is given, and a five-minute
+            // song at speed is tens of thousands of them for one keystroke.
+            let window = Self.barSearchWindow
+            let range = forward ? now...(now + window) : (now - window)...now
+            let bars = beat.lines(in: range).filter(\.isMajor)
+            let found = forward
+                ? bars.first { $0.time > now + 0.5 }?.time
+                : bars.last { $0.time < now - 0.5 }?.time
+            // No downbeat within the window — a very slow tempo, or the end of
+            // the track. A beat is a smaller move than asked for and a much
+            // better answer than standing still.
+            return found ?? nudgeTarget(from: now, by: .beat, forward: forward)
+        }
+    }
+
+    /// The step for a map with no timing points, in milliseconds.
+    ///
+    /// About one frame at 60fps: fine enough to adjust an instant, and the
+    /// only honest answer when nothing declares a tempo.
+    private static let fixedNudge: Double = 16
+
+    /// How far ahead a bar step looks for a downbeat.
+    ///
+    /// Eight seconds is several bars at any tempo anyone writes, and bounds
+    /// the work a keystroke does on a long track.
+    private static let barSearchWindow: Double = 8000
+
     public var previewImage: ((PreviewSubject) -> [CGImage])?
 
     public var exportHandler: ((_ sprites: [StoryboardSprite], _ folder: URL) throws -> URL)?
