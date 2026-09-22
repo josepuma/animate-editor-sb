@@ -1669,7 +1669,7 @@ struct TrackRowView: View {
             // one clip made every clip on the lane grow, which is the opposite
             // of a selection being local to what was selected.
             .frame(maxHeight: node.id == shell.selectedNodeID
-                ? height - Theme.Spacing.tight * 2 - Self.bandWidth * 2
+                ? contentHeight - Self.bandWidth * 2
                 : .infinity)
             .offset(x: span.start)
             // Faded while it is on its way to another lane, so the drag says
@@ -1781,11 +1781,18 @@ struct TrackRowView: View {
         // looks like a stroke bent around one. `clip` keeps the corner soft
         // while the sides stay straight, which is the shape the reference has.
         //
-        // The outer radius is that plus the band, which is what `nested` says
-        // in the other direction: two rounded rectangles run parallel only when
-        // the inner radius is the outer one less the gap between them.
+        // The band's outer corner is the clip's own, not the clip's plus the
+        // band.
+        //
+        // `clip + bandWidth` is what makes two rectangles concentric, and
+        // these are not: the frame is the lane's full height while the clip is
+        // capped shorter, so the same nominal radius reads *rounder* on the
+        // taller shape — at 16 over 32pt the corner is half the height, which
+        // is a capsule, while over the clip's 24 it is not. Matching the
+        // number instead of the geometry is what makes the two read as the
+        // same shape, which is the only thing anyone can see.
         let clipRadius = Theme.Radius.clip
-        let outerRadius = clipRadius + Self.bandWidth
+        let outerRadius = clipRadius
 
         ZStack {
             // The band, with the clip's footprint removed from it.
@@ -1854,16 +1861,22 @@ struct TrackRowView: View {
                 height: max(outer.height - Self.bandWidth * 2, 0),
             )
 
+            // Built from `RoundedRectangle.path(in:)`, not `addRoundedRect`.
+            //
+            // The two draw a different curve from the same number: measured at
+            // radius 12 on a 24pt box, `RoundedRectangle` comes out visibly
+            // rounder. The clip is a `RoundedRectangle`, so a hole cut with
+            // `addRoundedRect` is squarer than the pill showing through it and
+            // the amber left between them reads as a band that is too round —
+            // which no amount of matching the numbers could fix.
             Path { path in
-                path.addRoundedRect(
-                    in: outer,
-                    cornerSize: CGSize(width: outerRadius, height: outerRadius),
-                    style: .continuous,
+                path.addPath(
+                    RoundedRectangle(cornerRadius: outerRadius, style: .continuous)
+                        .path(in: outer),
                 )
-                path.addRoundedRect(
-                    in: inner,
-                    cornerSize: CGSize(width: innerRadius, height: innerRadius),
-                    style: .continuous,
+                path.addPath(
+                    RoundedRectangle(cornerRadius: innerRadius, style: .continuous)
+                        .path(in: inner),
                 )
             }
             // Even-odd: the inner subpath subtracts rather than adding, which
@@ -2137,17 +2150,28 @@ struct TrackRowView: View {
         }
     }
 
+    /// The height clips are actually laid out in.
+    ///
+    /// The lane less the inset `content` already applies — the same height the
+    /// selection frame is handed, so the hole it cuts and the clip that shows
+    /// through it are worked out from one number rather than two that happen
+    /// to agree.
+    private var contentHeight: CGFloat { height - Theme.Spacing.tight * 2 }
+
     /// The lane's coordinate space, so a resize measures against something
     /// that does not move while it is being dragged.
     private static let dragSpace = "laneDrag"
 
-    /// The lane's own corner: a clip's radius plus the gap around it.
+    /// The lane's own corner: the same as a clip's.
     ///
-    /// Derived rather than picked from the scale, because two rounded
-    /// rectangles are only concentric when the inner radius is the outer one
-    /// less the gap between them — picking the next step instead makes the
-    /// curves diverge, and the corner reads as wrong without being nameable.
-    private static let laneRadius = Theme.Radius.clip + Theme.Spacing.tight
+    /// Derived rather than picked from the scale, so a clip that changes shape
+    /// carries its lane with it.
+    ///
+    /// Not the geometrically concentric `clip + tight`, which came out rounder
+    /// than the chrome around it: a lane is a groove holding clips rather than
+    /// a card of its own, so it reads better tracking the shape it holds than
+    /// bulging around it.
+    private static let laneRadius = Theme.Radius.clip
 
     /// Big enough to grab without aiming. Fixed rather than proportional: an
     /// ear that shrank with the clip would be unusable exactly where it is
