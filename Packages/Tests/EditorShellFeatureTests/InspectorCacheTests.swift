@@ -92,4 +92,51 @@ struct ClipTailTests {
 
         #expect(shell.tail(of: node.id) == 0)
     }
+
+    /// Editing one clip must not take another clip's tail away.
+    ///
+    /// A pass now measures only the clip the edit named — every node here costs
+    /// a second full evaluation of that node, and doing the whole project on
+    /// every edit measured 787ms on a real project against 768ms for the
+    /// evaluation itself. The risk that buys is this one: the partial result
+    /// holds a single entry, and writing it over the dictionary would zero
+    /// every other clip's overhang.
+    @Test("editing one clip keeps every other clip's tail")
+    func partialPassKeepsOtherTails() async {
+        let shell = EditorShellModel()
+        let emitter = shell.addEffect(EmitterEffect.descriptor, at: 2000)
+        shell.resizeEffect(emitter.id, startTime: 2000, duration: 3000)
+        let other = shell.addEffect(ShapeEffect.descriptor, at: 0)
+        await shell.awaitEvaluation()
+
+        let before = shell.tail(of: emitter.id)
+        #expect(before > 0, "the emitter needs a tail for this to measure anything")
+
+        // An edit naming the *other* clip, so the emitter is not re-measured.
+        shell.resizeEffect(other.id, startTime: 0, duration: 4000)
+        await shell.awaitEvaluation()
+
+        #expect(shell.tail(of: emitter.id) == before,
+                "editing another clip zeroed this one's tail")
+    }
+
+    /// A deleted clip's tail must not outlive it.
+    ///
+    /// Merging rather than assigning is what keeps the other tails, and the
+    /// price of a merge is that nothing drops out on its own: an id is reused
+    /// when a node is duplicated onto it, so a stale entry would be read as
+    /// that new clip's overhang.
+    @Test("a deleted clip's tail is dropped")
+    func deletedClipDropsItsTail() async {
+        let shell = EditorShellModel()
+        let node = shell.addEffect(EmitterEffect.descriptor, at: 2000)
+        shell.resizeEffect(node.id, startTime: 2000, duration: 3000)
+        await shell.awaitEvaluation()
+        #expect(shell.tail(of: node.id) > 0)
+
+        shell.removeEffect(node.id)
+        await shell.awaitEvaluation()
+
+        #expect(shell.tail(of: node.id) == 0, "a clip that is gone has no tail")
+    }
 }

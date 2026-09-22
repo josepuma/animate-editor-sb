@@ -39,7 +39,7 @@ public enum OsbWriter {
         // A loop's body is indented one level deeper, and its times are
         // relative to each iteration rather than to the file.
         for loop in sprite.loops {
-            lines.append(" L,\(number(loop.startTime)),\(loop.loopCount)")
+            lines.append(" L,\(time(loop.startTime)),\(loop.loopCount)")
             for command in loop.commands {
                 lines.append("  " + line(for: command))
             }
@@ -52,9 +52,9 @@ public enum OsbWriter {
         let timing = command.timing
         // An end time equal to the start is written blank, which is how the
         // format spells "hold this value" — and how the parser reads it back.
-        let end = timing.endTime == timing.startTime ? "" : number(timing.endTime)
+        let end = timing.endTime == timing.startTime ? "" : time(timing.endTime)
         let head = "\(command.kind.rawValue),\(timing.easing.rawValue)"
-            + ",\(number(timing.startTime)),\(end)"
+            + ",\(time(timing.startTime)),\(end)"
 
         switch command.payload {
         case let .fade(start, end):
@@ -97,6 +97,26 @@ public enum OsbWriter {
             return String(Int(rounded))
         }
         return String(format: "%.3f", rounded)
+    }
+
+    /// A time, which the format takes as a WHOLE NUMBER of milliseconds.
+    ///
+    /// osu! rejects a storyboard whose command times carry a decimal point —
+    /// not by drawing it oddly, by refusing the file. And times arrive here
+    /// fractional all the time: an effect divides its clip into segments, a
+    /// beat at 169.4 BPM is 354.19ms, and a script is free to put a command
+    /// anywhere it likes.
+    ///
+    /// Rounded rather than truncated, so a command lands on the nearer
+    /// millisecond instead of always the earlier one — a systematic half-ms
+    /// bias upstream of a thousand commands is drift, where rounding cancels.
+    private static func time(_ value: Double) -> String {
+        guard value.isFinite else { return "0" }
+        // Clamped to what an `Int` can hold, because a NaN guarded above still
+        // leaves an infinity-sized double able to trap on conversion.
+        let rounded = value.rounded()
+        guard abs(rounded) < 1e15 else { return "0" }
+        return String(Int(rounded))
     }
 
     /// Colour channels are whole numbers in [0, 255].

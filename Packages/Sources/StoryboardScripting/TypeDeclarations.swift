@@ -240,6 +240,35 @@ public enum TypeDeclarations {
           integer(low: number, high: number): number
         }
 
+        /**
+         * The song, under this clip.
+         *
+         * Every time here is LOCAL — milliseconds from the start of the clip,
+         * the same clock everything else in a script uses. A script is never
+         * told where its clip sits on the timeline, because one that could
+         * name a moment of the song would draw different particles when the
+         * clip is dragged; the editor asks the analyser on the script's behalf
+         * and hands back the stretch already shifted.
+         *
+         * With no track loaded the levels are a deterministic stand-in rather
+         * than an error, so a script can be written and judged before a song
+         * is open. `isReal` says which you are looking at.
+         */
+        declare const audio: {
+          /** How many bands each frame holds. */
+          readonly bands: number
+          /** Milliseconds between analysed frames. */
+          readonly interval: number
+          /** False when the levels are the stand-in pattern. */
+          readonly isReal: boolean
+          /** One band at one moment, 0…1. Band 0 is the lowest frequency. */
+          level(time: number, band: number): number
+          /** The average of bands `from`…`to` — "the bass", "the treble". */
+          range(time: number, from: number, to: number): number
+          /** Every band at one moment, for laying a spectrum across the frame. */
+          frame(time: number): number[]
+        }
+
         declare const console: { log(...values: any[]): void }
         """
     }

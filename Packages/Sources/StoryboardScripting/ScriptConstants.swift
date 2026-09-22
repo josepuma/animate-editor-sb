@@ -17,6 +17,15 @@ enum ImageConstants {
         "square": BuiltInSprite.square,
         "streak": BuiltInSprite.streak,
         "ring": BuiltInSprite.ring,
+        // The two hard-edged ones.
+        //
+        // Every texture above fades out before its own edge, which is what a
+        // particle needs and exactly what a SHAPE must not do — a bar drawn
+        // with `soft` is a smudge, and a script had no way to draw one at all.
+        // The same split the shape effect already makes: a particle is judged
+        // by where it ends, a shape by where its edges are.
+        "fill": BuiltInSprite.fill,
+        "disc": BuiltInSprite.disc,
     ]
 }
 

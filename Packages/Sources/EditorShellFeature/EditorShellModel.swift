@@ -2847,6 +2847,16 @@ public final class EditorShellModel {
     /// was simply never asked again.
     public func inputsChanged() {
         effectsRevision &+= 1
+        // Nothing here names a clip, and saying so matters: what moved is a
+        // seam every effect reads, so the answer for *all* of them is stale.
+        //
+        // Left as it was, this inherited whatever the last edit had named, and
+        // the pass would refresh one clip while the analyser it was waiting for
+        // reached every one of them. Harmless while a pass measured everything
+        // regardless; the moment work is skipped on the strength of this name,
+        // it decides which clips keep drawing the wave they had before the song
+        // had loaded.
+        lastEditedNode = nil
         reevaluate()
     }
 
@@ -2925,15 +2935,43 @@ public final class EditorShellModel {
         // gesture, 1,098ms before it even started, against 552ms of actual
         // work. That wait is the pause between letting go of a clip and the
         // spinner appearing.
+        // Measured only for the clip the edit named, when it named one.
+        //
+        // Every node here costs a *second* full evaluation of that node — the
+        // tail is read off the sprites rather than derived from the parameters,
+        // because life, life randomness, emission mode and every filter move
+        // it, and a formula chasing all of those would drift from what the
+        // evaluator actually produces. Doing that for the whole project on
+        // every edit measured, on a real project of 17 nodes, **787ms against
+        // 768ms for the evaluation itself**: the pass was costing twice what it
+        // needed to, and the second half answered a question nobody asked.
+        // Resizing a background image with nothing but a scale and a fade paid
+        // for fourteen scripts to be run again.
+        //
+        // The same reading of `lastEditedNode` the caches next door already
+        // make, arrived at for the same reason. An edit that names no node —
+        // adding, deleting, pasting, importing — can move any of them, so it
+        // measures the lot.
+        let toMeasure = lastEditedNode.flatMap { id in
+            document.nodes.first { $0.id == id }.map { [$0] }
+        } ?? document.nodes
+
+        // Dropped here, where what moved is still known, and pruned against the
+        // document while it is settled — a pass can be cancelled halfway and
+        // must not conclude anything about clips it never reached.
+        cache.invalidate(node: lastEditedNode)
+        cache.prune(keeping: Set(document.nodes.map(\.id)))
+        let cache = cache
+
         evaluationTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let sprites = evaluator.evaluate(document)
+            let sprites = cache.sprites(for: document, using: evaluator)
 
             guard !Task.isCancelled else { return }
 
             // Worked out here, off the main thread, because the timeline reads
             // them on every rebuild.
             var measured: [EffectNode.ID: Double] = [:]
-            for node in document.nodes {
+            for node in toMeasure {
                 var unlooped = node
                 unlooped.filters = node.filters.filter { $0.type != "loop" }
 
@@ -2956,9 +2994,25 @@ public final class EditorShellModel {
                 measured[node.id] = max(0, (last - node.startTime) - unlooped.duration)
             }
 
+            // The ids still in the document, so a partial pass can drop what is
+            // gone without having to know how it went.
+            let living = Set(document.nodes.map(\.id))
+
             await MainActor.run {
                 guard let self, self.effectsRevision == revision else { return }
-                self.tails = measured
+
+                // Merged, not assigned. A pass that measured one clip holds one
+                // entry, and writing that over the dictionary would take every
+                // other clip's tail to zero — the whole timeline losing the
+                // overhang it draws, to redraw one row.
+                //
+                // Pruned against the document in the same step: a merge alone
+                // keeps a deleted clip's tail forever, and an id is reused when
+                // a node is duplicated onto it.
+                self.tails = self.tails.filter { living.contains($0.key) }.merging(
+                    measured,
+                    uniquingKeysWith: { _, fresh in fresh },
+                )
                 self.evaluated = sprites
                 if !self.evaluatingNodes.isEmpty { self.evaluatingNodes = [] }
                 self.adoptScriptDeclarations()
@@ -2978,6 +3032,18 @@ public final class EditorShellModel {
     public private(set) var evaluatingNodes: Set<EffectNode.ID> = []
 
     @ObservationIgnored private var evaluationTask: Task<Void, Never>?
+
+    /// What each clip produced last pass, so an edit re-runs only what it moved.
+    ///
+    /// Not observed, for the reason the other caches here are not: a cache is
+    /// not state anyone should redraw for, and one written from a pass that
+    /// lands mid-frame would invalidate the views that had just read it.
+    ///
+    /// A reference, so a pass fills it as it goes rather than handing it back
+    /// at the end — see `EvaluationCache`. Every edit cancels the pass before
+    /// it, and a result kept until completion is one a run of quick edits never
+    /// keeps at all.
+    @ObservationIgnored private let cache = EvaluationCache()
 
     /// Waits for any pending evaluation to land.
     ///

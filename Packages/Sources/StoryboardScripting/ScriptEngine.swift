@@ -57,8 +57,8 @@ public struct ScriptEngine: Sendable {
         "escape", "eval", "globalThis", "isFinite", "isNaN", "parseFloat",
         "parseInt", "undefined", "unescape",
         // The storyboard API.
-        "Ease", "Image", "Layer", "Origin", "console", "duration", "param",
-        "params", "rng", "sprite", "text",
+        "Ease", "Image", "Layer", "Origin", "audio", "console", "duration",
+        "param", "params", "rng", "sprite", "text",
         // The loop guard and its counter.
         //
         // Visible rather than hidden: they have to be callable from inside the
@@ -176,9 +176,76 @@ public struct ScriptEngine: Sendable {
         context.setObject(LayerConstants.originTable, forKeyedSubscript: "Origin" as NSString)
 
         installRandom(in: context, seed: request.seed)
+        installAudio(in: context, spectrum: request.spectrum)
         installParameters(in: context, values: request.values, declarations: declarations)
         collector.install(in: context)
         TextCollector(sprites: collector).install(in: context)
+    }
+
+    /// Gives a script the song under its own clip.
+    ///
+    /// Always installed, even with no analysis: a script asking `audio.level`
+    /// and getting `undefined is not a function` reads as a broken editor,
+    /// where one getting zeros reads as a track that has not loaded yet —
+    /// which is exactly what it is. Same reasoning as the placeholder wave
+    /// behind `AudioSpectrum`, and the fallback glyph widths behind text.
+    ///
+    /// Everything here takes LOCAL time, milliseconds from the clip's start.
+    /// A script is never told where its clip sits, because a script that could
+    /// name a moment of the song would draw different particles when the clip
+    /// is dragged — and a clip being safe to move is what the whole timeline
+    /// rests on. The caller has already shifted the analysis to match.
+    private func installAudio(in context: JSContext, spectrum: AudioSpectrum.Frames?) {
+        let levels = spectrum?.levels ?? []
+        let interval = spectrum?.interval ?? 1
+        let bands = levels.first?.count ?? 0
+
+        // Which analysis frame covers a moment. Clamped rather than wrapped:
+        // past the end of the clip the song is simply not this clip's business,
+        // and a wrap would have the last beat play again over silence.
+        let frameAt: (Double) -> [Float]? = { time in
+            guard !levels.isEmpty else { return nil }
+            let index = Int(max(0, time) / interval)
+            return levels[min(index, levels.count - 1)]
+        }
+
+        // One band at one moment, 0...1.
+        let level: @convention(block) (Double, Double) -> Double = { time, band in
+            guard let frame = frameAt(time), !frame.isEmpty else { return 0 }
+            let index = Int(band.isFinite ? band : 0)
+            return Double(frame[min(max(0, index), frame.count - 1)])
+        }
+
+        // The average across a run of bands, which is what "the bass" or "the
+        // treble" actually means. Offered because doing it in script is a loop
+        // per particle per frame, and this is the shape every use of a spectrum
+        // takes: nobody animates band seventeen.
+        let range: @convention(block) (Double, Double, Double) -> Double = { time, from, to in
+            guard let frame = frameAt(time), !frame.isEmpty else { return 0 }
+            let lo = min(max(0, Int(from.isFinite ? from : 0)), frame.count - 1)
+            let hi = min(max(lo, Int(to.isFinite ? to : 0)), frame.count - 1)
+            var total: Float = 0
+            for i in lo ... hi { total += frame[i] }
+            return Double(total) / Double(hi - lo + 1)
+        }
+
+        // Everything at once, as an array — for a script laying a whole
+        // spectrum across the frame, where asking band by band would cross the
+        // JS bridge once per band per frame.
+        let frame: @convention(block) (Double) -> [Double] = { time in
+            guard let frame = frameAt(time) else { return [] }
+            return frame.map(Double.init)
+        }
+
+        let table: [String: Any] = [
+            "bands": bands,
+            "interval": interval,
+            "isReal": !levels.isEmpty,
+            "level": level,
+            "range": range,
+            "frame": frame,
+        ]
+        context.setObject(table, forKeyedSubscript: "audio" as NSString)
     }
 
     /// Removes a global by name.

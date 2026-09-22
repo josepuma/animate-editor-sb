@@ -35,6 +35,24 @@ public enum ScriptRuntime {
         /// Fixes the random stream, so two evaluations agree.
         public let seed: UInt64
 
+        /// The song's levels over the stretch this clip covers, in LOCAL time.
+        ///
+        /// The audio is the one thing a script legitimately needs from outside
+        /// that it cannot be handed as a number, and the rule above is why it
+        /// arrives in this shape rather than as a function the script calls.
+        ///
+        /// A script may not know where its clip sits — that is what keeps
+        /// dragging a clip safe — so it cannot ask the analyser anything: the
+        /// analyser deals in song time, and a script that could name a moment
+        /// of the song would draw *different* particles when moved. So the
+        /// caller, which does know where the clip sits, asks on the script's
+        /// behalf and hands back the answer already shifted to `0...duration`.
+        ///
+        /// `nil` when nothing asked for audio, so a script that never mentions
+        /// it costs no analysis at all — reading a stretch of a compressed file
+        /// is expensive, and most scripts have nothing to do with the song.
+        public let spectrum: AudioSpectrum.Frames?
+
         public init(
             nodeID: String,
             idPrefix: String,
@@ -42,6 +60,7 @@ public enum ScriptRuntime {
             values: [String: EffectValue],
             duration: Double,
             seed: UInt64,
+            spectrum: AudioSpectrum.Frames? = nil,
         ) {
             self.nodeID = nodeID
             self.idPrefix = idPrefix
@@ -49,6 +68,7 @@ public enum ScriptRuntime {
             self.values = values
             self.duration = duration
             self.seed = seed
+            self.spectrum = spectrum
         }
     }
 

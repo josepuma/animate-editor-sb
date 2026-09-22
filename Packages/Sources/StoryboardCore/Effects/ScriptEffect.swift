@@ -81,13 +81,16 @@ public struct ScriptEffect: Effect {
         // here: the script's own random stream has to restart at the same place
         // on every evaluation, and a generator that other code has already
         // drawn from would not.
+        let source = context.node.scriptSource ?? ""
+
         let outcome = ScriptRuntime.sprites(for: ScriptRuntime.Request(
             nodeID: context.node.id,
             idPrefix: context.idPrefix,
-            source: context.node.scriptSource ?? "",
+            source: source,
             values: context.node.values,
             duration: context.duration,
             seed: context.node.seed,
+            spectrum: Self.spectrum(for: source, in: context),
         ))
 
         // Recorded rather than returned. `evaluate` cannot throw by protocol,
@@ -109,4 +112,47 @@ public struct ScriptEffect: Effect {
 
         return outcome.sprites
     }
+
+    /// How many bands a script is handed, and how often.
+    ///
+    /// Fixed rather than declared by the author. A script asking for its own
+    /// resolution would have the analysis change shape underneath it while
+    /// tuning — and the cache is keyed on exactly these numbers, so one script
+    /// picking 31 bands and another 32 pays for the song twice.
+    ///
+    /// Thirty-two is a spectrum somebody can index into meaningfully, and 50ms
+    /// is fine enough for anything a storyboard can draw: a sprite's own
+    /// commands are what limit how fast it can react, not the analysis.
+    static let spectrumBands = 32
+    static let spectrumInterval: Double = 50
+
+    /// The song under this clip, or `nil` if the script never mentions audio.
+    ///
+    /// Reading a stretch of a compressed file is expensive — measured
+    /// elsewhere in this project at over a second just to seek into an MP3 —
+    /// and most scripts have nothing to do with the song. So the analysis is
+    /// only run for a script that names it.
+    ///
+    /// A TEXT SEARCH, which is worth being honest about: it is a cheap
+    /// gate, not a parser, so a script mentioning `audio` in a comment pays
+    /// for an analysis it never reads. That is the right way round — the
+    /// failure is a little wasted work, where a parser that guessed wrong
+    /// would hand a script that genuinely uses audio an empty spectrum and
+    /// leave it drawing nothing with nothing to explain why.
+    static func spectrum(
+        for source: String,
+        in context: EffectContext,
+    ) -> AudioSpectrum.Frames? {
+        guard source.contains("audio") else { return nil }
+
+        // Asked for in SONG time, because that is where the audio is — the
+        // clip knows where it sits and the script deliberately does not.
+        let start = context.node.startTime
+        return AudioSpectrum.levels(
+            in: start ... (start + context.duration),
+            bands: spectrumBands,
+            interval: spectrumInterval,
+        )
+    }
+
 }
