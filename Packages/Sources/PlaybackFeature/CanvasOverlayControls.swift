@@ -145,6 +145,20 @@ struct CanvasOverlayControls: View {
         .capsuleSurface(.bar)
     }
 
+    /// The speeds offered, in the order they read on a dial.
+    ///
+    /// Stopping at a quarter and at double: past those the time-stretching
+    /// artefacts are louder than the music, so the track stops working as the
+    /// reference it is being slowed down to be.
+    private static let rates: [Float] = [0.25, 0.5, 0.75, 1, 1.5, 2]
+
+    /// A rate as it is spoken: `1×`, `0.5×`.
+    private static func label(for rate: Float) -> String {
+        rate == rate.rounded()
+            ? "\(Int(rate))×"
+            : "\(String(format: "%g", rate))×"
+    }
+
     private var tools: some View {
         HStack(spacing: Theme.Spacing.compact) {
             IconButton(
@@ -155,11 +169,30 @@ struct CanvasOverlayControls: View {
                 model.showsGuides.toggle()
             }
 
-            IconButton(
-                systemImage: "slider.horizontal.3",
-                size: Theme.Size.controlSmall,
-                help: "Canvas settings",
-            ) {}
+            // Playback speed, behind the button that was already here for it.
+            //
+            // A menu rather than a slider: the useful rates are a short list
+            // anyone can name — half speed to place a hit, double to scan a
+            // section — and a slider turns "half speed" into aiming at 0.5.
+            Menu {
+                Picker("Speed", selection: Binding(
+                    get: { model.rate },
+                    set: { model.rate = $0 },
+                )) {
+                    ForEach(Self.rates, id: \.self) { rate in
+                        Text(Self.label(for: rate)).tag(rate)
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .frame(width: Theme.Size.controlSmall, height: Theme.Size.controlSmall)
+            .help("Playback speed")
 
             IconButton(
                 systemImage: model.isCanvasFullScreen

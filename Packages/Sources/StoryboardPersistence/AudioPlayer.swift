@@ -9,6 +9,13 @@ import Foundation
 public final class AudioPlayer {
     private let engine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
+    /// Stretches time without moving the pitch.
+    ///
+    /// A time-pitch unit rather than a varispeed one, which is the same trick
+    /// as slowing a record: at half speed the song drops an octave, and a
+    /// bassline an octave down is no longer a rhythmic reference anyone can
+    /// place a hit against. This is what a DAW's tempo control does.
+    private let timePitch = AVAudioUnitTimePitch()
     private var file: AVAudioFile?
 
     /// Where in the track the current scheduled segment began.
@@ -22,9 +29,24 @@ public final class AudioPlayer {
         set { playerNode.volume = min(max(newValue, 0), 1) }
     }
 
+    /// How fast the track plays, as a multiple of its own tempo.
+    ///
+    /// Clamped rather than rejected: the unit's own range is wider than
+    /// anything useful here, and a rate far outside it turns the song into an
+    /// artefact rather than a reference.
+    public var rate: Float {
+        get { timePitch.rate }
+        set { timePitch.rate = min(max(newValue, Self.minimumRate), Self.maximumRate) }
+    }
+
+    public static let minimumRate: Float = 0.25
+    public static let maximumRate: Float = 2
+
     public init() {
         engine.attach(playerNode)
-        engine.connect(playerNode, to: engine.mainMixerNode, format: nil)
+        engine.attach(timePitch)
+        engine.connect(playerNode, to: timePitch, format: nil)
+        engine.connect(timePitch, to: engine.mainMixerNode, format: nil)
     }
 
     deinit {
@@ -56,8 +78,13 @@ public final class AudioPlayer {
         duration = Double(file.length) / file.processingFormat.sampleRate * 1000
 
         // Reconnect: the mixer needs the new file's sample rate and channel count.
+        //
+        // Both hops, since the unit sits between them — reconnecting only the
+        // player leaves the unit's output still describing the previous file.
         engine.disconnectNodeOutput(playerNode)
-        engine.connect(playerNode, to: engine.mainMixerNode, format: file.processingFormat)
+        engine.disconnectNodeOutput(timePitch)
+        engine.connect(playerNode, to: timePitch, format: file.processingFormat)
+        engine.connect(timePitch, to: engine.mainMixerNode, format: file.processingFormat)
 
         if !engine.isRunning {
             do {

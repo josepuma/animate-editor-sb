@@ -364,6 +364,19 @@ public final class PlaybackModel {
     ///
     /// A few frames' worth: an engine just told to play lags by a frame or two,
     /// while anything further back is somebody having moved the playhead.
+    /// How fast playback runs, as a multiple of the track's own tempo.
+    ///
+    /// Held here rather than only on the player because the clock outside the
+    /// track has to scale with it too — and because a storyboard follows the
+    /// audio, so this is the speed of the *preview*, not only of the sound.
+    public var rate: Float = 1 {
+        didSet {
+            let clamped = min(max(rate, AudioPlayer.minimumRate), AudioPlayer.maximumRate)
+            if clamped != rate { rate = clamped; return }
+            audio.rate = rate
+        }
+    }
+
     private static let audioCatchUpTolerance: Double = 250
 
     // ─── Frame updates ───────────────────────────────────────────────────────
@@ -382,8 +395,13 @@ public final class PlaybackModel {
 
         // Outside the track, the clock runs on the frame delta and the audio
         // stays quiet — a lead-in before the music, or a tail after it.
+        //
+        // Scaled by the rate, because inside the track the clock follows the
+        // audio and the audio is already stretched. Left at wall speed, a
+        // storyboard at half rate would sprint through its lead-in and then
+        // drop to half the moment the music started.
         guard currentTime >= 0, currentTime < duration, hasAudio, audio.isPlaying else {
-            currentTime += delta
+            currentTime += delta * Double(rate)
 
             if currentTime > playbackRange.upperBound {
                 loopToStart()
