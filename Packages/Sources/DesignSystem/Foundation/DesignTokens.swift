@@ -36,14 +36,14 @@ public enum Theme {
     public enum Radius {
         /// 6 — chips and small badges.
         public static let small: CGFloat = 6
-        /// 10 — a clip on a timeline track.
+        /// 12 — a clip on a timeline track.
         ///
-        /// Its own name even though it equals `control` today: the two answer
-        /// different questions, and the lane's corner is derived from this one
-        /// rather than picked, so a clip that changes shape carries the lane
-        /// with it. At `bar` the corner is nearly half a clip's height and the
-        /// block reads as a pill; below this it goes hard.
-        public static let clip: CGFloat = 10
+        /// Its own step because a clip answers a question the others do not,
+        /// and because the lane's corner is derived from this one rather than
+        /// picked — a clip that changes shape carries the lane with it. At
+        /// `bar` the corner is nearly half a clip's height and the block reads
+        /// as a pill; much below this it goes hard.
+        public static let clip: CGFloat = 12
         /// 10 — buttons and inline controls.
         public static let control: CGFloat = 10
         /// 14 — floating bars.

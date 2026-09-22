@@ -1662,7 +1662,15 @@ struct TrackRowView: View {
             // is inside. The clip shrinking by exactly what the band takes is
             // what keeps the two concentric; anything else and the amber shows
             // thicker on one side than the other.
-            .padding(.vertical, node.id == shell.selectedNodeID ? Self.bandWidth : 0)
+            //
+            // Done by *capping the height*, not by padding. A padded clip asks
+            // its parent for the band's width on top of the height it already
+            // wanted, and a `ZStack` sizes to its largest child — so selecting
+            // one clip made every clip on the lane grow, which is the opposite
+            // of a selection being local to what was selected.
+            .frame(maxHeight: node.id == shell.selectedNodeID
+                ? height - Theme.Spacing.tight * 2 - Self.bandWidth * 2
+                : .infinity)
             .offset(x: span.start)
             // Faded while it is on its way to another lane, so the drag says
             // where the clip is going before it gets there — otherwise the
