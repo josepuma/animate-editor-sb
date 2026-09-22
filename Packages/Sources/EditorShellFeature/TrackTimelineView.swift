@@ -1920,9 +1920,11 @@ struct TrackRowView: View {
 
     /// How far the band reaches above and below the clip.
     ///
-    /// Thinner than the ends: the sides only have to say where the selection
-    /// stops, while the ends carry a grip and have to be aimed at.
-    private static let bandWidth: CGFloat = 4
+    /// Much thinner than the ends: the sides only have to say where the
+    /// selection stops, while the ends carry a grip and have to be aimed at.
+    /// It is also what the selected clip gives up in height, so a thick band
+    /// buys its own presence by shrinking the thing it is pointing at.
+    private static let bandWidth: CGFloat = Theme.Spacing.hair
 
     /// An invisible drop layer sitting over one clip.
     @ViewBuilder
