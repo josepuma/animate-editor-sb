@@ -175,25 +175,39 @@ struct ScriptEditorRevealTests {
         #expect(shell.sidePanel == .scripts)
     }
 
-    /// The inspector steps aside on the way in, and stays the author's after.
+    /// Selecting a script never touches the inspector.
     ///
-    /// It was vetoed outright while a script was open, which meant a script
-    /// declaring `params` could not show them — controls that existed and were
-    /// unreachable.
-    @Test("the inspector closes once, then obeys its button")
-    func inspectorStepsAsideOnce() {
+    /// It used to close once, on the way in, to make room for the script
+    /// panel. A panel closing by itself is a decision the author did not ask
+    /// for — and the one thing it hid is a script's own `params`, controls
+    /// that exist and cannot be seen. Whoever wants the width takes it from
+    /// the toggle that is already there.
+    @Test("selecting a script leaves the inspector open")
+    func inspectorIsLeftAlone() {
+        let shell = EditorShellModel()
+        let node = shell.addEffect(ScriptEffect.descriptor, at: 0, duration: 4000)
+        #expect(shell.isInspectorVisible, "the inspector starts open")
+
+        shell.selectedNodeID = node.id
+        #expect(shell.isInspectorVisible, "selecting a script closed the inspector")
+
+        // And it is still not touched on the way back in.
+        shell.selectedNodeID = nil
+        shell.selectedNodeID = node.id
+        #expect(shell.isInspectorVisible)
+    }
+
+    /// Closed by hand, it stays closed: the rule is that selection does not
+    /// touch it, in either direction.
+    @Test("a closed inspector is not reopened either")
+    func closedInspectorStaysClosed() {
         let shell = EditorShellModel()
         let node = shell.addEffect(ScriptEffect.descriptor, at: 0, duration: 4000)
 
-        shell.selectedNodeID = node.id
-        #expect(shell.isInspectorVisible == false, "it should step aside on the way in")
-
-        // Opened deliberately, and it stays open.
-        shell.isInspectorVisible = true
-        shell.selectedNodeID = nil
+        shell.isInspectorVisible = false
         shell.selectedNodeID = node.id
 
-        #expect(shell.isInspectorVisible, "it closed a panel the author had opened")
+        #expect(shell.isInspectorVisible == false, "selection reopened a closed panel")
     }
 
     /// A second script clip does not shut it again either.

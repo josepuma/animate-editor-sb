@@ -176,25 +176,14 @@ public final class EditorShellModel {
         sidePanel = .scripts
         isSidePanelVisible = true
 
-        // The inspector steps aside on the way in, once.
+        // The inspector is left exactly as it was.
         //
-        // Not vetoed while a script is open — that made a script's own
-        // `params` unreachable, controls that existed and could not be shown.
-        // Closed on arrival and left alone after: opening it is then a decision
-        // that sticks, and the editor narrows to share rather than the
-        // parameters disappearing.
-        if !hasSteppedInspectorAsideForScript {
-            hasSteppedInspectorAsideForScript = true
-            isInspectorVisible = false
-        }
+        // It used to be closed once, on the way in, to make room — and a panel
+        // closing by itself is a decision the author did not ask for. Worse,
+        // the one thing it hid is a script's own `params`: controls that exist
+        // and cannot be seen. Whoever needs the width can take it from the
+        // toggle that is already there.
     }
-
-    /// Whether the inspector has already been closed for a script this session.
-    ///
-    /// So it happens on the way in and never again: doing it on every
-    /// selection would shut a panel the author had deliberately opened, every
-    /// time they clicked a clip.
-    @ObservationIgnored private var hasSteppedInspectorAsideForScript = false
 
     /// Told the moment the selection changes.
     ///
