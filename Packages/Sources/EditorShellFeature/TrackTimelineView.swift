@@ -1357,15 +1357,23 @@ struct TrackRowView: View {
                 // Clipped to its own lane: zoomed in, a clip can begin before
                 // the left edge and end past the right, and without this it
                 // draws straight over the header beside it.
+                // Concentric with the clips inside it: the lane's radius is a
+                // clip's own plus the gap `content` leaves around it, which is
+                // what `nested` says in the other direction. Left at `bar` it
+                // was a curve that matched nothing — chosen back when a clip
+                // was `bar` too, and orphaned when the clip went square.
                 .clipShape(
-                    RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous),
+                    RoundedRectangle(cornerRadius: Self.laneRadius, style: .continuous),
                 )
 
             Spacer(minLength: 0)
         }
         .frame(height: height)
         .background {
-            RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+            // The same radius as the lane it sits under. Two surfaces meeting
+            // at different curves is the kind of mismatch that is invisible
+            // until they are side by side, and these always are.
+            RoundedRectangle(cornerRadius: Self.laneRadius, style: .continuous)
                 .fill(rowFill)
         }
         .contentShape(.rect)
@@ -1481,16 +1489,29 @@ struct TrackRowView: View {
     /// Every clip on this lane, drawn as pills against the lane's own strip.
     private var content: some View {
         ZStack(alignment: .leading) {
-            RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
+            RoundedRectangle(cornerRadius: Self.laneRadius, style: .continuous)
                 .fill(Theme.Fill.subtle)
 
             ForEach(track.nodes) { node in
                 clip(node)
             }
 
+            // After every clip, so the ears of the one being worked on are
+            // never covered by a neighbour.
+            ears
+
             ghost
         }
         .padding(.vertical, Theme.Spacing.tight)
+        // A fixed space for the resize drags to measure against.
+        //
+        // A `DragGesture` reports its translation in the view it is attached
+        // to, and a grab bar lives inside the selection frame — which is sized
+        // from the very clip the drag is resizing. So each event moved the bar
+        // out from under the pointer and the next one measured from the new
+        // place: the clip juddered and fought the hand. The lane is the one
+        // layer whose width does not depend on the drag.
+        .coordinateSpace(.named(Self.dragSpace))
         // Which clip is under the pointer is measured across the whole lane
         // rather than asked of each clip.
         //
@@ -1507,9 +1528,12 @@ struct TrackRowView: View {
                 hoveredNodeID = nil
             }
         }
-        // The ears fade in with the hover rather than appearing at once, which
-        // at the speed a pointer crosses a timeline reads as flicker.
+        // The ears fade in rather than appearing at once, which at the speed a
+        // pointer crosses a timeline reads as flicker. Keyed on the selection
+        // too, now that it shows them: without it they would snap into place on
+        // a click while fading on a hover — the same control behaving two ways.
         .animation(Theme.Motion.quick, value: hoveredNodeID)
+        .animation(Theme.Motion.quick, value: shell.selectedNodeID)
         .animation(Theme.Motion.quick, value: targetedNodeID)
         // The ghost fades too, so crossing a lane boundary reads as a preview
         // settling in rather than as something blinking on.
@@ -1589,7 +1613,17 @@ struct TrackRowView: View {
                 // reads as a rendering fault.
                 label: width > 90 ? node.name : nil,
                 isDimmed: !track.isVisible,
-                isSelected: node.id == shell.selectedNodeID,
+                // The selection ring is drawn by the frame that wraps the
+                // clip, not by the pill: two rings at slightly different radii
+                // read as a rendering fault rather than as one selection.
+                isSelected: false,
+                // Square-ish, so a clip reads as a block on a track rather
+                // than as a pill. At `bar` on a 32pt lane the corner is nearly
+                // half the height and the shape becomes a capsule — and a
+                // selection band bent around one looks like a stroke, not a
+                // frame. The hole `band` cuts uses the same radius, so the two
+                // meet exactly.
+                cornerRadius: Theme.Radius.clip,
             ) {
                 if width > 56 {
                     SpanThumbnail(tint: track.tint, height: height - 16)
@@ -1621,6 +1655,14 @@ struct TrackRowView: View {
                 }
             }
             .frame(width: width)
+            // The selected clip gives up the band's width, top and bottom.
+            //
+            // The frame is drawn above every clip and cannot reach outside the
+            // lane — `content` clips it — so the only place the band can live
+            // is inside. The clip shrinking by exactly what the band takes is
+            // what keeps the two concentric; anything else and the amber shows
+            // thicker on one side than the other.
+            .padding(.vertical, node.id == shell.selectedNodeID ? Self.bandWidth : 0)
             .offset(x: span.start)
             // Faded while it is on its way to another lane, so the drag says
             // where the clip is going before it gets there — otherwise the
@@ -1675,17 +1717,191 @@ struct TrackRowView: View {
             // where a hand aims. It still applies to the whole lane, since that
             // is where filters live.
             filterTarget(node, span: span)
-
-            // Siblings in the stack rather than overlays on the clip. An
-            // overlay shares its host's place in the hit test, and the clip's
-            // own drag gesture — the one that wraps it — wins every time,
-            // leaving the edges dead.
-            if hoveredNodeID == node.id {
-                ear(node, edge: .leading, span: span)
-                ear(node, edge: .trailing, span: span)
-            }
         }
     }
+
+    /// The selection frame: a band wrapping the clip, with a grab bar at each
+    /// end.
+    ///
+    /// Drawn **after every clip** rather than beside the one it belongs to.
+    /// Inside the `ForEach` it sat at its own clip's place in the stack, so any
+    /// clip declared later covered it — and clips on a busy lane are neighbours
+    /// by definition. The handle was there, under the next pill, right where
+    /// the pointer was aiming.
+    ///
+    /// Drawn last rather than lifted with `zIndex`: that reorders the drawing
+    /// and leaves hit testing on the declaration order, which would show a
+    /// handle on top while the click landed on the clip beside it. This project
+    /// has already paid for that once, with the canvas grip under its handles.
+    @ViewBuilder
+    private var ears: some View {
+        // Selection wins over hover, so pointing at a neighbour cannot move the
+        // frame off the clip being edited while a drag is being aimed.
+        let target = shell.selectedNodeID.flatMap { id in
+            track.nodes.first { $0.id == id }
+        } ?? hoveredNodeID.flatMap { id in
+            track.nodes.first { $0.id == id }
+        }
+
+        if let node = target, let span = span(of: node), !track.isLocked {
+            selectionFrame(node, span: span)
+        }
+    }
+
+    /// A frame that wraps the clip, carrying a grab bar at each end.
+    ///
+    /// One shape around the clip rather than two separate pads beside it. Sat
+    /// loose at the edges, the handles read as two small controls resting
+    /// against the pill — the clip and the thing that resizes it looking like
+    /// different objects. Wrapped, the frame *is* the selection and the bars
+    /// are part of it, which is the one reading that says these belong
+    /// together.
+    @ViewBuilder
+    private func selectionFrame(_ node: EffectNode, span: VisibleSpan) -> some View {
+        // Clamped to the lane, so a clip against either edge keeps a frame that
+        // can still be grabbed rather than one cut in half by the clipping.
+        let margin: CGFloat = 1
+        let wanted = span.start - Self.earWidth
+        let left = max(margin, wanted)
+        let right = min(scale.width - margin, span.start + span.width + Self.earWidth)
+        let width = max(right - left, Self.earWidth * 2)
+
+        // A frame reads as a frame by being square, not by being a pill.
+        //
+        // At the clip's own `bar` (14) on a lane 32pt tall the corner is nearly
+        // half the height, so both shapes come out as capsules and the band
+        // looks like a stroke bent around one. `clip` keeps the corner soft
+        // while the sides stay straight, which is the shape the reference has.
+        //
+        // The outer radius is that plus the band, which is what `nested` says
+        // in the other direction: two rounded rectangles run parallel only when
+        // the inner radius is the outer one less the gap between them.
+        let clipRadius = Theme.Radius.clip
+        let outerRadius = clipRadius + Self.bandWidth
+
+        ZStack {
+            // The band, with the clip's footprint removed from it.
+            //
+            // The hole is not decoration — the frame is drawn *above* every
+            // clip so a neighbour cannot cover it, which means a solid fill
+            // hides the very clip it is selecting. That is exactly what a
+            // filled version did: an amber slab with a white ring floating in
+            // it and no clip to be seen.
+            band(
+                outerRadius: outerRadius,
+                innerRadius: clipRadius,
+                clipWidth: span.width,
+                clipLeft: span.start - left,
+            )
+
+            HStack(spacing: 0) {
+                grabBar(node, edge: .leading)
+                Spacer(minLength: 0)
+                grabBar(node, edge: .trailing)
+            }
+            .frame(width: width)
+        }
+        .frame(width: width)
+        // The lane's own height, and no more.
+        //
+        // Growing past it with a negative padding was tried and does nothing:
+        // `content` is clipped to the lane, so whatever the frame reaches
+        // outside is cut straight off — and cut against a *rounded* rectangle,
+        // which is why the band came out thicker at the bottom than the top.
+        // The room for the band has to come from inside the lane.
+        .frame(maxHeight: .infinity)
+        .offset(x: left)
+    }
+
+    /// The band itself: the outer rounded rectangle with the clip's shape
+    /// removed from it.
+    ///
+    /// Built as one `Path` with an even-odd fill, so the hole is part of the
+    /// shape rather than something composited over it. A `destinationOut` blend
+    /// does the same thing only when the compositing group wraps both shapes —
+    /// chained after an `overlay` it silently does nothing, and the band came
+    /// out solid over the clip. A path with two subpaths cannot be undone by a
+    /// modifier further up.
+    private func band(
+        outerRadius: CGFloat,
+        innerRadius: CGFloat,
+        clipWidth: CGFloat,
+        clipLeft: CGFloat,
+    ) -> some View {
+        GeometryReader { proxy in
+            let outer = CGRect(origin: .zero, size: proxy.size)
+            // The hole goes where the clip actually is, not in the middle.
+            //
+            // Centring it is right only while the frame overhangs by the same
+            // amount at both ends — and it does not: a clip running off the
+            // left edge has its frame clamped to the lane, so the overhang on
+            // that side is whatever is left rather than a full `earWidth`. The
+            // hole then sat off to one side of the clip and left a dead strip
+            // of lane showing between the band and the pill, which is exactly
+            // what a long clip showed.
+            let inner = CGRect(
+                x: clipLeft,
+                y: Self.bandWidth,
+                width: clipWidth,
+                height: max(outer.height - Self.bandWidth * 2, 0),
+            )
+
+            Path { path in
+                path.addRoundedRect(
+                    in: outer,
+                    cornerSize: CGSize(width: outerRadius, height: outerRadius),
+                    style: .continuous,
+                )
+                path.addRoundedRect(
+                    in: inner,
+                    cornerSize: CGSize(width: innerRadius, height: innerRadius),
+                    style: .continuous,
+                )
+            }
+            // Even-odd: the inner subpath subtracts rather than adding, which
+            // is what leaves the clip visible through the middle.
+            .fill(Theme.Palette.selection, style: FillStyle(eoFill: true))
+        }
+    }
+
+    /// The pill-shaped grip inside one end of the selection frame.
+    ///
+    /// White rather than the frame's own colour: it has to read as the part
+    /// that moves against the band that holds it, and a darker grip on a bright
+    /// band reads as a hole rather than as something to grab.
+    @ViewBuilder
+    private func grabBar(_ node: EffectNode, edge: HorizontalEdge) -> some View {
+        Capsule(style: .continuous)
+            .fill(.white.opacity(0.95))
+            .frame(width: Self.gripWidth, height: Self.gripHeight)
+            .frame(width: Self.earWidth)
+            // The whole end of the band is grabbable, not just the visible
+            // grip: a few points of bar is something to aim at, and the band
+            // around it says where to aim.
+            .frame(maxHeight: .infinity)
+            .contentShape(.rect)
+            .gesture(resizeGesture(node, edge: edge))
+            .onHover { hovering in
+                // The cursor is the only thing telling a resize edge apart from
+                // the body that moves the whole clip.
+                if hovering { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+    }
+
+    /// The visible grip inside a handle: a short bar, not the whole width.
+    ///
+    /// Sized against the glyphs *inside* the clip rather than against the lane.
+    /// A bar as tall as the pill sits beside icons a third its size and reads
+    /// as a different, heavier family of control — and the grip is the smaller
+    /// thing of the two, so it is the one that has to give way.
+    private static let gripWidth: CGFloat = 3
+    private static let gripHeight: CGFloat = Theme.Size.controlTiny * 0.6
+
+    /// How far the band reaches above and below the clip.
+    ///
+    /// Thinner than the ends: the sides only have to say where the selection
+    /// stops, while the ends carry a grip and have to be aimed at.
+    private static let bandWidth: CGFloat = 4
 
     /// An invisible drop layer sitting over one clip.
     @ViewBuilder
@@ -1893,7 +2109,14 @@ struct TrackRowView: View {
             RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
                 .fill(track.tint.opacity(0.55))
                 .frame(width: Self.earWidth)
-                .padding(.vertical, Theme.Spacing.compact)
+                // Full lane height, matching the clip it extends.
+                //
+                // Inset, an ear was a short stub beside a full-height pill —
+                // which reads as a separate little control resting against the
+                // clip rather than as the clip's own edge, and gives the
+                // pointer less to hit exactly where clips are packed tightly
+                // enough to need it.
+                .frame(maxHeight: .infinity)
                 .contentShape(.rect)
                 .offset(x: fitsOutside ? outside : inside)
                 .gesture(resizeGesture(node, edge: edge))
@@ -1906,10 +2129,22 @@ struct TrackRowView: View {
         }
     }
 
+    /// The lane's coordinate space, so a resize measures against something
+    /// that does not move while it is being dragged.
+    private static let dragSpace = "laneDrag"
+
+    /// The lane's own corner: a clip's radius plus the gap around it.
+    ///
+    /// Derived rather than picked from the scale, because two rounded
+    /// rectangles are only concentric when the inner radius is the outer one
+    /// less the gap between them — picking the next step instead makes the
+    /// curves diverge, and the corner reads as wrong without being nameable.
+    private static let laneRadius = Theme.Radius.clip + Theme.Spacing.tight
+
     /// Big enough to grab without aiming. Fixed rather than proportional: an
     /// ear that shrank with the clip would be unusable exactly where it is
     /// needed most.
-    private static let earWidth: CGFloat = 10
+    private static let earWidth: CGFloat = 12
 
     /// Shortest clip a drag can leave behind, so one cannot be shrunk to a
     /// sliver too small to grab again.
@@ -2045,7 +2280,7 @@ struct TrackRowView: View {
     }
 
     private func resizeGesture(_ node: EffectNode, edge: HorizontalEdge) -> some Gesture {
-        DragGesture(minimumDistance: 2)
+        DragGesture(minimumDistance: 2, coordinateSpace: .named(Self.dragSpace))
             .onChanged { value in
                 guard !track.isLocked else { return }
                 let origin = beginDrag(node)

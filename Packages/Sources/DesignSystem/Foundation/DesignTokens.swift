@@ -36,6 +36,14 @@ public enum Theme {
     public enum Radius {
         /// 6 — chips and small badges.
         public static let small: CGFloat = 6
+        /// 10 — a clip on a timeline track.
+        ///
+        /// Its own name even though it equals `control` today: the two answer
+        /// different questions, and the lane's corner is derived from this one
+        /// rather than picked, so a clip that changes shape carries the lane
+        /// with it. At `bar` the corner is nearly half a clip's height and the
+        /// block reads as a pill; below this it goes hard.
+        public static let clip: CGFloat = 10
         /// 10 — buttons and inline controls.
         public static let control: CGFloat = 10
         /// 14 — floating bars.
@@ -171,6 +179,16 @@ public enum Theme {
         /// The playhead, in its own colour so it never reads as just another
         /// accented control.
         public static let playhead = Color(red: 0.98, green: 0.55, blue: 0.22)
+        /// The frame around a selected clip on the timeline.
+        ///
+        /// Its own name rather than `accent` or `playhead`, though it is warm
+        /// like the second: a selection frame sits in the same view as the
+        /// playhead, and two things sharing a colour there would say they are
+        /// the same kind of thing. Amber because it is the hue this app already
+        /// uses to mean *look at this*, and because it reads against every
+        /// track tint — a frame in the accent's violet disappears on a violet
+        /// lane, which is the one place it has to be legible.
+        public static let selection = TrackPalette.amber
         /// Something needs attention but still works.
         public static let warning = Color(red: 0.98, green: 0.68, blue: 0.25)
         /// Something failed.
