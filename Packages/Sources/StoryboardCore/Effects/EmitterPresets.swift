@@ -16,6 +16,7 @@ public extension EmitterEffect {
         popDots, ringPulse, pixelDissolve, speedLines, dotRain,
         fallingLeaves, dataRain, rayBurst, bubblePop, orbitDots,
         spectrumFountain, bassBurst, trebleSparkles, beatDots, kickConfetti,
+        dustMotes, fogLayers, lightShafts, cloudScroll,
     ]
 
     private static func preset(
@@ -1243,6 +1244,102 @@ public extension EmitterEffect {
     ])
 }
 
+// ─── Backgrounds ─────────────────────────────────────────────────────────────
+//
+// Things that sit behind everything else, for as long as their clip runs.
+// Three rules, each checked by a test:
+//
+//   1. **They last the clip.** A continuous emission spreads its births over
+//      the whole clip, and lives are long enough that something is always
+//      alive — stretched to a minute, still there at the end. The count is
+//      still a total, so a much longer clip is a sparser field: that is the
+//      emitter as it has always worked, and the count is the knob.
+//   2. **They fill the frame.** Born across the whole stage, not from a point.
+//   3. **They stay back.** Dim and slow: whatever is placed on top has to read
+//      over them, and a background that moves fast is a foreground.
+
+public extension EmitterEffect {
+    /// Motes adrift in the air — the quietest background there is.
+    static let dustMotes = preset("dust-motes", "Dust Motes", "Motes adrift in the air",
+                                  duration: 20_000, pack: "Backgrounds", [
+        Param.count: .integer(180),
+        Param.sprite: .text(BuiltInSprite.glow),
+        Param.width: .number(900), Param.height: .number(520),
+        Param.spread: .number(180),
+        Param.velocity: .number(10), Param.velocityRandom: .number(0.8),
+        Param.gravity: .number(-4), Param.drag: .number(0.2),
+        Param.life: .number(7000), Param.lifeRandom: .number(0.4),
+        Param.scaleStart: .number(0.06), Param.scaleEnd: .number(0.04),
+        Param.scaleRandom: .number(0.6),
+        Param.color: .color(EffectColor(r: 255, g: 240, b: 210)),
+        Param.colorEnd: .color(EffectColor(r: 200, g: 180, b: 150)),
+        Param.opacity: .number(0.45),
+        Param.fadeIn: .number(0.3), Param.fadeOut: .number(0.4),
+        Param.additive: .toggle(true),
+    ])
+
+    /// Haze in slow layers. Painted rather than lit: fog blocks light.
+    static let fogLayers = preset("fog-layers", "Fog Layers", "Slow banks of haze",
+                                  duration: 20_000, pack: "Backgrounds", [
+        Param.count: .integer(22),
+        Param.sprite: .text(BuiltInSprite.cloud),
+        Param.width: .number(1000), Param.height: .number(500),
+        Param.direction: .number(0), Param.spread: .number(10),
+        Param.velocity: .number(8), Param.velocityRandom: .number(0.5),
+        Param.life: .number(12_000), Param.lifeRandom: .number(0.2),
+        // The pack's smoke is 512px: banks 460 to 560 across.
+        Param.scaleStart: .number(0.9), Param.scaleEnd: .number(1.1),
+        Param.scaleRandom: .number(0.3),
+        Param.rotation: .number(360), Param.spin: .number(4),
+        Param.color: .color(EffectColor(r: 180, g: 190, b: 210)),
+        Param.colorEnd: .color(EffectColor(r: 120, g: 130, b: 150)),
+        Param.opacity: .number(0.12),
+        Param.fadeIn: .number(0.3), Param.fadeOut: .number(0.4),
+        Param.additive: .toggle(false),
+    ])
+
+    /// Shafts of light falling from above, fading in and out where they stand.
+    static let lightShafts = preset("light-shafts", "Light Shafts", "Soft shafts of light from above",
+                                    duration: 20_000, pack: "Backgrounds", [
+        Param.count: .integer(24),
+        Param.sprite: .text(BuiltInSprite.beam),
+        Param.y: .number(60), Param.width: .number(760), Param.height: .number(20),
+        Param.direction: .number(90), Param.spread: .number(5),
+        Param.velocity: .number(2), Param.velocityRandom: .number(0.5),
+        Param.life: .number(10_000), Param.lifeRandom: .number(0.3),
+        Param.scaleStart: .number(0.6), Param.scaleEnd: .number(0.6),
+        Param.scaleRandom: .number(0.4),
+        Param.stretch: .number(1.5),
+        Param.rotation: .number(20),
+        Param.color: .color(EffectColor(r: 255, g: 235, b: 190)),
+        Param.colorEnd: .color(EffectColor(r: 255, g: 220, b: 170)),
+        Param.opacity: .number(0.12),
+        Param.fadeIn: .number(0.45), Param.fadeOut: .number(0.45),
+        Param.additive: .toggle(true),
+    ])
+
+    /// Clouds crossing slowly from right to left.
+    static let cloudScroll = preset("cloud-scroll", "Cloud Scroll", "Clouds crossing slowly",
+                                    duration: 20_000, pack: "Backgrounds", [
+        Param.count: .integer(16),
+        Param.sprite: .text(BuiltInSprite.cloud),
+        Param.x: .number(760), Param.y: .number(170),
+        Param.width: .number(60), Param.height: .number(300),
+        Param.direction: .number(180), Param.spread: .number(3),
+        Param.velocity: .number(60), Param.velocityRandom: .number(0.3),
+        Param.life: .number(14_000), Param.lifeRandom: .number(0.2),
+        Param.scaleStart: .number(0.7), Param.scaleEnd: .number(0.7),
+        Param.scaleRandom: .number(0.4),
+        Param.rotation: .number(360),
+        Param.color: .color(EffectColor(r: 255, g: 255, b: 255)),
+        Param.colorEnd: .color(EffectColor(r: 230, g: 235, b: 245)),
+        Param.opacity: .number(0.25),
+        Param.fadeIn: .number(0.1), Param.fadeOut: .number(0.1),
+        Param.additive: .toggle(false),
+    ])
+
+}
+
 // ─── Compound presets ────────────────────────────────────────────────────────
 
 public extension EmitterEffect {
@@ -1256,7 +1353,7 @@ public extension EmitterEffect {
     /// reads as none of them.
     static let compoundPresets: [EffectPreset] = [
         fireRing, portal, tunnel, impact, stormCell, energyOrb, arcReactor, firework, shapeDrift,
-        splash, blackHole,
+        splash, blackHole, starfieldParallax,
     ]
 
     /// Builds a layer with the emitter's own defaults underneath.
@@ -2234,6 +2331,65 @@ public extension EmitterEffect {
                 Param.opacity: .number(1),
                 Param.fadeIn: .number(0.05), Param.fadeOut: .number(0.05),
                 Param.additive: .toggle(false),
+            ]),
+        ],
+    )
+
+    /// Stars at three depths drifting at three speeds: the far ones tiny and
+    /// slow, the near ones larger, brighter and quicker. The difference in
+    /// speed is the whole trick — it is what the eye reads as depth.
+    static let starfieldParallax = compound(
+        "starfield-parallax", "Starfield Parallax", "Stars at three depths, drifting apart",
+        duration: 20_000,
+        [
+            Param.count: .integer(150),
+            Param.sprite: .text(BuiltInSprite.glow),
+            Param.width: .number(860), Param.height: .number(480),
+            Param.direction: .number(180), Param.spread: .number(4),
+            Param.velocity: .number(3), Param.velocityRandom: .number(0.3),
+            Param.life: .number(8000), Param.lifeRandom: .number(0.3),
+            Param.scaleStart: .number(0.03), Param.scaleEnd: .number(0.03),
+            Param.scaleRandom: .number(0.5),
+            Param.color: .color(EffectColor(r: 200, g: 215, b: 255)),
+            Param.colorEnd: .color(EffectColor(r: 200, g: 215, b: 255)),
+            Param.opacity: .number(0.5),
+            Param.fadeIn: .number(0.3), Param.fadeOut: .number(0.3),
+            Param.additive: .toggle(true),
+        ],
+        pack: "Backgrounds",
+        layers: [
+            layer("Mid", [
+                Param.count: .integer(60),
+                Param.sprite: .text(BuiltInSprite.glow),
+                Param.x: .number(320), Param.y: .number(240),
+                Param.width: .number(860), Param.height: .number(480),
+                Param.direction: .number(180), Param.spread: .number(4),
+                Param.velocity: .number(7), Param.velocityRandom: .number(0.3),
+                Param.life: .number(8000), Param.lifeRandom: .number(0.3),
+                Param.scaleStart: .number(0.05), Param.scaleEnd: .number(0.05),
+                Param.scaleRandom: .number(0.4),
+                Param.color: .color(EffectColor(r: 230, g: 235, b: 255)),
+                Param.colorEnd: .color(EffectColor(r: 230, g: 235, b: 255)),
+                Param.opacity: .number(0.6),
+                Param.fadeIn: .number(0.3), Param.fadeOut: .number(0.3),
+                Param.additive: .toggle(true),
+            ]),
+            layer("Near", [
+                Param.count: .integer(25),
+                Param.sprite: .text(BuiltInSprite.star),
+                Param.x: .number(320), Param.y: .number(240),
+                Param.width: .number(860), Param.height: .number(480),
+                Param.direction: .number(180), Param.spread: .number(4),
+                Param.velocity: .number(14), Param.velocityRandom: .number(0.3),
+                Param.life: .number(8000), Param.lifeRandom: .number(0.3),
+                Param.scaleStart: .number(0.14), Param.scaleEnd: .number(0.14),
+                Param.scaleRandom: .number(0.4),
+                Param.spin: .number(10),
+                Param.color: .color(EffectColor(r: 255, g: 255, b: 255)),
+                Param.colorEnd: .color(EffectColor(r: 210, g: 225, b: 255)),
+                Param.opacity: .number(0.7),
+                Param.fadeIn: .number(0.3), Param.fadeOut: .number(0.3),
+                Param.additive: .toggle(true),
             ]),
         ],
     )

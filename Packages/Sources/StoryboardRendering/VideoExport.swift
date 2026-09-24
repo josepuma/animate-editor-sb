@@ -305,6 +305,9 @@ extension VideoExport {
         let input: AVAssetWriterInput
         let reader: AVAssetReader
         let output: AVAssetReaderTrackOutput
+        /// Where the video's zero sits in the song, in ms: every sample is
+        /// moved back by this much before it is written.
+        let start: Double
         /// Completed when every sample has been handed over.
         let finished = Finished()
 
@@ -353,13 +356,7 @@ extension VideoExport {
         let reader = try AVAssetReader(asset: asset)
         // The same stretch the video covers, so the sound starts where the
         // picture does — a storyboard rarely begins at the top of the track.
-        reader.timeRange = CMTimeRange(
-            start: CMTime(value: CMTimeValue(range.lowerBound), timescale: 1_000),
-            duration: CMTime(
-                value: CMTimeValue(range.upperBound - range.lowerBound),
-                timescale: 1_000,
-            ),
-        )
+        reader.timeRange = Self.audioRange(for: range)
 
         let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
             AVFormatIDKey: kAudioFormatLinearPCM,
@@ -367,7 +364,45 @@ extension VideoExport {
         guard reader.canAdd(output) else { return nil }
         reader.add(output)
 
-        return Sound(input: input, reader: reader, output: output)
+        return Sound(input: input, reader: reader, output: output, start: range.lowerBound)
+    }
+
+    /// The stretch of the file to read: the video's, never before the song.
+    nonisolated static func audioRange(for range: ClosedRange<Double>) -> CMTimeRange {
+        let start = max(0, range.lowerBound)
+        return CMTimeRange(
+            start: CMTime(value: CMTimeValue(start), timescale: 1_000),
+            duration: CMTime(value: CMTimeValue(max(0, range.upperBound - start)), timescale: 1_000),
+        )
+    }
+
+    /// A sample moved from the song's clock onto the video's.
+    ///
+    /// `AVAssetReader` hands samples back stamped with the FILE's times, even
+    /// when told to start partway in — so a stretch starting 30s into the song
+    /// arrives stamped from 30s, while every video frame is stamped from zero.
+    /// Written as they came, the sound ran late by however long the song
+    /// played before the storyboard began. Subtracting where the video starts
+    /// puts the two on one clock; a storyboard opening before the song gives a
+    /// negative start, which delays the sound until the song's own zero.
+    nonisolated static func retimed(_ buffer: CMSampleBuffer, subtracting start: Double) -> CMSampleBuffer? {
+        let shift = CMTime(value: CMTimeValue(start), timescale: 1_000)
+        var count: CMItemCount = 0
+        CMSampleBufferGetSampleTimingInfoArray(buffer, entryCount: 0, arrayToFill: nil, entriesNeededOut: &count)
+        var timings = [CMSampleTimingInfo](repeating: CMSampleTimingInfo(), count: max(1, count))
+        CMSampleBufferGetSampleTimingInfoArray(buffer, entryCount: count, arrayToFill: &timings, entriesNeededOut: &count)
+        for index in timings.indices {
+            timings[index].presentationTimeStamp = CMTimeSubtract(timings[index].presentationTimeStamp, shift)
+            if timings[index].decodeTimeStamp.isValid {
+                timings[index].decodeTimeStamp = CMTimeSubtract(timings[index].decodeTimeStamp, shift)
+            }
+        }
+        var moved: CMSampleBuffer?
+        let status = CMSampleBufferCreateCopyWithNewTiming(
+            allocator: nil, sampleBuffer: buffer, sampleTimingEntryCount: count,
+            sampleTimingArray: &timings, sampleBufferOut: &moved,
+        )
+        return status == noErr ? moved : nil
     }
 
     /// Pumps every sample from the reader into the writer, on its own queue.
@@ -382,7 +417,9 @@ extension VideoExport {
                     sound.finished.signal()
                     return
                 }
-                sound.input.append(buffer)
+                // On the video's clock, not the file's — see `retimed`.
+                guard let moved = Self.retimed(buffer, subtracting: sound.start) else { continue }
+                sound.input.append(moved)
             }
         }
     }
