@@ -75,8 +75,17 @@ public enum SpectrumCache {
         lock.unlock()
         if let finished { return finished }
 
-        let first = Int(floor(range.lowerBound / chunk))
-        let last = Int(floor(range.upperBound / chunk))
+        // From the song's own start, never before it. A range reaching below
+        // zero — Audio Waves asks from a little before its clip, so lagging
+        // strands have something to hear — used to ask for chunk −1, which
+        // decodes to nothing, while the stitched audio still counted time from
+        // −5s: every sample landed five seconds early. Measured on a real MP3,
+        // the last two seconds of the clip came back silent and everything
+        // before them was out of time with the song. Before the song there is
+        // no audio to decode; the analysis reads the frames that fall there as
+        // silence, which is what they are.
+        let first = max(0, Int(floor(range.lowerBound / chunk)))
+        let last = max(first, Int(floor(range.upperBound / chunk)))
 
         // The decoded audio for every chunk the range touches, read once and
         // kept. Changing the band count re-runs the filter bank below and
