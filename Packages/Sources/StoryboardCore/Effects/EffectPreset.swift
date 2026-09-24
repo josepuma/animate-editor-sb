@@ -64,6 +64,46 @@ public struct EffectPreset: Sendable, Identifiable {
     /// keeps a preset with its effect, which is right for the plain ones.
     public var pack: String?
 
+    /// Filters the preset brings with it: a ring that pulses on the kicks is
+    /// a shape AND a Beat Pulse, and without this the preset could only hand
+    /// over the half that draws.
+    ///
+    /// Described rather than built, like `layers`: the ids are the clip's own,
+    /// and only whoever places the preset can mint them — see
+    /// ``filterNodes(using:id:)``.
+    public var filters: [Filter]
+
+    /// One filter a preset brings: which, and what it changes from its
+    /// defaults.
+    public struct Filter: Sendable {
+        public let type: String
+        public var values: [String: EffectValue]
+
+        public init(type: String, values: [String: EffectValue] = [:]) {
+            self.type = type
+            self.values = values
+        }
+    }
+
+    /// The preset's filters as nodes on a clip, each with its declared
+    /// defaults underneath — a filter carrying only what it names would read
+    /// every other parameter as missing rather than default.
+    ///
+    /// `id` mints each one's id. It has to be the clip's own: a filter's id
+    /// prefixes the sprites it derives, so two clips sharing one would name
+    /// the same sprites and collapse onto each other. A filter the library does
+    /// not know is left out rather than placed as something that draws nothing.
+    public func filterNodes(using library: FilterLibrary, id: (Int) -> String) -> [FilterNode] {
+        filters.enumerated().compactMap { index, filter in
+            guard let descriptor = library.descriptor(for: filter.type) else { return nil }
+            return FilterNode(
+                id: id(index),
+                type: filter.type,
+                values: descriptor.defaultValues.merging(filter.values) { _, new in new },
+            )
+        }
+    }
+
     /// One layer of a compound preset.
     public struct Layer: Sendable {
         public let effectType: String
@@ -87,9 +127,11 @@ public struct EffectPreset: Sendable, Identifiable {
         overrides: [String: EffectValue]? = nil,
         layers: [Layer] = [],
         pack: String? = nil,
+        filters: [Filter] = [],
     ) {
         self.layers = layers
         self.pack = pack
+        self.filters = filters
         self.id = id
         self.name = name
         self.effectType = effectType
@@ -341,4 +383,22 @@ public enum BuiltInSprite {
     ]
 
     public static let all = shapes + textures
+
+    /// Whether the renderer can supply this path.
+    ///
+    /// `all` lists the fixed images, and a hoop is not one of them: it names
+    /// its weight in its path, so it is a family — `hoop6`, `hoop12`, … —
+    /// drawn on request. Checking a preset against `all` alone reports every
+    /// outline as a missing file. Read back through `hoop(thickness:)` rather
+    /// than by prefix, so a stray `hoop999` is not waved through: Core and the
+    /// renderer have to agree on the spelling, and this is where they meet.
+    public static func isKnown(_ path: String) -> Bool {
+        if all.contains(path) { return true }
+
+        let prefix = "__builtin__/hoop"
+        guard path.hasPrefix(prefix), path.hasSuffix(".png"),
+              let percent = Int(path.dropFirst(prefix.count).dropLast(".png".count))
+        else { return false }
+        return hoop(thickness: Double(percent) / 100) == path
+    }
 }

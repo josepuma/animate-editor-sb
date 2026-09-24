@@ -104,7 +104,12 @@ public enum EffectThumbnails {
                     values: layer.values,
                 )
             }
-            return EffectEvaluator().evaluate(node)
+            // Its filters too: a pulse ring without its Audio Drive is a ring
+            // standing still, and its preview would say so.
+            node.filters = preset.filterNodes(using: .standard) { "preview-f\($0)" }
+            // The demo beat rather than the stand-in: a preview has no song,
+            // and a preset fired by kicks would never fire over smooth sines.
+            return EffectEvaluator(audio: AudioSpectrum.demoBeat).evaluate(node)
         }
     }
 

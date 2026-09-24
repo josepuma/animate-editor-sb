@@ -12,9 +12,9 @@ import Testing
 /// alone has already proved not to be the same thing.
 @Suite("Script effect end to end", .serialized)
 struct EndToEndTests {
-    private func withRuntime<T>(_ body: () throws -> T) rethrows -> T {
-        try ScriptRuntime.withRuntime({ ScriptEngine().run($0) }, body)
-    }
+    /// The real engine, handed to this suite's own evaluator. Nothing is
+    /// installed globally, so no other suite can pull it out mid-evaluation.
+    private let evaluator = EffectEvaluator(scriptRuntime: { ScriptEngine().run($0) })
 
     /// The template a fresh clip arrives with has to draw.
     ///
@@ -24,21 +24,19 @@ struct EndToEndTests {
     /// `duration`.
     @Test("the starter template draws")
     func starterTemplateDraws() {
-        withRuntime {
-            var document = EffectDocument()
-            let track = document.addTrack(layer: .foreground)
-            let node = document.add(ScriptEffect.descriptor, at: 2000, duration: 4000, on: track.id)
+        var document = EffectDocument()
+        let track = document.addTrack(layer: .foreground)
+        let node = document.add(ScriptEffect.descriptor, at: 2000, duration: 4000, on: track.id)
 
-            let drawn = EffectEvaluator().evaluate(document)
+        let drawn = evaluator.evaluate(document)
 
-            #expect(drawn.count == 24, "the template asks for 24 sprites")
-            #expect(drawn.allSatisfy { !$0.commands.isEmpty })
-            // Shifted into place by the evaluator, not by the script.
-            #expect(drawn.allSatisfy { sprite in
-                sprite.commands.allSatisfy { $0.timing.startTime >= node.startTime }
-            })
-            #expect(drawn.allSatisfy { ClipBounds.sprite($0.id, belongsTo: node.id) })
-        }
+        #expect(drawn.count == 24, "the template asks for 24 sprites")
+        #expect(drawn.allSatisfy { !$0.commands.isEmpty })
+        // Shifted into place by the evaluator, not by the script.
+        #expect(drawn.allSatisfy { sprite in
+            sprite.commands.allSatisfy { $0.timing.startTime >= node.startTime }
+        })
+        #expect(drawn.allSatisfy { ClipBounds.sprite($0.id, belongsTo: node.id) })
     }
 
     /// Every name the starter template uses has to exist.
@@ -53,27 +51,25 @@ struct EndToEndTests {
     /// diagnostic rather than a silent fallback.
     @Test("every name in the starter template resolves")
     func starterTemplateNamesResolve() {
-        withRuntime {
-            // Each identifier the template reaches for, checked against what
-            // the runtime actually installs.
-            let checks = """
-            const missing = []
-            if (typeof sprite !== 'function') missing.push('sprite')
-            if (typeof duration !== 'number') missing.push('duration')
-            if (typeof Image.soft !== 'string') missing.push('Image.soft')
-            if (typeof Ease.quadOut !== 'number') missing.push('Ease.quadOut')
-            if (missing.length) throw new Error('undefined: ' + missing.join(', '))
-            sprite(Image.soft)
-            """
+        // Each identifier the template reaches for, checked against what
+        // the runtime actually installs.
+        let checks = """
+        const missing = []
+        if (typeof sprite !== 'function') missing.push('sprite')
+        if (typeof duration !== 'number') missing.push('duration')
+        if (typeof Image.soft !== 'string') missing.push('Image.soft')
+        if (typeof Ease.quadOut !== 'number') missing.push('Ease.quadOut')
+        if (missing.length) throw new Error('undefined: ' + missing.join(', '))
+        sprite(Image.soft)
+        """
 
-            var node = EffectNode(
-                id: "fx", type: ScriptEffect.descriptor.type, name: "Script",
-                startTime: 0, duration: 4000, seed: 1,
-            )
-            node.scriptSource = checks
+        var node = EffectNode(
+            id: "fx", type: ScriptEffect.descriptor.type, name: "Script",
+            startTime: 0, duration: 4000, seed: 1,
+        )
+        node.scriptSource = checks
 
-            #expect(EffectEvaluator().evaluate(node).count == 1)
-        }
+        #expect(evaluator.evaluate(node).count == 1)
     }
 
     /// The easing the template names has to be the one the bridge accepts.
@@ -84,21 +80,19 @@ struct EndToEndTests {
     /// is to look at what it wrote.
     @Test("the starter template's easing is not silently linear")
     func starterTemplateEasingSurvives() throws {
-        try withRuntime {
-            var document = EffectDocument()
-            let track = document.addTrack(layer: .foreground)
-            _ = document.add(ScriptEffect.descriptor, at: 0, duration: 4000, on: track.id)
+        var document = EffectDocument()
+        let track = document.addTrack(layer: .foreground)
+        _ = document.add(ScriptEffect.descriptor, at: 0, duration: 4000, on: track.id)
 
-            let moves = EffectEvaluator().evaluate(document)
-                .flatMap(\.commands)
-                .filter { $0.kind == .move }
+        let moves = evaluator.evaluate(document)
+            .flatMap(\.commands)
+            .filter { $0.kind == .move }
 
-            let eased = try #require(moves.first)
-            #expect(
-                eased.timing.easing != .linear,
-                "the template asks for an easing; linear means the name did not resolve",
-            )
-        }
+        let eased = try #require(moves.first)
+        #expect(
+            eased.timing.easing != .linear,
+            "the template asks for an easing; linear means the name did not resolve",
+        )
     }
 
     /// A script's output feeds the existing filters unchanged.
@@ -108,59 +102,53 @@ struct EndToEndTests {
     /// one test rather than an assumption.
     @Test("a filter multiplies a script's output like any other")
     func filtersCompose() {
-        withRuntime {
-            var document = EffectDocument()
-            let track = document.addTrack(layer: .foreground)
-            var node = document.add(ScriptEffect.descriptor, at: 0, duration: 4000, on: track.id)
+        var document = EffectDocument()
+        let track = document.addTrack(layer: .foreground)
+        var node = document.add(ScriptEffect.descriptor, at: 0, duration: 4000, on: track.id)
 
-            let bare = EffectEvaluator().evaluate(document).count
+        let bare = evaluator.evaluate(document).count
 
-            node.filters = [FilterNode(id: "f1", type: "grid", values: [
-                "rows": .integer(2),
-                "columns": .integer(2),
-            ])]
-            document[node.id] = node
+        node.filters = [FilterNode(id: "f1", type: "grid", values: [
+            "rows": .integer(2),
+            "columns": .integer(2),
+        ])]
+        document[node.id] = node
 
-            let gridded = EffectEvaluator().evaluate(document).count
+        let gridded = evaluator.evaluate(document).count
 
-            #expect(bare > 0)
-            #expect(gridded == bare * 4, "a 2×2 grid should quadruple the sprites")
-        }
+        #expect(bare > 0)
+        #expect(gridded == bare * 4, "a 2×2 grid should quadruple the sprites")
     }
 
     /// A clip's transform moves what a script drew, as one thing.
     @Test("the clip's transform carries a script's sprites")
     func transformCarries() {
-        withRuntime {
-            var document = EffectDocument()
-            let track = document.addTrack(layer: .foreground)
-            var node = document.add(ScriptEffect.descriptor, at: 0, duration: 4000, on: track.id)
+        var document = EffectDocument()
+        let track = document.addTrack(layer: .foreground)
+        var node = document.add(ScriptEffect.descriptor, at: 0, duration: 4000, on: track.id)
 
-            let before = EffectEvaluator().evaluate(document)
+        let before = evaluator.evaluate(document)
 
-            node.transform[value: .x] = 500
-            document[node.id] = node
+        node.transform[value: .x] = 500
+        document[node.id] = node
 
-            let after = EffectEvaluator().evaluate(document)
+        let after = evaluator.evaluate(document)
 
-            #expect(before.count == after.count, "moving a clip must move the same sprites, not other ones")
-            #expect(before.map(\.id) == after.map(\.id))
-            #expect(before.first?.defaultX != after.first?.defaultX)
-        }
+        #expect(before.count == after.count, "moving a clip must move the same sprites, not other ones")
+        #expect(before.map(\.id) == after.map(\.id))
+        #expect(before.first?.defaultX != after.first?.defaultX)
     }
 
     /// The clamp holds on the real path, not only in isolation.
     @Test("a runaway script is cut to the ceiling")
     func clampHoldsEndToEnd() {
-        withRuntime {
-            var node = EffectNode(
-                id: "fx", type: ScriptEffect.descriptor.type, name: "Script",
-                startTime: 0, duration: 4000, seed: 1,
-            )
-            node.scriptSource = "for (let i = 0; i < 50000; i++) sprite(Image.soft).fade(0, 10, 0, 1)"
+        var node = EffectNode(
+            id: "fx", type: ScriptEffect.descriptor.type, name: "Script",
+            startTime: 0, duration: 4000, seed: 1,
+        )
+        node.scriptSource = "for (let i = 0; i < 50000; i++) sprite(Image.soft).fade(0, 10, 0, 1)"
 
-            #expect(EffectEvaluator().evaluate(node).count == ScriptLimits.maximumSprites)
-        }
+        #expect(evaluator.evaluate(node).count == ScriptLimits.maximumSprites)
     }
 
     /// Every method the list declares is actually callable from a script.
@@ -175,24 +163,22 @@ struct EndToEndTests {
     /// nothing fails here too rather than only a method that throws.
     @Test("every declared method is callable", arguments: SpriteMethod.allCases)
     func everyDeclaredMethodIsCallable(_ method: SpriteMethod) {
-        withRuntime {
-            var node = EffectNode(
-                id: "fx", type: ScriptEffect.descriptor.type, name: "Script",
-                startTime: 0, duration: 4000, seed: 1,
-            )
-            node.scriptSource = "sprite(Image.soft).\(method.rawValue)(\(method.sampleArguments))"
+        var node = EffectNode(
+            id: "fx", type: ScriptEffect.descriptor.type, name: "Script",
+            startTime: 0, duration: 4000, seed: 1,
+        )
+        node.scriptSource = "sprite(Image.soft).\(method.rawValue)(\(method.sampleArguments))"
 
-            let drawn = EffectEvaluator().evaluate(node)
+        let drawn = evaluator.evaluate(node)
 
-            #expect(drawn.count == 1, ".\(method.rawValue)() must not throw")
-            // `at` sets a resting position rather than appending a command, so
-            // it is the one case with nothing on the timeline to count.
-            let commands = drawn.first?.commands.count ?? 0
-            #expect(
-                commands == (method == .at ? 0 : 1),
-                ".\(method.rawValue)() must record what it claims to",
-            )
-        }
+        #expect(drawn.count == 1, ".\(method.rawValue)() must not throw")
+        // `at` sets a resting position rather than appending a command, so
+        // it is the one case with nothing on the timeline to count.
+        let commands = drawn.first?.commands.count ?? 0
+        #expect(
+            commands == (method == .at ? 0 : 1),
+            ".\(method.rawValue)() must record what it claims to",
+        )
     }
 
     /// Past the ceiling, EVERY method still chains.
@@ -211,46 +197,42 @@ struct EndToEndTests {
     /// same bug again, and this way it fails on arrival.
     @Test("past the ceiling every method still chains", arguments: SpriteMethod.allCases)
     func inertBuilderChainsEveryMethod(_ method: SpriteMethod) {
-        withRuntime {
-            var node = EffectNode(
-                id: "fx", type: ScriptEffect.descriptor.type, name: "Script",
-                startTime: 0, duration: 4000, seed: 1,
-            )
-            // One past the ceiling, so the last call gets the inert builder
-            // while every call before it gets a real one.
-            let asked = ScriptLimits.maximumSprites + 1
-            node.scriptSource = """
-            for (let i = 0; i < \(asked); i++) {
-              sprite(Image.soft).\(method.rawValue)(\(method.sampleArguments))
-            }
-            """
-
-            let drawn = EffectEvaluator().evaluate(node)
-
-            #expect(
-                drawn.count == ScriptLimits.maximumSprites,
-                "chaining .\(method.rawValue)() past the ceiling must truncate, not throw",
-            )
+        var node = EffectNode(
+            id: "fx", type: ScriptEffect.descriptor.type, name: "Script",
+            startTime: 0, duration: 4000, seed: 1,
+        )
+        // One past the ceiling, so the last call gets the inert builder
+        // while every call before it gets a real one.
+        let asked = ScriptLimits.maximumSprites + 1
+        node.scriptSource = """
+        for (let i = 0; i < \(asked); i++) {
+          sprite(Image.soft).\(method.rawValue)(\(method.sampleArguments))
         }
+        """
+
+        let drawn = evaluator.evaluate(node)
+
+        #expect(
+            drawn.count == ScriptLimits.maximumSprites,
+            "chaining .\(method.rawValue)() past the ceiling must truncate, not throw",
+        )
     }
 
     /// An endless script does not hang the evaluation.
     @Test("an endless script does not hang the document")
     func endlessScriptDoesNotHang() {
-        withRuntime {
-            var node = EffectNode(
-                id: "fx", type: ScriptEffect.descriptor.type, name: "Script",
-                startTime: 0, duration: 4000, seed: 1,
-            )
-            node.scriptSource = "while (true) { sprite(Image.soft) }"
+        var node = EffectNode(
+            id: "fx", type: ScriptEffect.descriptor.type, name: "Script",
+            startTime: 0, duration: 4000, seed: 1,
+        )
+        node.scriptSource = "while (true) { sprite(Image.soft) }"
 
-            let started = Date()
-            let drawn = EffectEvaluator().evaluate(node)
+        let started = Date()
+        let drawn = evaluator.evaluate(node)
 
-            // See the note in LoopInstrumentationTests: the claim is that it
-            // finishes at all, not that it finishes quickly.
-            #expect(Date().timeIntervalSince(started) < 30)
-            #expect(drawn.isEmpty)
-        }
+        // See the note in LoopInstrumentationTests: the claim is that it
+        // finishes at all, not that it finishes quickly.
+        #expect(Date().timeIntervalSince(started) < 30)
+        #expect(drawn.isEmpty)
     }
 }

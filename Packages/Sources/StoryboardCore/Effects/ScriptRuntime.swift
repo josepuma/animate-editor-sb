@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Core cannot run JavaScript, so it declares what it needs here and the app
 /// installs an implementation — the same shape as ``TextMetrics/measure`` and
-/// `AudioSpectrum.analyse`, and for the same reason: the core's tests keep
+/// `AudioSpectrum.Analyser`, and for the same reason: the core's tests keep
 /// running with no engine, no GPU and no window.
 ///
 /// It differs from both in one deliberate way. Those fall back to a stand-in
@@ -140,8 +140,20 @@ public enum ScriptRuntime {
         }
     }
 
-    /// Installed by the app at launch.
-    nonisolated(unsafe) public static var run: (@Sendable (Request) -> Outcome)?
+    /// What runs a script. Core cannot, so whoever builds an evaluator hands
+    /// one in — the app gives it the JavaScript engine.
+    ///
+    /// **Handed to each evaluator, not installed as a global.** It used to be
+    /// one `nonisolated(unsafe) static var`, installed by the app at launch and
+    /// swapped by tests under a lock. swift-testing runs suites in parallel, and
+    /// a suite that had to `await` with its runtime installed could not hold
+    /// that lock across the await — so it set the global bare, and its `defer`
+    /// pulled the runtime out from under another suite mid-evaluation, which
+    /// then drew nothing. Clean main passed; adding an unrelated heavy suite
+    /// made it fail most runs, only by changing how suites interleaved. A
+    /// better lock would have moved the problem; a runtime per evaluator
+    /// leaves nothing shared to fight over.
+    public typealias Runner = @Sendable (Request) -> Outcome
 
     /// What the last evaluation reported, by node.
     ///
@@ -199,8 +211,8 @@ public enum ScriptRuntime {
         reportLock.withLock { reports[nodeID] }
     }
 
-    /// Runs a script, or explains why it could not.
-    public static func sprites(for request: Request) -> Outcome {
+    /// Runs a script through `run`, or explains why it could not.
+    public static func sprites(for request: Request, using run: Runner?) -> Outcome {
         guard !request.source.isEmpty else {
             return Outcome(sprites: [], diagnostics: [.noSource])
         }
@@ -210,56 +222,3 @@ public enum ScriptRuntime {
         return run(request)
     }
 }
-
-// MARK: - Testing
-
-public extension ScriptRuntime {
-    /// Runs `body` with no runtime installed, restoring whatever was there.
-    ///
-    /// Here rather than in the test target because the property is
-    /// `nonisolated(unsafe)`: a test that sets it and forgets to put it back
-    /// changes the result of every test that runs afterwards, and which of them
-    /// that is depends on execution order.
-    ///
-    /// > Important: **`run` is one global, and swift-testing runs suites in
-    /// parallel.** Save-and-restore is correct in series and useless against a
-    /// second suite doing the same thing at the same moment — one leaves its
-    /// `defer` and pulls the runtime out from under the other mid-evaluation.
-    /// It showed up as a Grid test reporting 0 sprites where it wanted 96, on
-    /// roughly one run in three, having passed twenty times before. Every suite
-    /// that installs here is `.serialized` and shares one lock, which is why
-    /// these helpers exist rather than each test setting the property itself.
-    static func withoutRuntime<T>(_ body: () throws -> T) rethrows -> T {
-        try holding(nil, body)
-    }
-
-    /// Runs `body` with `runtime` installed, restoring whatever was there.
-    static func withRuntime<T>(
-        _ runtime: @escaping @Sendable (Request) -> Outcome,
-        _ body: () throws -> T,
-    ) rethrows -> T {
-        try holding(runtime, body)
-    }
-
-    /// Holds the seam at one value for the duration of `body`.
-    ///
-    /// The lock is what makes this safe, not the save-and-restore: two suites
-    /// swapping one global at the same time is the race, and only one of them
-    /// can be inside here at a time.
-    private static func holding<T>(
-        _ runtime: (@Sendable (Request) -> Outcome)?,
-        _ body: () throws -> T,
-    ) rethrows -> T {
-        seamLock.lock()
-        let saved = run
-        run = runtime
-        defer {
-            run = saved
-            seamLock.unlock()
-        }
-        return try body()
-    }
-}
-
-/// Guards the scripting seam while a test holds it at a known value.
-private let seamLock = NSLock()

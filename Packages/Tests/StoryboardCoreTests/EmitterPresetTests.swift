@@ -98,7 +98,7 @@ struct EmitterPresetTests {
             )
             return
         }
-        #expect(BuiltInSprite.all.contains(path), "\(preset.id) uses an unknown sprite: \(path)")
+        #expect(BuiltInSprite.isKnown(path), "\(preset.id) uses an unknown sprite: \(path)")
     }
 
     /// A `.osb` grows by roughly a line per command, so a preset that is fine

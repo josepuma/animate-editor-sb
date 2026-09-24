@@ -31,14 +31,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // neither can live in Core. Installed once, before anything evaluates.
         TextTextures.install()
 
-        // The scripting runtime, into the seam Core declares for it.
-        //
-        // Here rather than in a feature because a feature would have to import
-        // the engine, and features never import each other or reach past Core.
-        // Captured by value — nothing @MainActor is touched, so the whole
-        // evaluation stays off the main thread.
-        ScriptRuntime.run = { request in ScriptEngine().run(request) }
-
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1080, height: 700),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],

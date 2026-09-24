@@ -394,7 +394,7 @@ public extension ShapeEffect {
         preset(.square, "Square", "A filled square", width: 200, height: 200),
         preset(.circle, "Circle", "A filled disc", width: 200, height: 200),
         preset(.ring, "Ring", "An outlined circle", width: 200, height: 200),
-    ]
+    ] + audioPresets
 
     private static func preset(
         _ kind: Kind,

@@ -426,10 +426,27 @@ public final class EditorShellModel {
     /// one value instead of diffing the whole document.
     public private(set) var effectsRevision = 0
 
-    public init(library: EffectLibrary = .standard, filters: FilterLibrary = .standard) {
+    /// What reads the open song, for the effects that listen to it.
+    ///
+    /// Set when a project opens rather than at construction: the track is
+    /// only known then. Nothing is re-evaluated here — the app already calls
+    /// `inputsChanged()` once the audio has loaded, which is the moment the
+    /// answer changes.
+    public var audioAnalyser: AudioSpectrum.Analyser? {
+        didSet { evaluator.audio = audioAnalyser }
+    }
+
+    /// - Parameter scriptRuntime: what runs script clips. The app passes the
+    ///   JavaScript engine; `nil` leaves script clips drawing nothing, which is
+    ///   what a shell built in a test without one should do.
+    public init(
+        library: EffectLibrary = .standard,
+        filters: FilterLibrary = .standard,
+        scriptRuntime: ScriptRuntime.Runner? = nil,
+    ) {
         self.library = library
         self.filters = filters
-        evaluator = EffectEvaluator(library: library, filters: filters)
+        evaluator = EffectEvaluator(library: library, filters: filters, scriptRuntime: scriptRuntime)
     }
 
     // ─── Effects ─────────────────────────────────────────────────────────────
@@ -555,7 +572,8 @@ public final class EditorShellModel {
         // Every effect's presets, filtered to what the library can actually
         // run. The panel groups them by `effectType`, so a new effect's presets
         // appear under it without any UI work.
-        (TextEffect.presets + ShapeEffect.presets + EmitterEffect.presets + EmitterEffect.compoundPresets)
+        (TextEffect.presets + ShapeEffect.presets + AudioBarsEffect.presets + AudioWavesEffect.presets
+            + EmitterEffect.presets + EmitterEffect.compoundPresets)
             .filter { library.descriptor(for: $0.effectType) != nil }
     }
 
@@ -702,6 +720,12 @@ public final class EditorShellModel {
                 child.transform[value: .y] = y
             }
             return child
+        }
+
+        // Its filters, with ids of this clip's own. Minted here for the reason
+        // the layers are: only placing knows what makes an id unique.
+        node.filters = preset.filterNodes(using: filters) { index in
+            "\(preset.filters[index].type)-\(UUID().uuidString.prefix(8))"
         }
 
         effects[node.id] = node
@@ -2522,53 +2546,6 @@ public final class EditorShellModel {
         evaluated.count { ClipBounds.sprite($0.id, belongsTo: node.id) }
     }
 
-    /// When a clip actually stops playing, tail and loops included.
-    ///
-    /// Not `node.endTime`, which is where the *clip* ends — the thing a drag
-    /// resizes and keyframes are measured against. A particle lives its whole
-    /// life from wherever it was born, so an emitter releasing right up to the
-    /// last instant has its final ones on screen seconds later; a looped clip
-    /// runs several times over. Measured, a five-second Portal under a ×4 loop
-    /// plays for thirty.
-    ///
-    /// The timeline draws this one. Reporting the clip's own end has the block
-    /// finish while the effect is still going, which makes the one thing a
-    /// timeline exists to show a lie — and it is what someone reads to decide
-    /// where the next effect goes.
-    ///
-    /// Read from the sprites rather than worked out from the parameters: life,
-    /// life randomness, emission mode and every filter all move it, and a
-    /// second formula tracking all of them would drift from the first.
-    public func playbackEnd(of node: EffectNode) -> Double {
-        playbackEnd(of: node, key: node.id)
-    }
-
-    /// - Parameter key: distinct from the node's id where the caller asks about
-    ///   a **modified** copy — `rawTail` strips the loop off before measuring,
-    ///   and cached under the plain id that answer would be handed back for the
-    ///   looped node too. Same id, different question.
-    private func playbackEnd(of node: EffectNode, key: String) -> Double {
-        invalidateCachesIfNeeded()
-        return cached(key, in: &playbackEnds) {
-            let sprites = evaluator.evaluate(node)
-
-            var last = node.endTime
-            for sprite in sprites {
-                for command in sprite.commands {
-                    last = max(last, command.endTime)
-                }
-                // A loop keeps its commands in the body, so the group's own
-                // span is what plays — the commands inside say nothing about
-                // how many times round it goes.
-                for loop in sprite.loops {
-                    let body = loop.commands.map(\.endTime).max() ?? 0
-                    last = max(last, loop.startTime + body * Double(loop.loopCount))
-                }
-            }
-            return last
-        }
-    }
-
     /// How far past its own block a clip is still drawing, in milliseconds.
     ///
     /// Separate from `duration(of:on:)`, which reports repeats: a tail is the
@@ -2642,12 +2619,17 @@ public final class EditorShellModel {
     /// Measured on a single pass, before any loop multiplies it: a repeat
     /// restarts the whole thing, tail and all, so the overhang is a property of
     /// the pass rather than of the sequence.
+    ///
+    /// Read from the last completed pass, like `tail(of:)` — which measures
+    /// exactly this, one pass before a loop multiplies it. It used to work it
+    /// out here instead, and `duration(of:on:)` and `passDuration(of:)` both
+    /// ask it for every clip on every timeline rebuild, right after the edit
+    /// that cleared the answer: the clip was evaluated synchronously on the
+    /// main thread. Invisible on a plain emitter; an AUDIO emitter decodes the
+    /// song under its new position, and moving or resizing one froze the
+    /// window for as long as that took.
     private func rawTail(of node: EffectNode) -> Double {
-        var unlooped = node
-        unlooped.filters = node.filters.filter { $0.type != "loop" }
-
-        let played = playbackEnd(of: unlooped, key: node.id + "#unlooped") - node.startTime
-        return max(0, played - unlooped.duration)
+        tails[node.id] ?? 0
     }
 
     /// Answers the inspector asks every time it draws, kept until the effects
@@ -2665,11 +2647,15 @@ public final class EditorShellModel {
     /// A cache is not state anyone should redraw for: `effectsRevision` already
     /// says when the answers changed.
     @ObservationIgnored private var spriteCounts: [EffectNode.ID: Int] = [:]
-    @ObservationIgnored private var seamSeverities: [EffectNode.ID: Double] = [:]
+
+    /// How badly each looped clip thins at its seams, from the last pass.
+    /// Its own dictionary, like `tails`, rather than in the caches the
+    /// revision clears: a result landing before the first read after an edit
+    /// would be cleared by that very read.
+    @ObservationIgnored private var seams: [EffectNode.ID: Double] = [:]
 
     /// How far each clip plays past its own length, from the last pass.
     @ObservationIgnored private var tails: [EffectNode.ID: Double] = [:]
-    @ObservationIgnored private var playbackEnds: [EffectNode.ID: Double] = [:]
     @ObservationIgnored private var cacheRevision = -1
 
     /// Drops both caches when the effects have moved on.
@@ -2727,17 +2713,10 @@ public final class EditorShellModel {
         // deciding that everything is stale when one thing is.
         guard let edited = lastEditedNode else {
             spriteCounts.removeAll(keepingCapacity: true)
-            seamSeverities.removeAll(keepingCapacity: true)
-            playbackEnds.removeAll(keepingCapacity: true)
             return
         }
 
         spriteCounts[edited] = nil
-        seamSeverities[edited] = nil
-        playbackEnds[edited] = nil
-        // The tail is cached under its own key, because it asks a different
-        // question of the same id.
-        playbackEnds[edited + "#unlooped"] = nil
     }
 
     private func cached<Value>(
@@ -2761,14 +2740,10 @@ public final class EditorShellModel {
               node.filters.contains(where: { $0.isEnabled && $0.type == LoopFilter.descriptor.type })
         else { return 0 }
 
-        // Measured before the loop wraps them: afterwards the commands live in
-        // a loop body and every sprite looks like it runs the whole span.
-        invalidateCachesIfNeeded()
-        return cached(nodeID, in: &seamSeverities) {
-            var bare = node
-            bare.filters = []
-            return LoopFilter.seamSeverity(of: evaluator.evaluate(bare))
-        }
+        // Read from the last pass, never computed here: the inspector asks
+        // from its `body`, and an audio clip under a loop would decode its song
+        // on the main thread to answer.
+        return seams[nodeID] ?? 0
     }
 
     /// How long a clip on this track actually runs, once its filters are
@@ -3037,13 +3012,24 @@ public final class EditorShellModel {
             // Worked out here, off the main thread, because the timeline reads
             // them on every rebuild.
             var measured: [EffectNode.ID: Double] = [:]
+            var seamed: [EffectNode.ID: Double] = [:]
             for node in toMeasure {
+                // Measured before the loop wraps them: afterwards the commands
+                // live in a loop body and every sprite looks like it runs the
+                // whole span.
+                if node.filters.contains(where: { $0.isEnabled && $0.type == LoopFilter.descriptor.type }) {
+                    var bare = node
+                    bare.filters = []
+                    seamed[node.id] = LoopFilter.seamSeverity(of: evaluator.evaluate(bare))
+                }
+
                 var unlooped = node
                 unlooped.filters = node.filters.filter { $0.type != "loop" }
 
-                // The same reckoning `playbackEnd` did, moved off the main
-                // thread: the last moment anything is still drawn, measured on
-                // one pass before a loop multiplies it.
+                // The last moment anything is still drawn, measured on one
+                // pass before a loop multiplies it. Only ever here, off the
+                // main thread: a synchronous version of this lived beside the
+                // tail readers and froze the window on audio clips.
                 var last = unlooped.endTime
                 for sprite in evaluator.evaluate(unlooped) {
                     for command in sprite.commands {
@@ -3079,6 +3065,10 @@ public final class EditorShellModel {
                     measured,
                     uniquingKeysWith: { _, fresh in fresh },
                 )
+                // A measured clip that lost its loop has no seam left to report.
+                self.seams = self.seams
+                    .filter { living.contains($0.key) && measured[$0.key] == nil }
+                    .merging(seamed, uniquingKeysWith: { _, fresh in fresh })
                 self.evaluated = sprites
                 if !self.evaluatingNodes.isEmpty { self.evaluatingNodes = [] }
                 self.adoptScriptDeclarations()

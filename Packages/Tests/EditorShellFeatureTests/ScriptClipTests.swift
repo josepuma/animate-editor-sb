@@ -40,25 +40,22 @@ struct ScriptEditorTests {
     /// same thing.
     @Test("a declared control appears in the inspector")
     func declaredControlAppears() async {
-        let shell = EditorShellModel()
-        let node = shell.addEffect(ScriptEffect.descriptor, at: 0, duration: 4000)
-        shell.selectedNodeID = node.id
-
-        #expect(shell.selectedDescriptor?.parameters.isEmpty == true, "nothing is declared yet")
-
-        // The suite is `.serialized` because these tests await while holding
-        // the global seam, and a lock across an `await` is a deadlock waiting
-        // — Swift refuses to compile one, correctly. Ordering is the only tool
-        // left.
-        ScriptRuntime.run = { _ in
+        // The shell's own runtime. This suite used to set a global here, bare,
+        // because it awaits while the runtime is installed and a lock cannot
+        // be held across an `await` — and its `defer` then pulled the runtime
+        // out from under whichever suite was evaluating at that moment.
+        let shell = EditorShellModel(scriptRuntime: { _ in
             ScriptRuntime.Outcome(
                 sprites: [], diagnostics: [], logs: [],
                 declared: [EffectParameter(
                     id: "count", name: "Count", group: "Script", defaultValue: .integer(24),
                 )],
             )
-        }
-        defer { ScriptRuntime.run = nil }
+        })
+        let node = shell.addEffect(ScriptEffect.descriptor, at: 0, duration: 4000)
+        shell.selectedNodeID = node.id
+
+        #expect(shell.selectedDescriptor?.parameters.isEmpty == true, "nothing is declared yet")
 
         // Through a reload rather than by writing source onto the node: the
         // code lives in a file now, and `reloadScripts()` is the path a save
@@ -77,14 +74,11 @@ struct ScriptEditorTests {
     /// it looks like when somebody expects one.
     @Test("reading a param without declaring it shows no control")
     func readingWithoutDeclaringShowsNothing() async {
-        let shell = EditorShellModel()
+        let shell = EditorShellModel(scriptRuntime: { _ in
+            ScriptRuntime.Outcome(sprites: [], diagnostics: [], logs: [], declared: nil)
+        })
         let node = shell.addEffect(ScriptEffect.descriptor, at: 0, duration: 4000)
         shell.selectedNodeID = node.id
-
-        ScriptRuntime.run = { _ in
-            ScriptRuntime.Outcome(sprites: [], diagnostics: [], logs: [], declared: nil)
-        }
-        defer { ScriptRuntime.run = nil }
 
         shell.reloadScripts()
         _ = await shell.settledSprites()

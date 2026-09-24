@@ -23,22 +23,34 @@ public enum AudioSpectrum {
         public var isEmpty: Bool { levels.isEmpty }
     }
 
-    /// Installed once by whoever can read the track.
+    /// What reads the track. Core cannot, so whoever builds an evaluator hands
+    /// one in — the app gives it the decoder for the open song.
     ///
     /// Asked for a stretch of the song rather than the whole thing, because
     /// that is what a clip covers: analysing five minutes to animate eight
     /// seconds is work nobody sees.
-    nonisolated(unsafe) public static var analyse: (
-        @Sendable (_ range: ClosedRange<Double>, _ bands: Int, _ interval: Double) -> Frames?
-    )?
+    ///
+    /// **Handed to each evaluator, not installed as a global** — for the
+    /// reason `ScriptRuntime.Runner` is: a test that needs real hits cannot use
+    /// the stand-in, whose smooth sines have none, so it has to install
+    /// something, and installing into one global under parallel suites is the
+    /// race that runtime already paid for.
+    public typealias Analyser = @Sendable (
+        _ range: ClosedRange<Double>, _ bands: Int, _ interval: Double,
+    ) -> Frames?
 
     /// The levels for a stretch of the song, real or stood in for.
+    ///
+    /// `analyser` has no default on purpose: a call site that forgot to pass
+    /// one would fall back to the stand-in without a word, which is how a
+    /// storyboard ends up dancing to a sine wave.
     public static func levels(
         in range: ClosedRange<Double>,
         bands: Int,
         interval: Double,
+        using analyser: Analyser?,
     ) -> Frames {
-        if let analyse, let real = analyse(range, bands, interval), !real.isEmpty {
+        if let analyser, let real = analyser(range, bands, interval), !real.isEmpty {
             return real
         }
         return placeholder(in: range, bands: bands, interval: interval)
@@ -112,6 +124,12 @@ public struct AudioBarsEffect: Effect {
         public static let opacity = "opacity"
         public static let additive = "additive"
         public static let mirrored = "mirrored"
+        public static let layout = "layout"
+        public static let radius = "radius"
+        public static let arcSpan = "arcSpan"
+        public static let sides = "sides"
+        public static let element = "element"
+        public static let segments = "segments"
     }
 
     /// Which way the bars grow.
@@ -238,6 +256,69 @@ public struct AudioBarsEffect: Effect {
                 group: "Bars",
                 defaultValue: .toggle(false),
             ),
+            EffectParameter(
+                id: Param.element,
+                name: "Draw As",
+                group: "Bars",
+                defaultValue: .choice(Element.bar.rawValue),
+                options: Element.allCases.map(\.rawValue),
+            ),
+            // How many segments a meter column has. Every segment is a sprite,
+            // so this multiplies the bank — but a segment only writes when it
+            // switches on or off, not on every frame.
+            EffectParameter(
+                id: Param.segments,
+                name: "Segments",
+                group: "Bars",
+                defaultValue: .integer(8),
+                range: 3...24,
+                step: 1,
+                shownWhen: .init(parameter: Param.element, isAnyOf: [Element.segments.rawValue]),
+            ),
+
+            // ─── Layout ──────────────────────────────────────────────────
+            //
+            // A row by default, so every bank already placed stands where it
+            // stood.
+            EffectParameter(
+                id: Param.layout,
+                name: "Layout",
+                group: "Layout",
+                defaultValue: .choice(Layout.line.rawValue),
+                options: Layout.allCases.map(\.rawValue),
+            ),
+            EffectParameter(
+                id: Param.radius,
+                name: "Radius",
+                group: "Layout",
+                defaultValue: .number(120),
+                range: 10...400,
+                step: 1,
+                unit: "px",
+                shownWhen: .init(
+                    parameter: Param.layout,
+                    isAnyOf: [Layout.circle, .arc, .polygon].map(\.rawValue),
+                ),
+            ),
+            EffectParameter(
+                id: Param.arcSpan,
+                name: "Arc Span",
+                group: "Layout",
+                defaultValue: .number(180),
+                range: 20...360,
+                step: 1,
+                unit: "°",
+                shownWhen: .init(parameter: Param.layout, isAnyOf: [Layout.arc.rawValue]),
+            ),
+            EffectParameter(
+                id: Param.sides,
+                name: "Sides",
+                group: "Layout",
+                defaultValue: .integer(6),
+                range: 3...12,
+                step: 1,
+                shownWhen: .init(parameter: Param.layout, isAnyOf: [Layout.polygon.rawValue]),
+            ),
 
             // How often the audio is read.
             //
@@ -331,18 +412,31 @@ public struct AudioBarsEffect: Effect {
             in: start ... (start + duration),
             bands: bands,
             interval: interval,
+            using: context.audio,
         )
         guard !spectrum.isEmpty else { return [] }
 
-        // Laid out around the clip's centre, because a transform turns and
-        // scales about that point: a bank laid out from one corner would sweep
-        // one end round when rotated.
-        let spacing = width + gap
-        let span = spacing * Double(bands) - gap
-        let left = -span / 2 + width / 2
+        let layout = Layout(rawValue: context.choice(Param.layout)) ?? .line
+        let element = Element(rawValue: context.choice(Param.element)) ?? .bar
+        let placements = Self.placements(
+            layout,
+            count: bands,
+            spacing: width + gap,
+            radius: context.number(Param.radius),
+            arcSpan: context.number(Param.arcSpan),
+            sides: context.integer(Param.sides),
+        )
+
+        // Which way the bar extends from its root, along its own direction:
+        // out from the root, back towards it, or straddling it.
+        let extent: Double = switch grounding {
+        case .bottom: 1
+        case .top: -1
+        case .centre: 0
+        }
 
         var sprites: [StoryboardSprite] = []
-        sprites.reserveCapacity(bands)
+        sprites.reserveCapacity(element == .segments ? bands * context.integer(Param.segments) : bands)
 
         for band in 0 ..< bands {
             // Mirrored, each half runs treble-out from the middle, so the two
@@ -352,104 +446,270 @@ public struct AudioBarsEffect: Effect {
                 ? abs(band - (bands - 1) / 2) * 2 * bands / max(1, bands)
                 : band
             let reading = min(source, bands - 1)
+            let place = placements[band]
 
-            var sprite = StoryboardSprite(
-                id: "\(context.node.id)/bar\(band)",
-                layer: context.node.layer,
-                origin: grounding.origin,
-                filePath: path,
-                defaultX: TransformProperty.x.defaultValue + left + spacing * Double(band),
-                defaultY: TransformProperty.y.defaultValue,
-                commands: [],
-                loops: [],
+            let levels = spectrum.levels.map { frame in
+                Double(frame.indices.contains(reading) ? frame[reading] : 0)
+            }
+            let heights = levels.map { floor + (peak - floor) * $0 }
+
+            let root = (
+                x: TransformProperty.x.defaultValue + place.x,
+                y: TransformProperty.y.defaultValue + place.y,
             )
+            // A row points straight up, which is no rotation at all — and
+            // writing one anyway would rewrite every bank already placed.
+            let turn: Command? = abs(place.rotation) < 1e-9 ? nil : Command(
+                easing: .linear, startTime: 0, endTime: duration,
+                payload: .rotate(start: place.rotation, end: place.rotation),
+            )
+            let id = "\(context.node.id)/bar\(band)"
 
-            // The bar's width never changes, so it is one command for the life
-            // of the clip: only the height answers the music.
-            let scaleX = width / Self.sourceSize
-
-            var heights: [Double] = []
-            heights.reserveCapacity(spectrum.levels.count)
-            for frame in spectrum.levels {
-                let level = Double(frame.indices.contains(reading) ? frame[reading] : 0)
-                heights.append(floor + (peak - floor) * level)
-            }
-
-            var commands: [Command] = []
-            commands.reserveCapacity(heights.count + 3)
-
-            // Held for the clip rather than faded: a bank is placed, and any
-            // entrance it should have belongs to whoever placed it.
-            commands.append(Command(
-                easing: .linear,
-                startTime: 0,
-                endTime: duration,
-                payload: .fade(start: opacity, end: opacity),
-            ))
-
-            for (index, height) in heights.enumerated() {
-                let at = Double(index) * interval
-                let next = min(at + interval, duration)
-                guard next > at else { continue }
-
-                let from = index == 0 ? height : heights[index - 1]
-                commands.append(Command(
-                    easing: response.easing,
-                    startTime: at,
-                    endTime: next,
-                    payload: .vectorScale(
-                        startX: scaleX,
-                        startY: from / Self.sourceSize,
-                        endX: scaleX,
-                        endY: height / Self.sourceSize,
-                    ),
+            switch element {
+            case .bar:
+                var commands = [hold(opacity, over: duration)]
+                // The width never changes, so it is part of every frame's
+                // command rather than a command of its own.
+                let scaleX = width / Self.sourceSize
+                for (index, height) in heights.enumerated() {
+                    let at = Double(index) * interval
+                    let next = min(at + interval, duration)
+                    guard next > at else { continue }
+                    let from = index == 0 ? height : heights[index - 1]
+                    commands.append(Command(
+                        easing: response.easing, startTime: at, endTime: next,
+                        payload: .vectorScale(
+                            startX: scaleX, startY: from / Self.sourceSize,
+                            endX: scaleX, endY: height / Self.sourceSize,
+                        ),
+                    ))
+                }
+                if let turn { commands.append(turn) }
+                commands += tint(base: base, top: top, heights: heights, floor: floor, peak: peak, over: duration)
+                if additive { commands.append(glow(over: duration)) }
+                sprites.append(StoryboardSprite(
+                    id: id, layer: context.node.layer, origin: grounding.origin, filePath: path,
+                    defaultX: root.x, defaultY: root.y, commands: commands, loops: [],
                 ))
-            }
 
-            if base != top {
-                // The tint follows the tallest reading this bar reaches, so a
-                // band that never peaks stays in the base colour.
-                let loudest = heights.max() ?? floor
-                let reach = peak > floor ? (loudest - floor) / (peak - floor) : 0
-                let tint = EffectColor(
-                    r: base.r + (top.r - base.r) * reach,
-                    g: base.g + (top.g - base.g) * reach,
-                    b: base.b + (top.b - base.b) * reach,
+            case .dots:
+                sprites.append(dot(
+                    id: id, context: context, path: path, width: width, root: root,
+                    direction: place.direction, heights: heights, extent: extent, peak: peak, floor: floor,
+                    interval: interval, duration: duration, easing: response.easing,
+                    opacity: opacity, additive: additive,
+                    commands: tint(base: base, top: top, heights: heights, floor: floor, peak: peak, over: duration),
+                ))
+
+            case .segments:
+                sprites += segments(
+                    id: id, context: context, path: path, width: width, root: root, turn: turn,
+                    direction: place.direction, levels: levels, extent: extent, peak: peak,
+                    count: max(3, context.integer(Param.segments)), interval: interval,
+                    duration: duration, opacity: opacity, additive: additive, base: base, top: top,
                 )
-                commands.append(Command(
-                    easing: .linear,
-                    startTime: 0,
-                    endTime: duration,
-                    payload: .color(
-                        startR: tint.r, startG: tint.g, startB: tint.b,
-                        endR: tint.r, endG: tint.g, endB: tint.b,
-                    ),
-                ))
-            } else if base != EffectColor(r: 255, g: 255, b: 255) {
-                commands.append(Command(
-                    easing: .linear,
-                    startTime: 0,
-                    endTime: duration,
-                    payload: .color(
-                        startR: base.r, startG: base.g, startB: base.b,
-                        endR: base.r, endG: base.g, endB: base.b,
-                    ),
-                ))
             }
-
-            if additive {
-                commands.append(Command(
-                    easing: .linear,
-                    startTime: 0,
-                    endTime: duration,
-                    payload: .parameter(.additive),
-                ))
-            }
-
-            sprite.commands = commands
-            sprites.append(sprite)
         }
 
         return sprites
     }
+
+    private func hold(_ opacity: Double, over duration: Double) -> Command {
+        // Held for the clip rather than faded: a bank is placed, and any
+        // entrance it should have belongs to whoever placed it.
+        Command(easing: .linear, startTime: 0, endTime: duration, payload: .fade(start: opacity, end: opacity))
+    }
+
+    private func glow(over duration: Double) -> Command {
+        Command(easing: .linear, startTime: 0, endTime: duration, payload: .parameter(.additive))
+    }
+
+    private func colour(_ c: EffectColor, over duration: Double) -> Command {
+        Command(
+            easing: .linear, startTime: 0, endTime: duration,
+            payload: .color(startR: c.r, startG: c.g, startB: c.b, endR: c.r, endG: c.g, endB: c.b),
+        )
+    }
+
+    private static let white = EffectColor(r: 255, g: 255, b: 255)
+
+    /// The bar's colour: the base, pulled toward the peak colour as far as
+    /// this band's loudest reading reached — so a band that never peaks stays
+    /// in the base colour. White writes nothing: a tint that changes nothing
+    /// is a line of file for nothing, times every bar.
+    private func tint(
+        base: EffectColor,
+        top: EffectColor,
+        heights: [Double],
+        floor: Double,
+        peak: Double,
+        over duration: Double,
+    ) -> [Command] {
+        if base != top {
+            let loudest = heights.max() ?? floor
+            let reach = peak > floor ? (loudest - floor) / (peak - floor) : 0
+            return [colour(mix(base, top, reach), over: duration)]
+        }
+        return base == Self.white ? [] : [colour(base, over: duration)]
+    }
+
+    private func mix(_ a: EffectColor, _ b: EffectColor, _ t: Double) -> EffectColor {
+        EffectColor(r: a.r + (b.r - a.r) * t, g: a.g + (b.g - a.g) * t, b: a.b + (b.b - a.b) * t)
+    }
+
+    /// The size a texture is drawn at, so a dot or a segment asked for in px
+    /// comes out that size: the round shapes are 512, the straight ones 64.
+    private func sourceSize(of path: String) -> Double {
+        // The disc is one of the shapes but drawn large, so it is asked first.
+        if path == BuiltInSprite.disc { return 512 }
+        return BuiltInSprite.shapes.contains(path) ? 64 : 512
+    }
+
+    /// A dot riding where the bar's tip would be.
+    ///
+    /// It MOVES instead of scaling: one move per frame, the same cost as a
+    /// bar. Drawn with the disc when the bank is left on its default bar
+    /// texture — a square dot is a pixel, not a point — and with whatever the
+    /// author chose otherwise.
+    private func dot(
+        id: String,
+        context: EffectContext,
+        path: String,
+        width: Double,
+        root: (x: Double, y: Double),
+        direction: Double,
+        heights: [Double],
+        extent: Double,
+        peak: Double,
+        floor: Double,
+        interval: Double,
+        duration: Double,
+        easing: Easing,
+        opacity: Double,
+        additive: Bool,
+        commands tinting: [Command],
+    ) -> StoryboardSprite {
+        let file = path == BuiltInSprite.fill ? BuiltInSprite.disc : path
+        // Out from the root, back towards it, or around it: a centred dot rides
+        // either side of its line, which is what makes a row of them a wave.
+        let along = { (height: Double) -> Double in
+            extent == 0 ? height - (floor + peak) / 2 : height * extent
+        }
+        let at = { (height: Double) -> (x: Double, y: Double) in
+            (root.x + cos(direction) * along(height), root.y + sin(direction) * along(height))
+        }
+        let size = width / sourceSize(of: file)
+
+        var commands = [hold(opacity, over: duration)]
+        commands.append(Command(
+            easing: .linear, startTime: 0, endTime: duration,
+            payload: .scale(start: size, end: size),
+        ))
+        for (index, height) in heights.enumerated() {
+            let start = Double(index) * interval
+            let next = min(start + interval, duration)
+            guard next > start else { continue }
+            let from = at(index == 0 ? height : heights[index - 1])
+            let to = at(height)
+            commands.append(Command(
+                easing: easing, startTime: start, endTime: next,
+                payload: .move(startX: from.x, startY: from.y, endX: to.x, endY: to.y),
+            ))
+        }
+        commands += tinting
+        if additive { commands.append(glow(over: duration)) }
+
+        let first = at(heights.first ?? floor)
+        return StoryboardSprite(
+            id: id, layer: context.node.layer, origin: .centre, filePath: file,
+            defaultX: first.x, defaultY: first.y, commands: commands, loops: [],
+        )
+    }
+
+    /// A column of segments lighting up to the level, like an LED meter.
+    ///
+    /// Each segment only writes when it switches — lit or unlit — so a column
+    /// holding still costs nothing, where a bar pays every frame. The colour
+    /// ramps up the column, base at the root to peak at the top: green to red
+    /// is the meter everyone knows.
+    private func segments(
+        id: String,
+        context: EffectContext,
+        path: String,
+        width: Double,
+        root: (x: Double, y: Double),
+        turn: Command?,
+        direction: Double,
+        levels: [Double],
+        extent: Double,
+        peak: Double,
+        count: Int,
+        interval: Double,
+        duration: Double,
+        opacity: Double,
+        additive: Bool,
+        base: EffectColor,
+        top: EffectColor,
+    ) -> [StoryboardSprite] {
+        let step = peak / Double(count)
+        // A little gap between segments, or the column is one bar with lines
+        // drawn across it.
+        let length = step * 0.72
+        let source = sourceSize(of: path)
+        // A lit segment at the bank's opacity; an unlit one faint rather than
+        // gone, so the meter's shape is there even in silence.
+        let unlit = opacity * 0.12
+
+        return (0 ..< count).map { index in
+            let threshold = (Double(index) + 0.5) / Double(count)
+            let offset: Double = extent == 0
+                ? (Double(index) + 0.5) * step - peak / 2
+                : (Double(index) + 0.5) * step * extent
+
+            var commands: [Command] = []
+            // Runs of one state, written as holds: a segment pays for each
+            // switch, not for each frame.
+            var runStart = 0.0
+            var runLit = (levels.first ?? 0) >= threshold
+            for (frame, level) in levels.enumerated() {
+                let lit = level >= threshold
+                let time = Double(frame) * interval
+                if lit != runLit, time > runStart {
+                    let value = runLit ? opacity : unlit
+                    commands.append(Command(
+                        easing: .linear, startTime: runStart, endTime: time,
+                        payload: .fade(start: value, end: value),
+                    ))
+                    runStart = time
+                    runLit = lit
+                }
+            }
+            let last = runLit ? opacity : unlit
+            commands.append(Command(
+                easing: .linear, startTime: runStart, endTime: duration,
+                payload: .fade(start: last, end: last),
+            ))
+
+            commands.append(Command(
+                easing: .linear, startTime: 0, endTime: duration,
+                payload: .vectorScale(
+                    startX: width / source, startY: length / source,
+                    endX: width / source, endY: length / source,
+                ),
+            ))
+            if let turn { commands.append(turn) }
+            let ramp = count > 1 ? Double(index) / Double(count - 1) : 0
+            let shade = mix(base, top, ramp)
+            if shade != Self.white { commands.append(colour(shade, over: duration)) }
+            if additive { commands.append(glow(over: duration)) }
+
+            return StoryboardSprite(
+                id: "\(id)/seg\(index)", layer: context.node.layer, origin: .centre, filePath: path,
+                defaultX: root.x + cos(direction) * offset,
+                defaultY: root.y + sin(direction) * offset,
+                commands: commands, loops: [],
+            )
+        }
+    }
+
 }

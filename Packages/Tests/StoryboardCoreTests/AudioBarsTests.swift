@@ -162,14 +162,41 @@ struct AudioBarsTests {
     /// better than an effect that draws nothing because nobody installed it.
     @Test("bars still animate with no analyser installed")
     func fallbackAnimates() {
-        // Nothing is installed in tests, so this is the fallback path.
-        #expect(AudioSpectrum.analyse == nil)
+        // Nothing is handed to this evaluator, so this is the fallback path.
+        #expect(evaluator.audio == nil)
 
         let sprites = evaluator.evaluate(document())
         #expect(!sprites.isEmpty)
 
         let moved = heights(of: sprites.first!)
         #expect(Set(moved.map { Int($0) }).count > 3, "the placeholder did not move")
+    }
+
+    /// Each evaluator hears through ITS OWN analyser.
+    ///
+    /// The analyser was one global, installed by the app when a project opened
+    /// — the same shape as the script runtime that raced under parallel suites
+    /// until it was handed to each evaluator instead. A test that needs real
+    /// hits cannot use the stand-in, whose smooth sines have none, so it has
+    /// to install something; with a global, that is the race again.
+    @Test("an evaluator reads the song through its own analyser")
+    func analyserIsTheEvaluators() {
+        /// Every band at one fixed level, whatever is asked.
+        func flat(_ level: Float) -> AudioSpectrum.Analyser {
+            { range, bands, interval in
+                let count = max(1, Int((range.upperBound - range.lowerBound) / interval))
+                return AudioSpectrum.Frames(
+                    levels: Array(repeating: Array(repeating: level, count: bands), count: count),
+                    interval: interval,
+                )
+            }
+        }
+        let quiet = EffectEvaluator(audio: flat(0)).evaluate(document())
+        let loud = EffectEvaluator(audio: flat(1)).evaluate(document())
+
+        let quietest = quiet.flatMap { heights(of: $0) }.max() ?? 0
+        let loudest = loud.flatMap { heights(of: $0) }.min() ?? 0
+        #expect(loudest > quietest, "a silent song drew \(quietest)px bars and a full one \(loudest)px")
     }
 
     /// A stand-in has to reach the floor, or it says the effect cannot.

@@ -220,6 +220,19 @@ public struct FilterContext: Sendable {
     /// all. The group's motion has to be handed over, not inferred.
     public let transform: Transform
 
+    /// Where the clip's local zero sits in the song, in ms.
+    ///
+    /// A filter runs BEFORE the clip is shifted into place, so every time it
+    /// sees is local — and anything it asks of the song has to be asked in
+    /// song time. Without this a filter can only guess, and Beat Pulse guessed
+    /// that the two were the same: a clip starting off the beat pulsed off it
+    /// for its whole length. A filter that listens to the audio needs the same
+    /// number for the same reason.
+    public let clipStart: Double
+
+    /// What reads the song, for a filter that listens to it.
+    public let audio: AudioSpectrum.Analyser?
+
     private let values: [String: EffectValue]
 
     public init(
@@ -227,11 +240,15 @@ public struct FilterContext: Sendable {
         node: FilterNode,
         beat: BeatGrid? = nil,
         transform: Transform = Transform(),
+        clipStart: Double = 0,
+        audio: AudioSpectrum.Analyser? = nil,
     ) {
         self.descriptor = descriptor
         self.node = node
         self.beat = beat
         self.transform = transform
+        self.clipStart = clipStart
+        self.audio = audio
         idPrefix = node.id
 
         // Read through the declaration, so a node saved before a parameter
@@ -442,7 +459,7 @@ public struct FilterLibrary: Sendable {
         GlowFilter(), ShadowFilter(), BlurFilter(), TintFilter(),
         EchoFilter(), WiggleFilter(), LoopFilter(),
         TimeFilter(), EaseFilter(), RadialFilter(),
-        MirrorFilter(), ChromaticFilter(), PathFilter(), PulseFilter(), GridFilter(),
+        MirrorFilter(), ChromaticFilter(), PathFilter(), PulseFilter(), AudioDriveFilter(), GridFilter(),
         FadeFilter(),
     ])
 }

@@ -92,7 +92,7 @@ struct CompoundPresetTests {
                 continue
             }
             #expect(
-                BuiltInSprite.all.contains(path),
+                BuiltInSprite.isKnown(path),
                 "\(preset.id)/\(layer.name) uses an unknown sprite: \(path)",
             )
         }

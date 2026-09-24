@@ -53,7 +53,7 @@ public struct EffectLibrary: Sendable {
     ///
     /// Removing `ScriptEffect()` from this list turns scripting off entirely —
     /// nothing else reaches it, so this one line is the rollback.
-    public static let standard = EffectLibrary(effects: [ImageEffect(), ShapeEffect(), TextEffect(), EmitterEffect(), AudioBarsEffect(), ScriptEffect()])
+    public static let standard = EffectLibrary(effects: [ImageEffect(), ShapeEffect(), TextEffect(), EmitterEffect(), AudioBarsEffect(), AudioWavesEffect(), ScriptEffect()])
 }
 
 /// Turns placed effect nodes into the sprites the renderer and the exporter
@@ -75,14 +75,27 @@ public struct EffectEvaluator: Sendable {
     /// them disagree with the song and with each other.
     public var beat: BeatGrid?
 
+    /// What runs script clips. `nil` draws them empty and says why.
+    ///
+    /// The evaluator's own, not a global: see `ScriptRuntime.Runner`.
+    public var scriptRuntime: ScriptRuntime.Runner?
+
+    /// What reads the song. `nil` hears the stand-in wave. The evaluator's
+    /// own, not a global: see `AudioSpectrum.Analyser`.
+    public var audio: AudioSpectrum.Analyser?
+
     public init(
         library: EffectLibrary = .standard,
         filters: FilterLibrary = .standard,
         beat: BeatGrid? = nil,
+        scriptRuntime: ScriptRuntime.Runner? = nil,
+        audio: AudioSpectrum.Analyser? = nil,
     ) {
         self.library = library
         self.filters = filters
         self.beat = beat
+        self.scriptRuntime = scriptRuntime
+        self.audio = audio
     }
 
     /// Evaluates one node into sprites positioned on the project timeline.
@@ -94,7 +107,9 @@ public struct EffectEvaluator: Sendable {
         // these are the same answer; for one whose controls come from what the
         // author stored, only the node knows what it declared.
         let descriptor = effect.descriptor(for: node)
-        let context = EffectContext(descriptor: descriptor, node: node, beat: beat)
+        let context = EffectContext(
+            descriptor: descriptor, node: node, beat: beat, scriptRuntime: scriptRuntime, audio: audio,
+        )
         var rng = EffectRandom(seed: node.seed)
 
         var produced = effect.evaluate(in: context, rng: &rng)
@@ -138,6 +153,8 @@ public struct EffectEvaluator: Sendable {
                     node: filterNode,
                     beat: beat,
                     transform: node.transform,
+                    clipStart: node.startTime,
+                    audio: audio,
                 ),
             )
         }
@@ -189,7 +206,7 @@ public struct EffectEvaluator: Sendable {
                 let descriptor = Swift.type(of: filter).descriptor
                 return filter.duration(
                     of: running,
-                    in: FilterContext(descriptor: descriptor, node: filterNode, beat: beat),
+                    in: FilterContext(descriptor: descriptor, node: filterNode, beat: beat, clipStart: node.startTime),
                 )
             }
     }
@@ -206,7 +223,7 @@ public struct EffectEvaluator: Sendable {
                 guard let filter = filters.filter(for: filterNode.type) else { return total }
                 let descriptor = Swift.type(of: filter).descriptor
                 return total * filter.estimatedMultiplier(
-                    in: FilterContext(descriptor: descriptor, node: filterNode, beat: beat),
+                    in: FilterContext(descriptor: descriptor, node: filterNode, beat: beat, clipStart: node.startTime),
                 )
             }
     }

@@ -28,7 +28,13 @@ struct EditorWindow: View {
     /// the shell places and edits effects, and the canvas has to draw what they
     /// evaluate to. Neither feature may import the other, so the app holds the
     /// piece they share.
-    @State private var shell = EditorShellModel()
+    ///
+    /// The scripting runtime goes in here, into the shell's evaluator. Here
+    /// rather than in a feature because a feature would have to import the
+    /// engine, and features never import each other or reach past Core.
+    /// Captured by value — nothing @MainActor is touched, so the whole
+    /// evaluation stays off the main thread.
+    @State private var shell = EditorShellModel(scriptRuntime: { request in ScriptEngine().run(request) })
 
     var body: some View {
         let view = PlaybackView(
@@ -218,7 +224,7 @@ struct EditorWindow: View {
             // song's analysis costs memory for audio nobody will ask about
             // again.
             SpectrumCache.clear()
-            AudioSpectrum.analyse = { range, bands, interval in
+            shell.audioAnalyser = { range, bands, interval in
                 guard let trackURL = audioURL.url else { return nil }
                 return SpectrumCache.levels(
                     from: trackURL, range: range, bands: bands, interval: interval,

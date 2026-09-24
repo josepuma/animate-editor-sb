@@ -11,6 +11,11 @@ public extension EmitterEffect {
     static let presets: [EffectPreset] = [
         fire, smoke, sparks, snow, rain, storm, confetti, bubbles, stars, shockwave, magic,
         lightning, embers, flameJet, slashes, dust, bokeh, warp,
+        converge, fireflies, glitterFall, fountain, galaxy,
+        petals, nebula, lightStreaks, aurora, sparkler,
+        popDots, ringPulse, pixelDissolve, speedLines, dotRain,
+        fallingLeaves, dataRain, rayBurst, bubblePop, orbitDots,
+        spectrumFountain, bassBurst, trebleSparkles, beatDots, kickConfetti,
     ]
 
     private static func preset(
@@ -18,6 +23,7 @@ public extension EmitterEffect {
         _ name: String,
         _ summary: String,
         duration: Double = 4000,
+        pack: String? = nil,
         _ values: [String: EffectValue],
     ) -> EffectPreset {
         EffectPreset(
@@ -28,6 +34,7 @@ public extension EmitterEffect {
             duration: duration,
             values: descriptor.defaultValues.merging(values) { _, override in override },
             overrides: values,
+            pack: pack,
         )
     }
 
@@ -572,6 +579,670 @@ public extension EmitterEffect {
     ])
 }
 
+// ─── Lit ─────────────────────────────────────────────────────────────────────
+
+public extension EmitterEffect {
+    /// Everything drawn in toward one point: a charge, an implosion, energy
+    /// gathering before a hit.
+    ///
+    /// Radial's neutral Direction is 270 — the outward angle it adds to is
+    /// already in Direction's convention — so **90 turns the fan inward**. The
+    /// life is the rim's radius over the speed, with no randomness in either,
+    /// so every particle ends *at* the centre: a converge that overshoots
+    /// crosses to the far side and reads as a spray passing through.
+    static let converge = preset("converge", "Converge", "Light drawn in toward one point", [
+        Param.count: .integer(360),
+        Param.sprite: .text(BuiltInSprite.glow),
+        Param.shape: .choice(Shape.ring.rawValue),
+        Param.width: .number(600), Param.height: .number(600),
+        Param.radial: .toggle(true),
+        Param.direction: .number(90), Param.spread: .number(3),
+        // 300px of radius in 1200ms: 250px a second lands on the centre.
+        Param.velocity: .number(250), Param.velocityRandom: .number(0),
+        Param.gravity: .number(0), Param.drag: .number(0),
+        Param.life: .number(1200), Param.lifeRandom: .number(0),
+        Param.scaleStart: .number(0.2), Param.scaleEnd: .number(0.05),
+        Param.scaleRandom: .number(0.4),
+        Param.color: .color(EffectColor(r: 255, g: 190, b: 110)),
+        Param.colorEnd: .color(EffectColor(r: 255, g: 255, b: 235)),
+        Param.opacity: .number(0.7),
+        Param.fadeIn: .number(0.25), Param.fadeOut: .number(0.2),
+        Param.additive: .toggle(true),
+    ])
+
+    /// Slow, and mostly dark. A firefly is read by its blink: long fades on a
+    /// long life leave most of each one's time dim, so the field twinkles
+    /// instead of glowing evenly — an evenly lit swarm is just dots.
+    static let fireflies = preset("fireflies", "Fireflies", "Wandering points that glow and fade",
+                                  duration: 8000, [
+        Param.count: .integer(90),
+        Param.sprite: .text(BuiltInSprite.glow),
+        Param.shape: .choice(Shape.ellipse.rawValue),
+        Param.width: .number(760), Param.height: .number(380),
+        Param.spread: .number(180),
+        Param.velocity: .number(22), Param.velocityRandom: .number(0.8),
+        Param.gravity: .number(-6), Param.drag: .number(0.2),
+        Param.life: .number(3800), Param.lifeRandom: .number(0.4),
+        Param.scaleStart: .number(0.12), Param.scaleEnd: .number(0.08),
+        Param.scaleRandom: .number(0.5),
+        Param.color: .color(EffectColor(r: 225, g: 255, b: 130)),
+        Param.colorEnd: .color(EffectColor(r: 120, g: 200, b: 60)),
+        Param.opacity: .number(0.9),
+        Param.fadeIn: .number(0.4), Param.fadeOut: .number(0.45),
+        Param.additive: .toggle(true),
+    ])
+
+    /// Sparkles coming down slowly, turning as they go. The turning is the
+    /// glint: a four-pointed sparkle that holds still reads as a printed star,
+    /// one that rotates catches the light.
+    static let glitterFall = preset("glitter-fall", "Glitter Fall", "Sparkles drifting down and turning",
+                                    duration: 8000, [
+        Param.count: .integer(200),
+        Param.sprite: .text(BuiltInSprite.sparkle),
+        Param.x: .number(320), Param.y: .number(-30),
+        Param.width: .number(880), Param.height: .number(30),
+        Param.direction: .number(90), Param.spread: .number(15),
+        Param.velocity: .number(55), Param.velocityRandom: .number(0.5),
+        Param.gravity: .number(30), Param.drag: .number(0.4),
+        Param.life: .number(5500), Param.lifeRandom: .number(0.3),
+        // The pack's sparkle is 512px: 0.03 is a 15px glint.
+        Param.scaleStart: .number(0.03), Param.scaleEnd: .number(0.018),
+        Param.scaleRandom: .number(0.6),
+        Param.rotation: .number(360), Param.spin: .number(200),
+        Param.color: .color(EffectColor(r: 255, g: 255, b: 255)),
+        Param.colorEnd: .color(EffectColor(r: 255, g: 215, b: 120)),
+        Param.opacity: .number(0.9),
+        Param.fadeIn: .number(0.08), Param.fadeOut: .number(0.3),
+        Param.additive: .toggle(true),
+    ])
+
+    /// Up, then down. Speed and gravity are chosen together, because the arc
+    /// is their ratio: 520 a second against 900 of pull peaks 150px up at
+    /// just over half a second, and a 1400ms life brings every drop back down
+    /// past where it started — a fountain whose water never falls is a jet.
+    static let fountain = preset("fountain", "Fountain", "A jet that climbs and falls back in an arc", [
+        Param.count: .integer(240),
+        Param.sprite: .text(BuiltInSprite.glow),
+        Param.y: .number(420), Param.width: .number(20), Param.height: .number(4),
+        Param.direction: .number(270), Param.spread: .number(14),
+        Param.velocity: .number(520), Param.velocityRandom: .number(0.2),
+        Param.gravity: .number(900), Param.drag: .number(0.05),
+        Param.life: .number(1400), Param.lifeRandom: .number(0.2),
+        Param.scaleStart: .number(0.14), Param.scaleEnd: .number(0.05),
+        Param.scaleRandom: .number(0.4),
+        Param.color: .color(EffectColor(r: 210, g: 245, b: 255)),
+        Param.colorEnd: .color(EffectColor(r: 80, g: 160, b: 255)),
+        Param.opacity: .number(0.75),
+        Param.fadeIn: .number(0.05), Param.fadeOut: .number(0.4),
+        Param.additive: .toggle(true),
+    ])
+
+    /// A disc seen at an angle, its matter winding outward. `Swirl` bends each
+    /// particle off the straight radial toward the tangent, which is what
+    /// draws arms instead of a spray; `Tilt` lays the disc back so it reads as
+    /// a galaxy and not as a flower.
+    static let galaxy = preset("galaxy", "Galaxy", "A tilted disc of light winding outward",
+                               duration: 8000, [
+        Param.count: .integer(520),
+        Param.sprite: .text(BuiltInSprite.glow),
+        Param.shape: .choice(Shape.ellipse.rawValue),
+        Param.width: .number(200), Param.height: .number(200),
+        Param.radial: .toggle(true), Param.swirl: .number(70), Param.tilt: .number(62),
+        Param.direction: .number(270), Param.spread: .number(4),
+        Param.velocity: .number(38), Param.velocityRandom: .number(0.4),
+        Param.gravity: .number(0), Param.drag: .number(0),
+        Param.life: .number(3200), Param.lifeRandom: .number(0.3),
+        Param.scaleStart: .number(0.1), Param.scaleEnd: .number(0.04),
+        Param.scaleRandom: .number(0.5),
+        Param.usesColorMid: .toggle(true),
+        Param.color: .color(EffectColor(r: 255, g: 250, b: 235)),
+        Param.colorMid: .color(EffectColor(r: 190, g: 150, b: 255)),
+        Param.colorEnd: .color(EffectColor(r: 70, g: 50, b: 190)),
+        Param.opacity: .number(0.6),
+        Param.fadeIn: .number(0.2), Param.fadeOut: .number(0.45),
+        Param.additive: .toggle(true),
+    ])
+
+    /// Blossom coming down. Paint, not light: a petal is a flat piece of
+    /// something, and additive would turn it into a pink glow.
+    ///
+    /// Squashed to half its height and spinning, so it flips between edge-on
+    /// and face-on as it falls — the flutter that tells a petal from a dot.
+    /// Built from the adjustable dot with a short soft edge, because a petal
+    /// is not cut out of paper the way a flat-family shape is.
+    static let petals = preset("petals", "Petals", "Blossom fluttering down",
+                               duration: 10_000, [
+        Param.count: .integer(90),
+        Param.sprite: .text(""),
+        Param.core: .number(1), Param.edge: .number(0.75), Param.softness: .number(0.25),
+        Param.x: .number(320), Param.y: .number(-30),
+        Param.width: .number(900), Param.height: .number(30),
+        Param.direction: .number(100), Param.spread: .number(25),
+        Param.velocity: .number(60), Param.velocityRandom: .number(0.5),
+        Param.gravity: .number(25), Param.drag: .number(0.4),
+        Param.life: .number(7000), Param.lifeRandom: .number(0.3),
+        // The adjustable dot is drawn at 512: 0.03 is a 15px petal.
+        Param.scaleStart: .number(0.03), Param.scaleEnd: .number(0.03),
+        Param.scaleRandom: .number(0.4),
+        Param.stretch: .number(0.45),
+        Param.rotation: .number(360), Param.spin: .number(180),
+        Param.color: .color(EffectColor(r: 255, g: 200, b: 220)),
+        Param.colorEnd: .color(EffectColor(r: 255, g: 160, b: 195)),
+        Param.opacity: .number(0.95),
+        Param.fadeIn: .number(0.05), Param.fadeOut: .number(0.15),
+        Param.additive: .toggle(false),
+    ])
+
+    /// Gas lit from inside: few, huge, barely moving and very faint. A nebula
+    /// is read as colour pooling, so every cloud is dim on its own — the pink
+    /// and the blue meet where they overlap, which is what additive is for.
+    static let nebula = preset("nebula", "Nebula", "Slow clouds of coloured gas",
+                               duration: 10_000, [
+        Param.count: .integer(40),
+        Param.sprite: .text(BuiltInSprite.cloud),
+        Param.shape: .choice(Shape.ellipse.rawValue),
+        Param.width: .number(500), Param.height: .number(260),
+        Param.spread: .number(180),
+        Param.velocity: .number(6), Param.velocityRandom: .number(0.5),
+        Param.gravity: .number(0), Param.drag: .number(0),
+        Param.life: .number(6000), Param.lifeRandom: .number(0.3),
+        // The pack's smoke is 512px: a 200px cloud growing to 280.
+        Param.scaleStart: .number(0.4), Param.scaleEnd: .number(0.55),
+        Param.scaleRandom: .number(0.4),
+        Param.rotation: .number(360), Param.spin: .number(8),
+        Param.usesColorMid: .toggle(true),
+        Param.color: .color(EffectColor(r: 120, g: 80, b: 255)),
+        Param.colorMid: .color(EffectColor(r: 255, g: 90, b: 180)),
+        Param.colorEnd: .color(EffectColor(r: 40, g: 120, b: 255)),
+        Param.opacity: .number(0.22),
+        Param.fadeIn: .number(0.35), Param.fadeOut: .number(0.4),
+        Param.additive: .toggle(true),
+    ])
+
+    /// Anamorphic streaks — the long horizontal flares a lens throws — drifting
+    /// across the frame. A handful, slow and faint: light streaks are an
+    /// accent over something, never the subject.
+    static let lightStreaks = preset("light-streaks", "Light Streaks", "Long horizontal flares drifting across",
+                                     duration: 8000, [
+        Param.count: .integer(14),
+        Param.sprite: .text(BuiltInSprite.beam),
+        Param.x: .number(-100), Param.y: .number(240),
+        Param.width: .number(40), Param.height: .number(360),
+        Param.direction: .number(0), Param.spread: .number(2),
+        Param.velocity: .number(160), Param.velocityRandom: .number(0.4),
+        Param.gravity: .number(0), Param.drag: .number(0),
+        Param.life: .number(6000), Param.lifeRandom: .number(0.3),
+        // The beam is 512px: 128px long, lying along its travel.
+        Param.scaleStart: .number(0.25), Param.scaleEnd: .number(0.25),
+        Param.scaleRandom: .number(0.5),
+        Param.alignToMotion: .toggle(true),
+        Param.color: .color(EffectColor(r: 150, g: 205, b: 255)),
+        Param.colorEnd: .color(EffectColor(r: 90, g: 140, b: 255)),
+        Param.opacity: .number(0.35),
+        Param.fadeIn: .number(0.3), Param.fadeOut: .number(0.4),
+        Param.additive: .toggle(true),
+    ])
+
+    /// Curtains of light hanging in the sky. They drift sideways and never
+    /// turn: an aurora is a sheet seen edge-on from below, and one that
+    /// tumbles is smoke. Stretched tall for the same reason.
+    static let aurora = preset("aurora", "Aurora", "Hanging curtains of green and violet light",
+                               duration: 10_000, [
+        Param.count: .integer(30),
+        Param.sprite: .text(BuiltInSprite.cloudWisp),
+        Param.y: .number(140), Param.width: .number(700), Param.height: .number(60),
+        Param.direction: .number(0), Param.spread: .number(10),
+        Param.velocity: .number(12), Param.velocityRandom: .number(0.6),
+        Param.gravity: .number(0), Param.drag: .number(0),
+        Param.life: .number(7000), Param.lifeRandom: .number(0.3),
+        // The wisp is 512px: 256 across, twice that tall.
+        Param.scaleStart: .number(0.5), Param.scaleEnd: .number(0.5),
+        Param.scaleRandom: .number(0.3),
+        Param.stretch: .number(2),
+        Param.rotation: .number(0), Param.spin: .number(0),
+        Param.usesColorMid: .toggle(true),
+        Param.color: .color(EffectColor(r: 90, g: 255, b: 170)),
+        Param.colorMid: .color(EffectColor(r: 60, g: 200, b: 255)),
+        Param.colorEnd: .color(EffectColor(r: 170, g: 90, b: 255)),
+        Param.opacity: .number(0.2),
+        Param.fadeIn: .number(0.35), Param.fadeOut: .number(0.4),
+        Param.additive: .toggle(true),
+    ])
+
+    /// A sparkler: short branching sparks spat from one point. The spark
+    /// texture is what branches — nothing on a closed path can split — and
+    /// the life is what keeps it a sparkler: long enough to arc and it is a
+    /// fountain.
+    static let sparkler = preset("sparkler", "Sparkler", "Short branching sparks spat from a point", [
+        Param.count: .integer(400),
+        Param.sprite: .text(BuiltInSprite.lightning),
+        Param.shape: .choice(Shape.point.rawValue),
+        Param.direction: .number(270), Param.spread: .number(180),
+        Param.velocity: .number(260), Param.velocityRandom: .number(0.6),
+        Param.gravity: .number(300), Param.drag: .number(0.2),
+        Param.life: .number(260), Param.lifeRandom: .number(0.5),
+        // The spark is 512px: a 26px crackle burning down to 10.
+        Param.scaleStart: .number(0.05), Param.scaleEnd: .number(0.02),
+        Param.scaleRandom: .number(0.5),
+        Param.rotation: .number(360),
+        Param.color: .color(EffectColor(r: 255, g: 250, b: 220)),
+        Param.colorEnd: .color(EffectColor(r: 255, g: 170, b: 60)),
+        Param.opacity: .number(1),
+        Param.fadeIn: .number(0), Param.fadeOut: .number(0.5),
+        Param.additive: .toggle(true),
+    ])
+}
+
+// ─── Flat ────────────────────────────────────────────────────────────────────
+//
+// For storyboards that are DRAWN rather than lit: motion graphics, cartoon,
+// flat design. Everything above is additive light, and a library made only of
+// glows forces every storyboard into one look.
+//
+// Three rules hold across the family, and a test checks the first two:
+//
+//   1. **Not additive.** Flat colour sits on top of what is behind it. Light
+//      adds; paint covers.
+//   2. **Hard edges.** `disc`, `fill` and the `hoop` family — shapes that end
+//      at a line. A soft dot is a light, whatever blend it uses.
+//   3. **Snappy, not floaty.** Flat motion reads through timing: things pop,
+//      snap and land. High drag or a sudden shrink says "designed"; long
+//      drifting fades say "atmosphere", which is the other family's job.
+
+public extension EmitterEffect {
+    /// A burst of flat dots: out fast, braking hard, shrinking to nothing.
+    /// The shrink is the pop — a dot that fades out instead reads as a light
+    /// going off. Colour variety because a motion-graphics burst is a palette,
+    /// not a hue.
+    static let popDots = preset("pop-dots", "Pop Dots", "Flat dots bursting out and popping away",
+                                duration: 1000, pack: "Flat", [
+        Param.count: .integer(36),
+        Param.emission: .choice(Emission.burst.rawValue),
+        Param.sprite: .text(BuiltInSprite.disc),
+        Param.shape: .choice(Shape.point.rawValue),
+        Param.radial: .toggle(true),
+        Param.direction: .number(270), Param.spread: .number(0),
+        Param.velocity: .number(420), Param.velocityRandom: .number(0.5),
+        Param.gravity: .number(0), Param.drag: .number(0.85),
+        Param.life: .number(700), Param.lifeRandom: .number(0.3),
+        // The disc is drawn at 512: 0.07 is a 36px dot.
+        Param.scaleStart: .number(0.07), Param.scaleEnd: .number(0),
+        Param.scaleRandom: .number(0.6),
+        Param.color: .color(EffectColor(r: 255, g: 90, b: 120)),
+        Param.colorEnd: .color(EffectColor(r: 255, g: 90, b: 120)),
+        Param.colorVariety: .number(0.6),
+        Param.opacity: .number(1),
+        Param.fadeIn: .number(0), Param.fadeOut: .number(0.1),
+        Param.additive: .toggle(false),
+    ])
+
+    /// Outlines opening from one point, one after another. One ring per
+    /// clump, evenly spaced: a pulse is a rhythm, and three rings landing on
+    /// the same instant are one thick ring.
+    static let ringPulse = preset("ring-pulse", "Ring Pulse", "Flat outlines opening on a steady beat",
+                                  pack: "Flat", [
+        Param.count: .integer(6),
+        Param.emission: .choice(Emission.bursts.rawValue),
+        Param.burstCount: .integer(6),
+        Param.sprite: .text(BuiltInSprite.hoop(thickness: 0.06)),
+        Param.shape: .choice(Shape.point.rawValue),
+        Param.velocity: .number(0), Param.velocityRandom: .number(0),
+        Param.spread: .number(0), Param.gravity: .number(0), Param.drag: .number(0),
+        Param.life: .number(1100), Param.lifeRandom: .number(0),
+        // Drawn at 512: from a 25px ring to a 360px one.
+        Param.scaleStart: .number(0.05), Param.scaleEnd: .number(0.7),
+        Param.scaleRandom: .number(0),
+        Param.color: .color(EffectColor(r: 255, g: 255, b: 255)),
+        Param.colorEnd: .color(EffectColor(r: 255, g: 255, b: 255)),
+        Param.opacity: .number(1),
+        Param.fadeIn: .number(0), Param.fadeOut: .number(0.6),
+        Param.additive: .toggle(false),
+    ])
+
+    /// Something coming apart into squares that float off. They never turn: a
+    /// rotated square is a diamond, and the moment one tilts it stops reading
+    /// as a pixel and starts reading as confetti.
+    static let pixelDissolve = preset("pixel-dissolve", "Pixel Dissolve", "Square pixels lifting off and shrinking",
+                                      duration: 3000, pack: "Flat", [
+        Param.count: .integer(260),
+        Param.sprite: .text(BuiltInSprite.fill),
+        Param.width: .number(260), Param.height: .number(60),
+        Param.direction: .number(270), Param.spread: .number(25),
+        Param.velocity: .number(70), Param.velocityRandom: .number(0.6),
+        Param.gravity: .number(-40), Param.drag: .number(0.2),
+        Param.life: .number(1600), Param.lifeRandom: .number(0.4),
+        // `fill` is drawn at 64: 0.14 is a 9px pixel.
+        Param.scaleStart: .number(0.14), Param.scaleEnd: .number(0.02),
+        Param.scaleRandom: .number(0.5),
+        Param.rotation: .number(0), Param.spin: .number(0),
+        Param.alignToMotion: .toggle(false),
+        Param.color: .color(EffectColor(r: 120, g: 220, b: 255)),
+        Param.colorEnd: .color(EffectColor(r: 40, g: 80, b: 255)),
+        Param.colorVariety: .number(0.1),
+        Param.opacity: .number(1),
+        Param.fadeIn: .number(0.05), Param.fadeOut: .number(0.4),
+        Param.additive: .toggle(false),
+    ])
+
+    /// Anime speed lines: hard white strokes crossing the frame, one way.
+    /// Emitted from a tall line off the left edge with no spread, so every
+    /// stroke is horizontal — a speed line at an angle is a slash.
+    static let speedLines = preset("speed-lines", "Speed Lines", "Hard strokes rushing across the frame",
+                                   duration: 3000, pack: "Flat", [
+        Param.count: .integer(160),
+        Param.sprite: .text(BuiltInSprite.fill),
+        Param.x: .number(-160), Param.y: .number(240),
+        Param.width: .number(40), Param.height: .number(520),
+        Param.direction: .number(0), Param.spread: .number(0),
+        Param.velocity: .number(1800), Param.velocityRandom: .number(0.3),
+        Param.gravity: .number(0), Param.drag: .number(0),
+        Param.life: .number(700), Param.lifeRandom: .number(0.3),
+        // `fill` is 64px: 0.08 is a 5px stroke, and the stretch draws it
+        // twenty times longer along its travel.
+        Param.scaleStart: .number(0.08), Param.scaleEnd: .number(0.08),
+        Param.scaleRandom: .number(0.5),
+        Param.stretch: .number(20), Param.alignToMotion: .toggle(true),
+        Param.color: .color(EffectColor(r: 255, g: 255, b: 255)),
+        Param.colorEnd: .color(EffectColor(r: 255, g: 255, b: 255)),
+        Param.opacity: .number(0.85),
+        Param.fadeIn: .number(0.1), Param.fadeOut: .number(0.3),
+        Param.additive: .toggle(false),
+    ])
+
+    /// Polka dots falling like rain. Rain in a drawn storyboard: the same
+    /// fall, with discs instead of streaks and a palette instead of grey.
+    static let dotRain = preset("dot-rain", "Dot Rain", "Flat coloured dots falling",
+                                duration: 6000, pack: "Flat", [
+        Param.count: .integer(260),
+        Param.sprite: .text(BuiltInSprite.disc),
+        Param.x: .number(320), Param.y: .number(-20),
+        Param.width: .number(900), Param.height: .number(20),
+        Param.direction: .number(90), Param.spread: .number(4),
+        Param.velocity: .number(380), Param.velocityRandom: .number(0.3),
+        Param.gravity: .number(200), Param.drag: .number(0),
+        Param.life: .number(1800), Param.lifeRandom: .number(0.2),
+        // The disc is 512: 0.018 is a 9px dot.
+        Param.scaleStart: .number(0.018), Param.scaleEnd: .number(0.018),
+        Param.scaleRandom: .number(0.5),
+        Param.color: .color(EffectColor(r: 90, g: 200, b: 255)),
+        Param.colorEnd: .color(EffectColor(r: 90, g: 200, b: 255)),
+        Param.colorVariety: .number(0.5),
+        Param.opacity: .number(1),
+        Param.fadeIn: .number(0.02), Param.fadeOut: .number(0.1),
+        Param.additive: .toggle(false),
+    ])
+
+    /// Autumn leaves in flat colour: the petal's tumble, heavier and slower to
+    /// turn over, in a narrow band of ochres rather than a whole wheel.
+    static let fallingLeaves = preset("falling-leaves", "Falling Leaves", "Flat leaves tumbling down",
+                                      duration: 10_000, pack: "Flat", [
+        Param.count: .integer(45),
+        Param.sprite: .text(BuiltInSprite.disc),
+        Param.x: .number(320), Param.y: .number(-30),
+        Param.width: .number(900), Param.height: .number(30),
+        Param.direction: .number(105), Param.spread: .number(30),
+        Param.velocity: .number(45), Param.velocityRandom: .number(0.5),
+        Param.gravity: .number(30), Param.drag: .number(0.5),
+        Param.life: .number(8000), Param.lifeRandom: .number(0.3),
+        // The disc is 512: an 18px leaf, squashed to half its height.
+        Param.scaleStart: .number(0.035), Param.scaleEnd: .number(0.035),
+        Param.scaleRandom: .number(0.4),
+        Param.stretch: .number(0.5),
+        Param.rotation: .number(360), Param.spin: .number(260),
+        Param.color: .color(EffectColor(r: 230, g: 140, b: 40)),
+        Param.colorEnd: .color(EffectColor(r: 180, g: 70, b: 20)),
+        Param.colorVariety: .number(0.12),
+        Param.opacity: .number(1),
+        Param.fadeIn: .number(0.05), Param.fadeOut: .number(0.15),
+        Param.additive: .toggle(false),
+    ])
+
+    /// Falling code, the drawn way: thin green strokes dropping straight.
+    /// No spread at all — a column of data that drifts sideways is rain.
+    static let dataRain = preset("data-rain", "Data Rain", "Thin green strokes falling in columns",
+                                 duration: 6000, pack: "Flat", [
+        Param.count: .integer(260),
+        Param.sprite: .text(BuiltInSprite.fill),
+        Param.x: .number(320), Param.y: .number(-20),
+        Param.width: .number(900), Param.height: .number(20),
+        Param.direction: .number(90), Param.spread: .number(0),
+        Param.velocity: .number(520), Param.velocityRandom: .number(0.4),
+        Param.gravity: .number(0), Param.drag: .number(0),
+        Param.life: .number(1300), Param.lifeRandom: .number(0.3),
+        // `fill` is 64px: a 3px stroke, fourteen times as long.
+        Param.scaleStart: .number(0.05), Param.scaleEnd: .number(0.05),
+        Param.scaleRandom: .number(0.4),
+        Param.stretch: .number(14), Param.alignToMotion: .toggle(true),
+        Param.color: .color(EffectColor(r: 120, g: 255, b: 150)),
+        Param.colorEnd: .color(EffectColor(r: 0, g: 140, b: 60)),
+        Param.opacity: .number(0.9),
+        Param.fadeIn: .number(0.02), Param.fadeOut: .number(0.4),
+        Param.additive: .toggle(false),
+    ])
+
+    /// The motion-graphics starburst: strokes fired out of one point and
+    /// braking hard, so the burst is a single snap rather than a spray.
+    static let rayBurst = preset("ray-burst", "Ray Burst", "Flat strokes snapping out of a point",
+                                 duration: 700, pack: "Flat", [
+        Param.count: .integer(24),
+        Param.emission: .choice(Emission.burst.rawValue),
+        Param.sprite: .text(BuiltInSprite.fill),
+        Param.shape: .choice(Shape.point.rawValue),
+        Param.radial: .toggle(true),
+        Param.direction: .number(270), Param.spread: .number(0),
+        Param.velocity: .number(700), Param.velocityRandom: .number(0.3),
+        Param.gravity: .number(0), Param.drag: .number(0.9),
+        Param.life: .number(500), Param.lifeRandom: .number(0.2),
+        // `fill` is 64px: a 4px ray, sixteen times as long, thinning out.
+        Param.scaleStart: .number(0.06), Param.scaleEnd: .number(0.02),
+        Param.scaleRandom: .number(0.3),
+        Param.stretch: .number(16), Param.alignToMotion: .toggle(true),
+        Param.color: .color(EffectColor(r: 255, g: 230, b: 90)),
+        Param.colorEnd: .color(EffectColor(r: 255, g: 230, b: 90)),
+        Param.opacity: .number(1),
+        Param.fadeIn: .number(0), Param.fadeOut: .number(0.5),
+        Param.additive: .toggle(false),
+    ])
+
+    /// Outline bubbles rising and swelling, gone on a short fade — the pop.
+    /// The bubbles preset is a soft halo; this one is drawn.
+    static let bubblePop = preset("bubble-pop", "Bubble Pop", "Outline bubbles rising and popping",
+                                  duration: 6000, pack: "Flat", [
+        Param.count: .integer(60),
+        Param.sprite: .text(BuiltInSprite.hoop(thickness: 0.1)),
+        Param.y: .number(500), Param.width: .number(700), Param.height: .number(20),
+        Param.direction: .number(270), Param.spread: .number(10),
+        Param.velocity: .number(90), Param.velocityRandom: .number(0.5),
+        Param.gravity: .number(-20), Param.drag: .number(0.3),
+        Param.life: .number(3200), Param.lifeRandom: .number(0.4),
+        // The hoop is 512: an 18px bubble swelling to 30.
+        Param.scaleStart: .number(0.035), Param.scaleEnd: .number(0.06),
+        Param.scaleRandom: .number(0.5),
+        Param.color: .color(EffectColor(r: 120, g: 210, b: 255)),
+        Param.colorEnd: .color(EffectColor(r: 120, g: 210, b: 255)),
+        Param.colorVariety: .number(0.2),
+        Param.opacity: .number(1),
+        Param.fadeIn: .number(0.1), Param.fadeOut: .number(0.08),
+        Param.additive: .toggle(false),
+    ])
+
+    /// Dots running round a ring. A ring of particles cannot turn as an
+    /// object — each is born where it is born — so what circulates is the
+    /// procession: every dot leaves on the tangent, runs a short hop along
+    /// the rim and dies with another behind it. A long hop leaves the ring
+    /// in a straight line, which is why the life is short and the count high.
+    static let orbitDots = preset("orbit-dots", "Orbit Dots", "Flat dots running round a ring",
+                                  duration: 5000, pack: "Flat", [
+        Param.count: .integer(700),
+        Param.sprite: .text(BuiltInSprite.disc),
+        Param.shape: .choice(Shape.ring.rawValue),
+        Param.width: .number(300), Param.height: .number(300),
+        Param.radial: .toggle(true), Param.swirl: .number(90),
+        Param.direction: .number(270), Param.spread: .number(0),
+        Param.velocity: .number(90), Param.velocityRandom: .number(0.2),
+        Param.gravity: .number(0), Param.drag: .number(0),
+        Param.life: .number(500), Param.lifeRandom: .number(0.1),
+        // The disc is 512: a 13px dot shrinking to 8.
+        Param.scaleStart: .number(0.025), Param.scaleEnd: .number(0.015),
+        Param.scaleRandom: .number(0.3),
+        Param.color: .color(EffectColor(r: 255, g: 120, b: 160)),
+        Param.colorEnd: .color(EffectColor(r: 255, g: 120, b: 160)),
+        Param.colorVariety: .number(0.5),
+        Param.opacity: .number(1),
+        Param.fadeIn: .number(0.1), Param.fadeOut: .number(0.3),
+        Param.additive: .toggle(false),
+    ])
+}
+
+// ─── Audio ───────────────────────────────────────────────────────────────────
+//
+// Emitters that listen to the song under their clip. They draw from where
+// they sit on the timeline, so dragging one changes what it hears — which is
+// what reacting to the music means, and the one place in the library where
+// moving a clip does not move the same particles.
+
+public extension EmitterEffect {
+    /// Jets thrown up from every band of the song at once: an equaliser made
+    /// of water. Each column fires when its band is loud, and Reactivity sends
+    /// a hit higher than a hum.
+    static let spectrumFountain = preset("spectrum-fountain", "Spectrum Fountain",
+                                         "Jets thrown up from each band as it plays",
+                                         duration: 8000, pack: "Audio", [
+        Param.count: .integer(700),
+        Param.emission: .choice(Emission.audio.rawValue),
+        Param.audioBand: .choice(AudioBand.all.rawValue),
+        Param.audioContrast: .number(2.5),
+        Param.audioReactivity: .number(0.8),
+        Param.shape: .choice(Shape.spectrum.rawValue),
+        Param.spectrumBands: .integer(16),
+        Param.sprite: .text(BuiltInSprite.glow),
+        Param.y: .number(400), Param.width: .number(700), Param.height: .number(4),
+        Param.direction: .number(270), Param.spread: .number(6),
+        Param.velocity: .number(380), Param.velocityRandom: .number(0.2),
+        Param.gravity: .number(500), Param.drag: .number(0),
+        Param.life: .number(1100), Param.lifeRandom: .number(0.2),
+        Param.scaleStart: .number(0.1), Param.scaleEnd: .number(0.03),
+        Param.scaleRandom: .number(0.3),
+        Param.color: .color(EffectColor(r: 190, g: 240, b: 255)),
+        Param.colorEnd: .color(EffectColor(r: 90, g: 120, b: 255)),
+        Param.opacity: .number(0.8),
+        Param.fadeIn: .number(0.03), Param.fadeOut: .number(0.4),
+        Param.additive: .toggle(true),
+    ])
+
+    /// A burst on every kick. High contrast is the whole trick: at 1 the
+    /// births follow the bass as a swell; at 4 almost all of them land on the
+    /// hits, so each one reads as its own blast.
+    static let bassBurst = preset("bass-burst", "Bass Burst", "A blast of light on every kick",
+                                  duration: 8000, pack: "Audio", [
+        Param.count: .integer(500),
+        Param.emission: .choice(Emission.audio.rawValue),
+        Param.audioBand: .choice(AudioBand.bass.rawValue),
+        Param.audioContrast: .number(4),
+        Param.audioReactivity: .number(1),
+        Param.shape: .choice(Shape.point.rawValue),
+        Param.radial: .toggle(true),
+        Param.sprite: .text(BuiltInSprite.glow),
+        Param.direction: .number(270), Param.spread: .number(0),
+        Param.velocity: .number(260), Param.velocityRandom: .number(0.3),
+        Param.gravity: .number(0), Param.drag: .number(0.6),
+        Param.life: .number(900), Param.lifeRandom: .number(0.3),
+        Param.scaleStart: .number(0.14), Param.scaleEnd: .number(0.02),
+        Param.scaleRandom: .number(0.4),
+        Param.color: .color(EffectColor(r: 255, g: 240, b: 220)),
+        Param.colorEnd: .color(EffectColor(r: 255, g: 80, b: 60)),
+        Param.opacity: .number(0.8),
+        Param.fadeIn: .number(0), Param.fadeOut: .number(0.5),
+        Param.additive: .toggle(true),
+    ])
+
+    /// Glints that come and go with the hi-hats. Barely moving and short-
+    /// lived, so what the eye follows is when they appear — which is the
+    /// rhythm of the top of the mix.
+    static let trebleSparkles = preset("treble-sparkles", "Treble Sparkles",
+                                       "Glints that flicker with the hi-hats",
+                                       duration: 8000, pack: "Audio", [
+        Param.count: .integer(400),
+        Param.emission: .choice(Emission.audio.rawValue),
+        Param.audioBand: .choice(AudioBand.highs.rawValue),
+        Param.audioContrast: .number(3),
+        Param.shape: .choice(Shape.ellipse.rawValue),
+        Param.sprite: .text(BuiltInSprite.sparkle),
+        Param.width: .number(700), Param.height: .number(380),
+        Param.spread: .number(180),
+        Param.velocity: .number(10), Param.velocityRandom: .number(0.5),
+        Param.gravity: .number(0), Param.drag: .number(0),
+        Param.life: .number(700), Param.lifeRandom: .number(0.3),
+        // The pack's sparkle is 512px: a 15px glint.
+        Param.scaleStart: .number(0.03), Param.scaleEnd: .number(0.01),
+        Param.scaleRandom: .number(0.5),
+        Param.rotation: .number(360), Param.spin: .number(200),
+        Param.color: .color(EffectColor(r: 255, g: 255, b: 255)),
+        Param.colorEnd: .color(EffectColor(r: 200, g: 220, b: 255)),
+        Param.opacity: .number(0.9),
+        Param.fadeIn: .number(0.1), Param.fadeOut: .number(0.4),
+        Param.additive: .toggle(true),
+    ])
+
+    /// The spectrum in flat colour: dots hopping up off their band's slot and
+    /// dropping back, like a bouncing equaliser. Paint, not light — the audio
+    /// family is not only glows either.
+    static let beatDots = preset("beat-dots", "Beat Dots", "Flat dots hopping off each band",
+                                 duration: 8000, pack: "Audio", [
+        Param.count: .integer(500),
+        Param.emission: .choice(Emission.audio.rawValue),
+        Param.audioBand: .choice(AudioBand.all.rawValue),
+        Param.audioContrast: .number(2),
+        Param.audioReactivity: .number(0.6),
+        Param.shape: .choice(Shape.spectrum.rawValue),
+        Param.spectrumBands: .integer(12),
+        Param.sprite: .text(BuiltInSprite.disc),
+        Param.y: .number(380), Param.width: .number(640), Param.height: .number(2),
+        Param.direction: .number(270), Param.spread: .number(0),
+        Param.velocity: .number(300), Param.velocityRandom: .number(0.1),
+        Param.gravity: .number(900), Param.drag: .number(0),
+        Param.life: .number(650), Param.lifeRandom: .number(0.1),
+        // The disc is 512: a 14px dot.
+        Param.scaleStart: .number(0.028), Param.scaleEnd: .number(0.028),
+        Param.scaleRandom: .number(0.2),
+        Param.color: .color(EffectColor(r: 255, g: 110, b: 150)),
+        Param.colorEnd: .color(EffectColor(r: 255, g: 110, b: 150)),
+        Param.colorVariety: .number(0.5),
+        Param.opacity: .number(1),
+        Param.fadeIn: .number(0.02), Param.fadeOut: .number(0.15),
+        Param.additive: .toggle(false),
+    ])
+}
+
+public extension EmitterEffect {
+    /// Confetti thrown on the kicks. Contrast high enough that almost every
+    /// piece lands on a hit — a celebration that keeps time with the song
+    /// rather than drifting over it. Paper, not light.
+    static let kickConfetti = preset("kick-confetti", "Kick Confetti", "Confetti thrown on every kick",
+                                     duration: 8000, pack: "Audio", [
+        Param.count: .integer(400),
+        Param.emission: .choice(Emission.audio.rawValue),
+        Param.audioBand: .choice(AudioBand.bass.rawValue),
+        Param.audioContrast: .number(5),
+        Param.shape: .choice(Shape.point.rawValue),
+        Param.radial: .toggle(true),
+        Param.sprite: .text(BuiltInSprite.square),
+        Param.direction: .number(270), Param.spread: .number(0),
+        Param.velocity: .number(320), Param.velocityRandom: .number(0.5),
+        Param.gravity: .number(500), Param.drag: .number(0.4),
+        Param.life: .number(1600), Param.lifeRandom: .number(0.3),
+        Param.scaleStart: .number(0.11), Param.scaleEnd: .number(0.11),
+        Param.scaleRandom: .number(0.4),
+        Param.stretch: .number(0.45),
+        Param.rotation: .number(360), Param.spin: .number(540),
+        Param.color: .color(EffectColor(r: 255, g: 90, b: 120)),
+        Param.colorEnd: .color(EffectColor(r: 255, g: 90, b: 120)),
+        Param.colorVariety: .number(1),
+        Param.fadeIn: .number(0.02), Param.fadeOut: .number(0.2),
+        Param.additive: .toggle(false),
+    ])
+}
+
 // ─── Compound presets ────────────────────────────────────────────────────────
 
 public extension EmitterEffect {
@@ -583,7 +1254,10 @@ public extension EmitterEffect {
     /// those wants a different sprite and a different set of numbers, so
     /// written as one emitter it becomes a compromise between four things and
     /// reads as none of them.
-    static let compoundPresets: [EffectPreset] = [fireRing, portal, tunnel, impact, stormCell, energyOrb, arcReactor]
+    static let compoundPresets: [EffectPreset] = [
+        fireRing, portal, tunnel, impact, stormCell, energyOrb, arcReactor, firework, shapeDrift,
+        splash, blackHole,
+    ]
 
     /// Builds a layer with the emitter's own defaults underneath.
     ///
@@ -1283,6 +1957,283 @@ public extension EmitterEffect {
                 Param.opacity: .number(0.3),
                 Param.fadeIn: .number(0.25), Param.fadeOut: .number(0.5),
                 Param.additive: .toggle(true),
+            ]),
+        ],
+    )
+
+    /// A shell bursting: the burst, a flash at its heart, and glitter coming
+    /// down after.
+    ///
+    /// No rocket climbing first. Every layer of a compound starts at local
+    /// zero and the emitter has no per-layer delay, so a rise and the burst it
+    /// leads to would play at the same instant. Put the rise before the clip
+    /// — a Fountain or a single climbing particle — and this on the beat.
+    static let firework = compound(
+        "firework", "Firework", "A burst of light, a flash, and glitter falling after",
+        duration: 2600,
+        [
+            Param.count: .integer(160),
+            Param.emission: .choice(Emission.burst.rawValue),
+            Param.sprite: .text(BuiltInSprite.glow),
+            Param.shape: .choice(Shape.point.rawValue),
+            Param.radial: .toggle(true),
+            Param.direction: .number(270), Param.spread: .number(0),
+            Param.velocity: .number(220), Param.velocityRandom: .number(0.25),
+            // Drag brakes the shell open; gravity droops it once it has — the
+            // droop is what separates a firework from a starburst.
+            Param.gravity: .number(120), Param.drag: .number(0.8),
+            Param.life: .number(1700), Param.lifeRandom: .number(0.3),
+            Param.scaleStart: .number(0.14), Param.scaleEnd: .number(0.03),
+            Param.scaleRandom: .number(0.3),
+            Param.usesColorMid: .toggle(true),
+            Param.color: .color(EffectColor(r: 255, g: 255, b: 240)),
+            Param.colorMid: .color(EffectColor(r: 255, g: 120, b: 190)),
+            Param.colorEnd: .color(EffectColor(r: 120, g: 50, b: 255)),
+            Param.opacity: .number(0.9),
+            Param.fadeIn: .number(0), Param.fadeOut: .number(0.55),
+            Param.additive: .toggle(true),
+        ],
+        pack: "Celebration",
+        layers: [
+            // The instant it breaks. One particle, gone in a third of a second.
+            layer("Flash", [
+                Param.count: .integer(1),
+                Param.emission: .choice(Emission.burst.rawValue),
+                Param.sprite: .text(BuiltInSprite.glow),
+                Param.shape: .choice(Shape.point.rawValue),
+                Param.velocity: .number(0), Param.velocityRandom: .number(0),
+                Param.spread: .number(0), Param.gravity: .number(0),
+                Param.life: .number(320), Param.lifeRandom: .number(0),
+                // `glow` is 64px: a 30px point swelling to 110.
+                Param.scaleStart: .number(0.5), Param.scaleEnd: .number(1.7),
+                Param.scaleRandom: .number(0),
+                Param.color: .color(EffectColor(r: 255, g: 250, b: 235)),
+                Param.colorEnd: .color(EffectColor(r: 255, g: 200, b: 230)),
+                Param.opacity: .number(1),
+                Param.fadeIn: .number(0), Param.fadeOut: .number(0.8),
+                Param.additive: .toggle(true),
+            ]),
+            // What hangs in the air after. Born across where the shell opened,
+            // fading in late so it arrives as the burst thins out.
+            layer("Glitter", [
+                Param.count: .integer(80),
+                Param.sprite: .text(BuiltInSprite.sparkle),
+                Param.shape: .choice(Shape.ellipse.rawValue),
+                Param.width: .number(300), Param.height: .number(220),
+                Param.direction: .number(90), Param.spread: .number(20),
+                Param.velocity: .number(20), Param.velocityRandom: .number(0.6),
+                Param.gravity: .number(40), Param.drag: .number(0.3),
+                Param.life: .number(1800), Param.lifeRandom: .number(0.4),
+                // The pack's sparkle is 512px: a 13px glint.
+                Param.scaleStart: .number(0.025), Param.scaleEnd: .number(0.01),
+                Param.scaleRandom: .number(0.5),
+                Param.rotation: .number(360), Param.spin: .number(220),
+                Param.color: .color(EffectColor(r: 255, g: 235, b: 200)),
+                Param.colorEnd: .color(EffectColor(r: 255, g: 170, b: 220)),
+                Param.opacity: .number(0.9),
+                Param.fadeIn: .number(0.35), Param.fadeOut: .number(0.4),
+                Param.additive: .toggle(true),
+            ]),
+        ],
+    )
+
+    /// Flat shapes drifting in the frame: the ambient backdrop of a drawn
+    /// storyboard, the way Bokeh is for a lit one.
+    ///
+    /// Three shapes, one per layer, because an emitter draws one sprite. They
+    /// wander INSIDE the frame rather than crossing it: born within the stage,
+    /// slow enough that none travels far — a backdrop that leaves the screen
+    /// spends its commands on nothing, and one test checks exactly that.
+    static let shapeDrift = compound(
+        "shape-drift", "Shape Drift", "Flat squares, dots and rings drifting in the frame",
+        duration: 10_000,
+        [
+            Param.count: .integer(28),
+            Param.sprite: .text(BuiltInSprite.fill),
+            Param.shape: .choice(Shape.rectangle.rawValue),
+            Param.width: .number(700), Param.height: .number(360),
+            Param.spread: .number(180),
+            Param.velocity: .number(15), Param.velocityRandom: .number(0.5),
+            Param.gravity: .number(0), Param.drag: .number(0),
+            Param.life: .number(5000), Param.lifeRandom: .number(0.3),
+            // `fill` is 64px: a 22px square.
+            Param.scaleStart: .number(0.35), Param.scaleEnd: .number(0.35),
+            Param.scaleRandom: .number(0.6),
+            Param.rotation: .number(360), Param.spin: .number(30),
+            Param.color: .color(EffectColor(r: 255, g: 170, b: 90)),
+            Param.colorEnd: .color(EffectColor(r: 255, g: 170, b: 90)),
+            Param.colorVariety: .number(0.35),
+            Param.opacity: .number(0.9),
+            Param.fadeIn: .number(0.12), Param.fadeOut: .number(0.15),
+            Param.additive: .toggle(false),
+        ],
+        pack: "Flat",
+        layers: [
+            layer("Dots", [
+                Param.count: .integer(28),
+                Param.sprite: .text(BuiltInSprite.disc),
+                Param.shape: .choice(Shape.rectangle.rawValue),
+                Param.x: .number(320), Param.y: .number(240),
+                Param.width: .number(700), Param.height: .number(360),
+                Param.spread: .number(180),
+                Param.velocity: .number(15), Param.velocityRandom: .number(0.5),
+                Param.life: .number(5000), Param.lifeRandom: .number(0.3),
+                // The disc is 512: a 20px dot.
+                Param.scaleStart: .number(0.04), Param.scaleEnd: .number(0.04),
+                Param.scaleRandom: .number(0.6),
+                Param.color: .color(EffectColor(r: 90, g: 190, b: 255)),
+                Param.colorEnd: .color(EffectColor(r: 90, g: 190, b: 255)),
+                Param.colorVariety: .number(0.35),
+                Param.opacity: .number(0.9),
+                Param.fadeIn: .number(0.12), Param.fadeOut: .number(0.15),
+                Param.additive: .toggle(false),
+            ]),
+            layer("Rings", [
+                Param.count: .integer(20),
+                Param.sprite: .text(BuiltInSprite.hoop(thickness: 0.12)),
+                Param.shape: .choice(Shape.rectangle.rawValue),
+                Param.x: .number(320), Param.y: .number(240),
+                Param.width: .number(700), Param.height: .number(360),
+                Param.spread: .number(180),
+                Param.velocity: .number(15), Param.velocityRandom: .number(0.5),
+                Param.life: .number(5000), Param.lifeRandom: .number(0.3),
+                // The hoop is 512: a 30px ring.
+                Param.scaleStart: .number(0.06), Param.scaleEnd: .number(0.06),
+                Param.scaleRandom: .number(0.5),
+                Param.color: .color(EffectColor(r: 255, g: 110, b: 160)),
+                Param.colorEnd: .color(EffectColor(r: 255, g: 110, b: 160)),
+                Param.colorVariety: .number(0.35),
+                Param.opacity: .number(0.9),
+                Param.fadeIn: .number(0.12), Param.fadeOut: .number(0.15),
+                Param.additive: .toggle(false),
+            ]),
+        ],
+    )
+
+    /// Something landing in water: drops thrown up in an arc, and a ripple
+    /// opening on the surface. The ripple is squashed flat — a circle on the
+    /// water seen from above the waterline — which is what puts a floor under
+    /// the splash.
+    static let splash = compound(
+        "splash", "Splash", "Drops thrown up in an arc, and a ripple on the surface",
+        duration: 1400,
+        [
+            Param.count: .integer(70),
+            Param.emission: .choice(Emission.burst.rawValue),
+            Param.sprite: .text(BuiltInSprite.glow),
+            Param.width: .number(30), Param.height: .number(4),
+            Param.direction: .number(270), Param.spread: .number(35),
+            // 360 a second against 1100 of pull peaks 60px up and has every
+            // drop back below the surface by the end of its life.
+            Param.velocity: .number(360), Param.velocityRandom: .number(0.4),
+            Param.gravity: .number(1100), Param.drag: .number(0.05),
+            Param.life: .number(900), Param.lifeRandom: .number(0.25),
+            Param.scaleStart: .number(0.12), Param.scaleEnd: .number(0.06),
+            Param.scaleRandom: .number(0.4),
+            Param.color: .color(EffectColor(r: 220, g: 245, b: 255)),
+            Param.colorEnd: .color(EffectColor(r: 90, g: 170, b: 255)),
+            Param.opacity: .number(0.85),
+            Param.fadeIn: .number(0), Param.fadeOut: .number(0.35),
+            Param.additive: .toggle(true),
+        ],
+        pack: "Elements",
+        layers: [
+            layer("Ripple", [
+                Param.count: .integer(2),
+                Param.emission: .choice(Emission.bursts.rawValue),
+                Param.burstCount: .integer(2),
+                Param.sprite: .text(BuiltInSprite.hoop(thickness: 0.05)),
+                Param.shape: .choice(Shape.point.rawValue),
+                Param.x: .number(320), Param.y: .number(240),
+                Param.velocity: .number(0), Param.velocityRandom: .number(0),
+                Param.spread: .number(0), Param.gravity: .number(0),
+                Param.life: .number(700), Param.lifeRandom: .number(0),
+                // The hoop is 512: from 15px to 180px, flattened onto the water.
+                Param.scaleStart: .number(0.03), Param.scaleEnd: .number(0.35),
+                Param.scaleRandom: .number(0),
+                Param.stretch: .number(0.3),
+                Param.color: .color(EffectColor(r: 200, g: 235, b: 255)),
+                Param.colorEnd: .color(EffectColor(r: 200, g: 235, b: 255)),
+                Param.opacity: .number(0.8),
+                Param.fadeIn: .number(0), Param.fadeOut: .number(0.7),
+                Param.additive: .toggle(true),
+            ]),
+        ],
+    )
+
+    /// Light falling into a point that gives none back.
+    ///
+    /// Three layers, and the order is the effect: a tilted accretion disc
+    /// winding round, matter spiralling in, and the horizon **last**, because
+    /// draw order is layer order and a dark core drawn under the light it
+    /// swallows is just a gap in the glow. The horizon is the one layer in
+    /// the library that is black and not additive — additive black adds
+    /// nothing, so the only way to draw darkness is to paint it.
+    static let blackHole = compound(
+        "black-hole", "Black Hole", "Light spiralling into a dark centre",
+        duration: 8000,
+        [
+            Param.count: .integer(420),
+            Param.sprite: .text(BuiltInSprite.glow),
+            Param.shape: .choice(Shape.ellipse.rawValue),
+            Param.width: .number(130), Param.height: .number(130),
+            Param.radial: .toggle(true), Param.swirl: .number(80), Param.tilt: .number(70),
+            Param.direction: .number(270), Param.spread: .number(4),
+            Param.velocity: .number(30), Param.velocityRandom: .number(0.4),
+            Param.gravity: .number(0), Param.drag: .number(0),
+            Param.life: .number(2500), Param.lifeRandom: .number(0.3),
+            Param.scaleStart: .number(0.1), Param.scaleEnd: .number(0.04),
+            Param.scaleRandom: .number(0.5),
+            Param.usesColorMid: .toggle(true),
+            Param.color: .color(EffectColor(r: 255, g: 245, b: 220)),
+            Param.colorMid: .color(EffectColor(r: 255, g: 150, b: 60)),
+            Param.colorEnd: .color(EffectColor(r: 180, g: 40, b: 20)),
+            Param.opacity: .number(0.6),
+            Param.fadeIn: .number(0.15), Param.fadeOut: .number(0.45),
+            Param.additive: .toggle(true),
+        ],
+        pack: "Portals",
+        layers: [
+            // Converge, bent: inward plus a swirl, so each particle crosses
+            // on a slant and closes to a third of where it started — a
+            // spiral read from straight chords.
+            layer("Infall", [
+                Param.count: .integer(300),
+                Param.sprite: .text(BuiltInSprite.glow),
+                Param.shape: .choice(Shape.ring.rawValue),
+                Param.x: .number(320), Param.y: .number(240),
+                Param.width: .number(440), Param.height: .number(440),
+                Param.radial: .toggle(true), Param.swirl: .number(20),
+                Param.direction: .number(90), Param.spread: .number(2),
+                // 220px of radius on a 20° slant is 207px of travel in 1.4s.
+                Param.velocity: .number(148), Param.velocityRandom: .number(0),
+                Param.gravity: .number(0), Param.drag: .number(0),
+                Param.life: .number(1400), Param.lifeRandom: .number(0),
+                Param.scaleStart: .number(0.12), Param.scaleEnd: .number(0.04),
+                Param.scaleRandom: .number(0.4),
+                Param.color: .color(EffectColor(r: 255, g: 200, b: 140)),
+                Param.colorEnd: .color(EffectColor(r: 255, g: 120, b: 60)),
+                Param.opacity: .number(0.6),
+                Param.fadeIn: .number(0.25), Param.fadeOut: .number(0.2),
+                Param.additive: .toggle(true),
+            ]),
+            layer("Horizon", [
+                Param.count: .integer(1),
+                Param.emission: .choice(Emission.burst.rawValue),
+                Param.sprite: .text(BuiltInSprite.disc),
+                Param.shape: .choice(Shape.point.rawValue),
+                Param.x: .number(320), Param.y: .number(240),
+                Param.velocity: .number(0), Param.velocityRandom: .number(0),
+                Param.spread: .number(0), Param.gravity: .number(0),
+                Param.life: .number(8000), Param.lifeRandom: .number(0),
+                // The disc is 512: a 46px hole.
+                Param.scaleStart: .number(0.09), Param.scaleEnd: .number(0.09),
+                Param.scaleRandom: .number(0),
+                Param.color: .color(EffectColor(r: 0, g: 0, b: 0)),
+                Param.colorEnd: .color(EffectColor(r: 0, g: 0, b: 0)),
+                Param.opacity: .number(1),
+                Param.fadeIn: .number(0.05), Param.fadeOut: .number(0.05),
+                Param.additive: .toggle(false),
             ]),
         ],
     )

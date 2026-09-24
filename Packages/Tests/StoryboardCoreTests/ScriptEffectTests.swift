@@ -99,12 +99,40 @@ struct ScriptEffectTests {
         #expect(evaluator.evaluate(node(source: source)).isEmpty)
     }
 
-    /// With no runtime installed, the effect is quiet rather than crashing.
+    /// With no runtime handed in, the effect is quiet rather than crashing.
     @Test("no runtime yields no sprites")
     func noRuntimeIsSurvivable() {
-        ScriptRuntime.withoutRuntime {
-            #expect(evaluator.evaluate(node(source: "sprite('a.png')")).isEmpty)
+        #expect(EffectEvaluator(scriptRuntime: nil).evaluate(node(source: "sprite('a.png')")).isEmpty)
+    }
+
+    /// Each evaluator runs scripts through ITS OWN runtime.
+    ///
+    /// The runtime used to be one global property, installed by the app and
+    /// swapped by tests under a lock. A suite that had to `await` while its
+    /// runtime was installed could not hold that lock, so it set the global
+    /// bare — and its `defer` pulled the runtime out from under another suite
+    /// mid-evaluation, which then drew nothing. The fix is not a better lock:
+    /// it is that there is nothing shared left to fight over. Two evaluators,
+    /// two runtimes, one call each, in the same instant.
+    @Test("an evaluator runs scripts through its own runtime, not a shared one")
+    func runtimeIsTheEvaluators() {
+        /// A runtime that stamps every sprite it draws with its own name.
+        func stamping(_ name: String) -> ScriptRuntime.Runner {
+            { request in
+                ScriptRuntime.Outcome(sprites: [StoryboardSprite(
+                    id: "\(request.idPrefix)/\(name)", layer: .foreground, origin: .centre,
+                    filePath: BuiltInSprite.soft, defaultX: 0, defaultY: 0,
+                    commands: [Command(easing: .linear, startTime: 0, endTime: 1, payload: .fade(start: 1, end: 1))],
+                )], diagnostics: [])
+            }
         }
+        let first = EffectEvaluator(scriptRuntime: stamping("first"))
+        let second = EffectEvaluator(scriptRuntime: stamping("second"))
+        let placed = node(source: "sprite('a.png')")
+
+        #expect(first.evaluate(placed).map(\.id) == ["fx/first"])
+        #expect(second.evaluate(placed).map(\.id) == ["fx/second"])
+        #expect(EffectEvaluator().evaluate(placed).isEmpty, "an evaluator given no runtime draws nothing")
     }
 
     // MARK: - What the evaluator does around it
@@ -118,16 +146,15 @@ struct ScriptEffectTests {
             commands: [Command(easing: .linear, startTime: 0, endTime: 500, payload: .fade(start: 0, end: 1))],
         )
 
-        ScriptRuntime.withRuntime({ _ in
+        let evaluator = EffectEvaluator(scriptRuntime: { _ in
             ScriptRuntime.Outcome(sprites: [sprite], diagnostics: [])
-        }, {
-            let drawn = evaluator.evaluate(node(source: "sprite('a.png')"))
-
-            #expect(drawn.count == 1)
-            // Local 0 became the clip's start time.
-            #expect(drawn.first?.commands.first?.timing.startTime == 1000)
-            #expect(drawn.first?.commands.first?.timing.endTime == 1500)
         })
+        let drawn = evaluator.evaluate(node(source: "sprite('a.png')"))
+
+        #expect(drawn.count == 1)
+        // Local 0 became the clip's start time.
+        #expect(drawn.first?.commands.first?.timing.startTime == 1000)
+        #expect(drawn.first?.commands.first?.timing.endTime == 1500)
     }
 
     /// A fresh clip comes with something in it.

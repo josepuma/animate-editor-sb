@@ -42,6 +42,10 @@ public struct EmitterEffect: Effect {
         public static let swirl = "swirl"
         public static let tilt = "tilt"
         public static let bands = "bands"
+        public static let spectrumBands = "spectrumBands"
+        public static let audioBand = "audioBand"
+        public static let audioContrast = "audioContrast"
+        public static let audioReactivity = "audioReactivity"
 
         public static let direction = "direction"
         public static let spread = "spread"
@@ -84,6 +88,10 @@ public struct EmitterEffect: Effect {
         /// happens: lightning strikes two or three times in a moment and then
         /// stops. Spreading those strikes evenly turns an event into a metronome.
         case bursts = "Repeating Bursts"
+        /// When the song is loud: births follow the energy of the band the
+        /// emitter listens to. The count is still a total — the music decides
+        /// when particles come, not how many.
+        case audio = "Audio"
     }
 
     /// Where inside the emitter a particle is born.
@@ -116,6 +124,11 @@ public struct EmitterEffect: Effect {
         /// curving away. Each band is narrower and leans harder the closer it
         /// sits to a pole, which is one circle seen at every angle at once.
         case sphere = "Sphere"
+        /// A row of bands, bass on the left and treble on the right, each
+        /// emitting by its own level: an equaliser that throws particles
+        /// instead of drawing bars. Width is the row; height, how far above
+        /// and below its line a particle can start.
+        case spectrum = "Spectrum"
     }
 
     /// Where one particle is born, relative to the emitter's centre.
@@ -132,6 +145,12 @@ public struct EmitterEffect: Effect {
             (0, 0, 0, tilt)
 
         case .rectangle:
+            (rng.symmetric(halfWidth), rng.symmetric(halfHeight), 0, tilt)
+
+        // A spectrum places each particle in its band's column, which needs
+        // the song; the evaluator does that itself. Asked here without it,
+        // the row is at least the box it spans.
+        case .spectrum:
             (rng.symmetric(halfWidth), rng.symmetric(halfHeight), 0, tilt)
 
         case .ring:
@@ -448,6 +467,51 @@ public struct EmitterEffect: Effect {
             // ring differ only in how bright the middle is and where the edge
             // falls. Made parametric, everything *between* them opens up too,
             // which is where a bokeh circle lives.
+            // ─── Audio ───────────────────────────────────────────────────
+            //
+            // The emitter listening to the song. Everything here is inert
+            // until something listens — Emission set to Audio, the Spectrum
+            // shape, or Reactivity above zero — so every preset placed before
+            // these existed draws exactly what it did.
+            EffectParameter(
+                id: Param.audioBand,
+                name: "Listen To",
+                group: "Audio",
+                defaultValue: .choice(AudioBand.all.rawValue),
+                options: AudioBand.allCases.map(\.rawValue),
+            ),
+            // An exponent on each level. At 1 births follow loudness plainly;
+            // higher, a hit takes a far bigger share than a hum — which is
+            // what makes a hit read as one.
+            EffectParameter(
+                id: Param.audioContrast,
+                name: "Contrast",
+                group: "Audio",
+                defaultValue: .number(2),
+                range: 1...6,
+                step: 0.1,
+                shownWhen: .init(parameter: Param.emission, isAnyOf: [Emission.audio.rawValue]),
+            ),
+            // How much a particle's speed and size follow how loud it was when
+            // it was born. Zero is off, and is the default: it lands on every
+            // emitter already placed.
+            EffectParameter(
+                id: Param.audioReactivity,
+                name: "Reactivity",
+                group: "Audio",
+                defaultValue: .number(0),
+                range: 0...2,
+                step: 0.05,
+            ),
+            EffectParameter(
+                id: Param.spectrumBands,
+                name: "Spectrum Bands",
+                group: "Audio",
+                defaultValue: .integer(16),
+                range: 4...32,
+                step: 1,
+                shownWhen: .init(parameter: Param.shape, isAnyOf: [Shape.spectrum.rawValue]),
+            ),
             EffectParameter(
                 id: Param.core,
                 name: "Core",
@@ -836,6 +900,22 @@ public struct EmitterEffect: Effect {
         let fadeOut = context.number(Param.fadeOut)
         let additive = context.toggle(Param.additive)
 
+        // The song, only when something listens: reading a stretch of a
+        // compressed file is the expensive part, and most emitters never ask.
+        let reactivity = context.number(Param.audioReactivity)
+        let isSpectrum = shape == .spectrum
+        let audio: EmitterAudio? = emission == .audio || isSpectrum || reactivity != 0
+            ? EmitterAudio(
+                start: context.node.startTime,
+                duration: context.duration,
+                band: AudioBand(rawValue: context.choice(Param.audioBand)) ?? .all,
+                columns: isSpectrum ? max(1, context.integer(Param.spectrumBands)) : 0,
+                contrast: context.number(Param.audioContrast),
+                analyser: context.audio,
+            )
+            : nil
+        let heard = emission == .audio ? audio?.births(count: count) : nil
+
         var sprites: [StoryboardSprite] = []
         sprites.reserveCapacity(count)
 
@@ -859,6 +939,8 @@ public struct EmitterEffect: Effect {
                 // from a different part of the random stream — the strikes
                 // would not look like siblings.
                 context.duration * Double(index % burstCount) / Double(burstCount)
+            case .audio:
+                heard?[index].time ?? 0
             }
 
             let particleLife = max(1, life * (1 + particle.symmetric(lifeRandom)))
@@ -866,14 +948,40 @@ public struct EmitterEffect: Effect {
 
             // Position first, because a radial emitter takes its direction
             // from where the particle landed.
-            let offset = Self.spawnOffset(
-                shape: shape,
-                halfWidth: halfWidth,
-                halfHeight: leanHeight,
-                bands: bands,
-                tilt: tilt,
-                rng: &particle,
-            )
+            // A spectrum's column comes from the song: the one the walk chose
+            // for an audio emitter, or the loudest-weighted draw at the moment
+            // of birth for any other emission.
+            let column: Int = if isSpectrum, let audio {
+                heard?[index].column ?? audio.column(at: birth, draw: particle.unit())
+            } else {
+                0
+            }
+            let offset = if isSpectrum, let audio {
+                (
+                    x: -halfWidth + (Double(column) + particle.between(0.15, 0.85))
+                        * (2 * halfWidth / Double(audio.columns)),
+                    y: particle.symmetric(leanHeight),
+                    phase: 0.0,
+                    tilt: tilt,
+                )
+            } else {
+                Self.spawnOffset(
+                    shape: shape,
+                    halfWidth: halfWidth,
+                    halfHeight: leanHeight,
+                    bands: bands,
+                    tilt: tilt,
+                    rng: &particle,
+                )
+            }
+
+            // How much the moment of birth pushes this particle: 1 when
+            // nothing reacts, so the default leaves every emitter as it was.
+            // Centred on half volume — a loud hit speeds a particle up, a quiet
+            // one slows it — and floored so silence never freezes one solid.
+            let punch = reactivity == 0
+                ? 1
+                : max(0.1, 1 + reactivity * (2 * (audio?.level(at: birth, column: column) ?? 0.5) - 1))
             let startX = originX + offset.x
             let startY = originY + offset.y
 
@@ -902,14 +1010,14 @@ public struct EmitterEffect: Effect {
                 direction
             }
             let angle = (baseDegrees + particle.symmetric(spread)) * .pi / 180
-            let speed = velocity * (1 + particle.symmetric(velocityRandom))
+            let speed = velocity * (1 + particle.symmetric(velocityRandom)) * punch
             // Velocity is authored per second; every time here is milliseconds.
             let vx = cos(angle) * speed / 1000
             let vy = sin(angle) * speed / 1000
 
             // Multiplied rather than replaced: the emitter's scale is a
             // property of the emitter, and each particle keeps its own life.
-            let scaleJitter = (1 + particle.symmetric(scaleRandom)) * view.scale
+            let scaleJitter = (1 + particle.symmetric(scaleRandom)) * view.scale * punch
             let startScale = scaleStart * scaleJitter
             let endScale = scaleEnd * scaleJitter
 

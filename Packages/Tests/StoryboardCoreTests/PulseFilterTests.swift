@@ -129,6 +129,93 @@ struct PulseFilterTests {
         }
     }
 
+    /// The beat is the SONG's, wherever the clip starts.
+    ///
+    /// Every other test here places the clip at zero — the one position where
+    /// clip time and song time agree — so none of them could see this. Filters
+    /// run before the clip is shifted into place, and the pulse asked the grid
+    /// for the lines at those local times: a clip starting at 1100ms on a grid
+    /// with beats at 1000, 1400, 1800… hit at 2100, 2500, 2900 — 300ms off
+    /// every beat, for as long as the clip ran. Measured with a probe before
+    /// this test existed.
+    @Test("a clip placed off the beat still pulses on it")
+    func offsetClipStaysOnTheBeat() {
+        var document = EffectDocument()
+        _ = document.add(ShapeEffect.descriptor, at: 1100, duration: 5000)
+        _ = document.addFilter(PulseFilter.descriptor, to: clip(in: document))
+
+        var evaluator = EffectEvaluator()
+        evaluator.beat = BeatGrid(timing: timing)
+
+        let hits = scales(evaluator.evaluate(document))
+        #expect(hits.count > 4)
+        for hit in hits {
+            let phase = (hit.startTime - 1000).truncatingRemainder(dividingBy: 400)
+            #expect(min(phase, 400 - phase) < 1, "a hit at \(hit.startTime) is \(phase)ms off the beat")
+        }
+    }
+
+    // ─── Triggered by the song's hits ────────────────────────────────────────
+
+    /// A song whose bass kicks at `kicks` (song ms) and is quiet otherwise;
+    /// the other bands sit flat. Placed off the beat grid on purpose, so a
+    /// pulse landing on the kicks cannot be a pulse landing on the beat.
+    private func kicking(at kicks: [Double]) -> AudioSpectrum.Analyser {
+        { range, bands, interval in
+            let count = max(1, Int((range.upperBound - range.lowerBound) / interval))
+            let levels = (0 ..< count).map { frame -> [Float] in
+                let time = range.lowerBound + Double(frame) * interval
+                let bass = kicks.reduce(Float(0.05)) { level, kick in
+                    let since = time - kick
+                    guard since >= 0, since < 400 else { return level }
+                    return max(level, Float(0.95 * pow(0.6, since / interval)))
+                }
+                return (0 ..< bands).map { $0 < 6 ? bass : 0.2 }
+            }
+            return AudioSpectrum.Frames(levels: levels, interval: interval)
+        }
+    }
+
+    @Test("on bass hits it pulses on the kicks, not on the beat")
+    func pulsesOnTheKicks() {
+        var document = EffectDocument()
+        _ = document.add(ShapeEffect.descriptor, at: 500, duration: 5000)
+        let trackID = clip(in: document)
+        let filter = document.addFilter(PulseFilter.descriptor, to: trackID)!
+        document.setFilterValue(.choice("Bass Hits"), for: PulseFilter.Param.trigger, on: filter.id, in: trackID)
+
+        let kicks = [1330.0, 2610, 3870, 4950]
+        var evaluator = EffectEvaluator(audio: kicking(at: kicks))
+        evaluator.beat = BeatGrid(timing: timing)
+
+        let hits = scales(evaluator.evaluate(document)).map(\.startTime)
+        #expect(hits.count == kicks.count, "pulsed at \(hits)")
+        for (hit, kick) in zip(hits, kicks) {
+            #expect(abs(hit - kick) <= 60, "a pulse at \(hit) for a kick at \(kick)")
+        }
+    }
+
+    /// A trigger with nothing to trigger on stays still. Falling back to the
+    /// beat would put pulses where the song has no hits, which is the one
+    /// thing a hits trigger promises not to do.
+    @Test("a hits trigger over a song with no hits does not pulse")
+    func noHitsNoPulse() {
+        var document = document()
+        let trackID = clip(in: document)
+        let filter = document.addFilter(PulseFilter.descriptor, to: trackID)!
+        document.setFilterValue(.choice("Bass Hits"), for: PulseFilter.Param.trigger, on: filter.id, in: trackID)
+
+        var evaluator = EffectEvaluator(audio: kicking(at: []))
+        evaluator.beat = BeatGrid(timing: timing)
+
+        #expect(scales(evaluator.evaluate(document)).isEmpty)
+    }
+
+    @Test("the beat is still the default trigger")
+    func beatIsTheDefault() {
+        #expect(PulseFilter.descriptor.defaultValues[PulseFilter.Param.trigger] == .choice("Beat"))
+    }
+
     /// A stated tempo wins: someone who types a number means it, and a pulse
     /// deliberately off the beat is as legitimate as one on it.
     @Test("a stated BPM overrides the song")

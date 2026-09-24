@@ -24,6 +24,31 @@ public struct PulseFilter: SpriteFilter {
         public static let bounce = "bounce"
         public static let release = "release"
         public static let expand = "expand"
+        public static let trigger = "trigger"
+        public static let sensitivity = "sensitivity"
+    }
+
+    /// What fires a pulse: the map's beat, or the song's own hits in a band.
+    ///
+    /// The beat is a grid — even, predictable, there whether anything plays or
+    /// not. The hits are what actually happens: a kick that lands off the
+    /// grid, a fill, a drop where the drums stop. Both are real things to
+    /// want, and the machinery after "when" is the same, so they are one
+    /// filter with a switch rather than two to choose between.
+    public enum Trigger: String, CaseIterable, Sendable {
+        case beat = "Beat"
+        case bass = "Bass Hits"
+        case mids = "Mid Hits"
+        case highs = "High Hits"
+
+        var band: EmitterEffect.AudioBand? {
+            switch self {
+            case .beat: nil
+            case .bass: .bass
+            case .mids: .mids
+            case .highs: .highs
+            }
+        }
     }
 
     /// The shape of the fall back to rest.
@@ -77,12 +102,37 @@ public struct PulseFilter: SpriteFilter {
         category: .audio,
         systemImage: "waveform.path.ecg",
         parameters: [
+            // First, because it decides what half the others mean: Interval
+            // and BPM only speak to the beat.
+            EffectParameter(
+                id: Param.trigger,
+                name: "Trigger",
+                group: "Beat",
+                defaultValue: .choice(Trigger.beat.rawValue),
+                options: Trigger.allCases.map(\.rawValue),
+            ),
+            // How small a hit still counts. Only for a hits trigger — the beat
+            // has nothing to be sensitive to.
+            EffectParameter(
+                id: Param.sensitivity,
+                name: "Sensitivity",
+                group: "Beat",
+                defaultValue: .number(0.5),
+                range: 0...1,
+                step: 0.05,
+                shownWhen: .init(
+                    parameter: Param.trigger,
+                    isAnyOf: Trigger.allCases.filter { $0 != .beat }.map(\.rawValue),
+                ),
+            ),
             EffectParameter(
                 id: Param.every,
                 name: "Interval",
                 group: "Beat",
                 defaultValue: .choice(Interval.everyBeat.rawValue),
                 options: Interval.allCases.map(\.rawValue),
+                // Only the beat has an interval; hits land where they land.
+                shownWhen: .init(parameter: Param.trigger, isAnyOf: [Trigger.beat.rawValue]),
             ),
             // Zero means "follow the song", which is what it does whenever
             // there is one.
@@ -111,6 +161,7 @@ public struct PulseFilter: SpriteFilter {
                 defaultValue: .number(0),
                 range: 0...400,
                 step: 0.1,
+                shownWhen: .init(parameter: Param.trigger, isAnyOf: [Trigger.beat.rawValue]),
             ),
             // How much larger it gets on the hit.
             //
@@ -271,7 +322,7 @@ public struct PulseFilter: SpriteFilter {
             guard settle > hit else { continue }
 
             if punch > 0 {
-                let resting = restingScale(of: sprite, at: hit)
+                let resting = sprite.restingScale(at: hit)
                 beats.append(Command(
                     // The chosen curve, never linear: a linear ramp reads as a
                     // slide rather than as a hit.
@@ -294,7 +345,7 @@ public struct PulseFilter: SpriteFilter {
                 // than of one: a subject already fading in has to keep fading
                 // in, and a pulse that jumped it to full brightness on every
                 // beat would undo its own entrance.
-                let peak = restingOpacity(of: sprite, at: hit)
+                let peak = sprite.restingOpacity(at: hit)
                 let floor = peak * (1 - release)
 
                 fades.append(Command(
@@ -326,7 +377,7 @@ public struct PulseFilter: SpriteFilter {
         var previousEnd = sprite.commands.map(\.startTime).min() ?? 0
         for beat in beats {
             if beat.startTime > previousEnd {
-                let resting = restingScale(of: sprite, at: previousEnd)
+                let resting = sprite.restingScale(at: previousEnd)
                 held.append(Command(
                     easing: .linear,
                     startTime: previousEnd,
@@ -337,7 +388,7 @@ public struct PulseFilter: SpriteFilter {
             previousEnd = beat.endTime
         }
         if previousEnd < death {
-            let resting = restingScale(of: sprite, at: previousEnd)
+            let resting = sprite.restingScale(at: previousEnd)
             held.append(Command(
                 easing: .linear,
                 startTime: previousEnd,
@@ -378,51 +429,6 @@ public struct PulseFilter: SpriteFilter {
         return result
     }
 
-    /// What the sprite's own commands say its scale is at a moment, per axis.
-    ///
-    /// Both axes, because a sprite may be stretched — and a pulse that read one
-    /// number and wrote a uniform `_S` would quietly square it: a 854×100 bar
-    /// with a beat on it came back as a block. What the subject is stays the
-    /// subject's business; the pulse only multiplies it.
-    private func restingScale(of sprite: StoryboardSprite, at time: Double) -> (x: Double, y: Double) {
-        var scale = (x: 1.0, y: 1.0)
-
-        for command in sprite.commands {
-            guard command.startTime <= time else { continue }
-            let span = command.endTime - command.startTime
-            let progress = span > 0 ? min(1, (time - command.startTime) / span) : 1
-
-            switch command.payload {
-            case let .scale(start, end):
-                let value = start + (end - start) * progress
-                scale = (value, value)
-            case let .vectorScale(startX, startY, endX, endY):
-                scale = (
-                    startX + (endX - startX) * progress,
-                    startY + (endY - startY) * progress,
-                )
-            default:
-                continue
-            }
-        }
-
-        return scale
-    }
-
-    /// What the sprite's own commands say its opacity is at a moment.
-    private func restingOpacity(of sprite: StoryboardSprite, at time: Double) -> Double {
-        var opacity = 1.0
-
-        for command in sprite.commands {
-            guard command.startTime <= time, case let .fade(start, end) = command.payload else { continue }
-            let span = command.endTime - command.startTime
-            let progress = span > 0 ? min(1, (time - command.startTime) / span) : 1
-            opacity = start + (end - start) * progress
-        }
-
-        return opacity
-    }
-
     /// When the pulse fires, in clip-local time.
     private func beats(
         in context: FilterContext,
@@ -430,6 +436,27 @@ public struct PulseFilter: SpriteFilter {
         to death: Double,
         every interval: Interval,
     ) -> [Double] {
+        // The song's own hits, when that is what fires it. Asked in SONG time
+        // and handed back in the clip's, like the beat below. No hits means no
+        // pulses: falling back to the beat would put pulses where the song has
+        // none, the one thing a hits trigger promises not to do.
+        let trigger = Trigger(rawValue: context.choice(Param.trigger)) ?? .beat
+        if let band = trigger.band {
+            let interval = EmitterAudio.interval
+            let offset = context.clipStart
+            let frames = AudioSpectrum.levels(
+                in: (birth + offset) ... (death + offset),
+                bands: EmitterAudio.bands,
+                interval: interval,
+                using: context.audio,
+            )
+            return AudioOnsets.detect(
+                AudioOnsets.energy(of: frames, bands: band.bands),
+                interval: interval,
+                sensitivity: context.number(Param.sensitivity),
+            ).map { birth + $0 }.filter { $0 < death }
+        }
+
         // A stated tempo wins over the song's: someone who types a number means
         // it, and a pulse deliberately off the beat is as legitimate as one on.
         let stated = context.number(Param.bpm)
@@ -449,16 +476,19 @@ public struct PulseFilter: SpriteFilter {
             // on the clip's start.
             let step = interval.beats * Double(grid.divisor)
 
+            // Asked in SONG time and handed back in the clip's: the grid is the
+            // song's, and these sprites have not been shifted into place yet.
+            let offset = context.clipStart
             var hits: [Double] = []
-            for line in grid.lines(in: birth ... death) {
+            for line in grid.lines(in: (birth + offset) ... (death + offset)) {
                 if interval == .everyBar {
-                    if line.isMajor { hits.append(line.time) }
+                    if line.isMajor { hits.append(line.time - offset) }
                     continue
                 }
                 guard let origin = grid.timing.timingPoint(at: line.time) else { continue }
                 let position = (line.time - origin.time) / (origin.beatLength / Double(grid.divisor))
                 if abs(position.rounded().truncatingRemainder(dividingBy: step)) < 0.001 {
-                    hits.append(line.time)
+                    hits.append(line.time - offset)
                 }
             }
             if !hits.isEmpty { return hits }

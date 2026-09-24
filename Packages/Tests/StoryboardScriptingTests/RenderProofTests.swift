@@ -13,28 +13,26 @@ import Testing
 struct RenderProofTests {
     @Test("a placed script clip resolves to drawable state mid-clip")
     func resolvesToDrawableState() throws {
-        try ScriptRuntime.withRuntime({ ScriptEngine().run($0) }) {
-            var document = EffectDocument()
-            let track = document.addTrack(layer: .foreground)
-            let node = document.add(ScriptEffect.descriptor, at: 1000, duration: 4000, on: track.id)
+        var document = EffectDocument()
+        let track = document.addTrack(layer: .foreground)
+        let node = document.add(ScriptEffect.descriptor, at: 1000, duration: 4000, on: track.id)
 
-            let sprites = EffectEvaluator().evaluate(document)
-            let prepared = StoryboardResolver.prepare(sprites)
+        let sprites = EffectEvaluator(scriptRuntime: { ScriptEngine().run($0) }).evaluate(document)
+        let prepared = StoryboardResolver.prepare(sprites)
 
-            // Mid-clip, where the template's ring is on its way out.
-            var states: [SpriteRenderState] = []
-            StoryboardResolver.resolve(prepared, at: 2500, into: &states)
-            let visible = states.filter { $0.visible && $0.opacity > 0.01 }
+        // Mid-clip, where the template's ring is on its way out.
+        var states: [SpriteRenderState] = []
+        StoryboardResolver.resolve(prepared, at: 2500, into: &states)
+        let visible = states.filter { $0.visible && $0.opacity > 0.01 }
 
-            print("PROOF placed at \(node.startTime), \(sprites.count) sprites, \(visible.count) visible at 2500ms")
-            if let first = visible.first {
-                print("PROOF first visible: x=\(Int(first.x)) y=\(Int(first.y)) opacity=\(String(format: "%.2f", first.opacity)) scale=\(String(format: "%.2f", first.scaleX))")
-            }
-
-            #expect(sprites.count == 24)
-            #expect(!visible.isEmpty, "nothing would be drawn — the clip is on screen but blank")
-            // On the stage, not off in the margins.
-            #expect(visible.allSatisfy { $0.x > -107 && $0.x < 747 && $0.y > -50 && $0.y < 530 })
+        print("PROOF placed at \(node.startTime), \(sprites.count) sprites, \(visible.count) visible at 2500ms")
+        if let first = visible.first {
+            print("PROOF first visible: x=\(Int(first.x)) y=\(Int(first.y)) opacity=\(String(format: "%.2f", first.opacity)) scale=\(String(format: "%.2f", first.scaleX))")
         }
+
+        #expect(sprites.count == 24)
+        #expect(!visible.isEmpty, "nothing would be drawn — the clip is on screen but blank")
+        // On the stage, not off in the margins.
+        #expect(visible.allSatisfy { $0.x > -107 && $0.x < 747 && $0.y > -50 && $0.y < 530 })
     }
 }

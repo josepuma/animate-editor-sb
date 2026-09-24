@@ -25,12 +25,31 @@ public struct EffectContext: Sendable {
     /// producing nothing.
     public let beat: BeatGrid?
 
+    /// What runs a script clip's code, when this evaluation has one.
+    ///
+    /// Carried here for the reason `beat` is: it belongs to whoever is
+    /// evaluating, not to a clip — and passed down rather than read from a
+    /// global, so two evaluations can never see each other's.
+    public let scriptRuntime: ScriptRuntime.Runner?
+
+    /// What reads the song, when this evaluation has one. Without it, effects
+    /// that listen hear the stand-in wave.
+    public let audio: AudioSpectrum.Analyser?
+
     private let values: [String: EffectValue]
 
-    public init(descriptor: EffectDescriptor, node: EffectNode, beat: BeatGrid? = nil) {
+    public init(
+        descriptor: EffectDescriptor,
+        node: EffectNode,
+        beat: BeatGrid? = nil,
+        scriptRuntime: ScriptRuntime.Runner? = nil,
+        audio: AudioSpectrum.Analyser? = nil,
+    ) {
         self.descriptor = descriptor
         self.node = node
         self.beat = beat
+        self.scriptRuntime = scriptRuntime
+        self.audio = audio
         duration = max(0, node.duration)
         idPrefix = node.id
 

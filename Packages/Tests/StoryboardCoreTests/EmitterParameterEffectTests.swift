@@ -78,6 +78,24 @@ struct EmitterParameterEffectTests {
         (EmitterEffect.Param.width, .number(200), [:]),
         (EmitterEffect.Param.height, .number(150), [:]),
         (EmitterEffect.Param.shape, .choice("Ring"), [:]),
+        // A width, because the default is zero: every column of a zero-wide
+        // row is the same point, and the count of columns cannot show.
+        (EmitterEffect.Param.spectrumBands, .integer(24), [
+            EmitterEffect.Param.shape: .choice("Spectrum"),
+            EmitterEffect.Param.width: .number(400),
+        ]),
+
+        // Audio. Each only matters once something is listening, so each
+        // carries that context — without it the case would correctly find no
+        // change and report a working control as broken.
+        (EmitterEffect.Param.emission, .choice("Audio"), [:]),
+        (EmitterEffect.Param.audioBand, .choice("Bass"), [
+            EmitterEffect.Param.emission: .choice("Audio"),
+        ]),
+        (EmitterEffect.Param.audioContrast, .number(5), [
+            EmitterEffect.Param.emission: .choice("Audio"),
+        ]),
+        (EmitterEffect.Param.audioReactivity, .number(1.5), [:]),
         // Only the sphere stacks bands; every other shape has one.
         (EmitterEffect.Param.bands, .integer(11), [
             EmitterEffect.Param.shape: .choice("Sphere"),

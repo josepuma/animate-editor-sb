@@ -91,7 +91,7 @@ public struct ScriptEffect: Effect {
             duration: context.duration,
             seed: context.node.seed,
             spectrum: Self.spectrum(for: source, in: context),
-        ))
+        ), using: context.scriptRuntime)
 
         // Recorded rather than returned. `evaluate` cannot throw by protocol,
         // and a broken script has to come back as an empty clip rather than as
@@ -152,6 +152,7 @@ public struct ScriptEffect: Effect {
             in: start ... (start + context.duration),
             bands: spectrumBands,
             interval: spectrumInterval,
+            using: context.audio,
         )
     }
 
