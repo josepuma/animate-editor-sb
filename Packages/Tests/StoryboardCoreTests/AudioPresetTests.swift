@@ -109,8 +109,8 @@ struct AudioPresetTests {
     }
 
     @Test("the wave presets draw how their names say", arguments: [
-        ("oscilloscope", "Zigzag", "Line"), ("silk-strands", "Flowing", "Line"),
-        ("dotted-flow", "Flowing", "Dots"), ("wave-ring", "Flowing", "Line"),
+        ("oscilloscope", "Signal", "Line"), ("silk-strands", "Signal", "Line"),
+        ("dotted-flow", "Signal", "Dots"), ("wave-ring", "Signal", "Line"),
     ])
     func wavePresets(id: String, style: String, draw: String) throws {
         let preset = try preset(id)

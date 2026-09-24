@@ -27,6 +27,7 @@ public struct AudioWavesEffect: Effect {
         public static let waves = "waves"
         public static let flow = "flow"
         public static let smoothness = "smoothness"
+        public static let samples = "samples"
         public static let drawAs = "drawAs"
         public static let thickness = "thickness"
         public static let dotSize = "dotSize"
@@ -53,6 +54,13 @@ public struct AudioWavesEffect: Effect {
         /// The energy carried on a smooth wave travelling along the line, with
         /// the curve interpolated between points.
         case flowing = "Flowing"
+        /// A waveform rebuilt from the spectrum: every band a sine of its own
+        /// frequency, as loud as the band, all summed — which is what a
+        /// waveform IS. The bass draws long slow waves, the treble a fine
+        /// ripple over them, and each band's phase turns the opposite way to
+        /// its neighbour's, so the line vibrates and interferes instead of
+        /// sliding along. What a scope looks like, and silk strands that braid.
+        case signal = "Signal"
     }
 
     public enum Draw: String, CaseIterable, Sendable {
@@ -95,12 +103,20 @@ public struct AudioWavesEffect: Effect {
             EffectParameter(id: Param.waves, name: "Waves", group: "Wave",
                             defaultValue: .number(3), range: 0.5...12, step: 0.5,
                             shownWhen: .init(parameter: Param.style, isAnyOf: [Style.flowing.rawValue])),
-            // How fast the crests travel, in crests per second. Only ever seen
-            // over sound: it moves the shape the energy is drawn on, and with no
-            // energy there is nothing to move.
+            // How fast it moves: crests per second for Flowing, how fast each
+            // band's phase turns for Signal. Only ever seen over sound: it moves
+            // the shape the energy is drawn on, and with no energy there is
+            // nothing to move.
             EffectParameter(id: Param.flow, name: "Flow", group: "Wave",
                             defaultValue: .number(0.3), range: -3...3, step: 0.05,
-                            shownWhen: .init(parameter: Param.style, isAnyOf: [Style.flowing.rawValue])),
+                            shownWhen: .init(parameter: Param.style,
+                                             isAnyOf: [Style.flowing.rawValue, Style.signal.rawValue])),
+            // How many samples draw the signal. More than there are bands, or
+            // the treble has nowhere to ripple — and every one is a sprite per
+            // strand, so this is the price of detail.
+            EffectParameter(id: Param.samples, name: "Samples", group: "Wave",
+                            defaultValue: .integer(96), range: 16...128, step: 1,
+                            shownWhen: .init(parameter: Param.style, isAnyOf: [Style.signal.rawValue])),
             // Samples between two points. Each is a sprite per strand, so this
             // is the price of a smoother curve.
             EffectParameter(id: Param.smoothness, name: "Smoothness", group: "Wave",
@@ -207,12 +223,23 @@ public struct AudioWavesEffect: Effect {
 
             // Every sample of this strand at every frame.
             let paths: [[(x: Double, y: Double)]] = times.map { time in
+                if style == .signal {
+                    return base.signal(
+                        samples: max(16, context.integer(Param.samples)),
+                        bands: points,
+                        amplitude: { level($0, at: time, delay: delay) * height },
+                        time: time,
+                        flow: context.number(Param.flow),
+                        strand: strand,
+                        shift: spread * Double(strand),
+                    )
+                }
                 let offsets = (0 ..< points).map { band -> Double in
                     let energy = level(band, at: time, delay: delay) * height
                     switch style {
                     case .zigzag:
                         return band.isMultiple(of: 2) ? energy : -energy
-                    case .flowing:
+                    case .flowing, .signal:
                         let along = base.fraction(ofPoint: band)
                         let phase = 2 * .pi * (context.number(Param.waves) * along
                             - context.number(Param.flow) * time / 1000)
@@ -261,6 +288,88 @@ public struct AudioWavesEffect: Effect {
             closed ? Double(index) / Double(points) : Double(index) / Double(points - 1)
         }
 
+        /// A spot on the wave, `along` 0…1, `offset` px away from the line.
+        func place(along: Double, offset: Double) -> (x: Double, y: Double) {
+            switch layout {
+            case .line:
+                // Up is away from the line: storyboard Y grows downward.
+                let x = TransformProperty.x.defaultValue - width / 2 + width * along
+                return (x, TransformProperty.y.defaultValue - offset)
+            case .circle:
+                let angle = -Double.pi / 2 + 2 * .pi * along
+                let r = radius + offset
+                return (TransformProperty.x.defaultValue + cos(angle) * r,
+                        TransformProperty.y.defaultValue + sin(angle) * r)
+            }
+        }
+
+        /// A waveform rebuilt from the spectrum, sampled `samples` times.
+        ///
+        /// Each band is a sine as loud as the band, at a frequency spaced
+        /// logarithmically from long waves to a fine ripple — pitch is
+        /// logarithmic, so equal ratios read as equal steps. Summed, which is
+        /// what a waveform is, and divided by √bands so a loud mix reaches
+        /// about the amplitude asked for rather than bands times it.
+        ///
+        /// **It vibrates, it does not travel.** Every band is a STANDING wave —
+        /// `sin(2πku) · cos(ωt)`, a string swinging in place — each at its own
+        /// rate and timing, so the sum shivers the way a string or a scope
+        /// trace does. A standing wave has no direction by construction.
+        ///
+        /// The first version made each band a travelling wave and turned
+        /// neighbours opposite ways, expecting them to cancel. They do not: the
+        /// bass bands have few crests and turn fast, so they travel much
+        /// further than the rest and drag the whole line with them — measured,
+        /// every frame slid the same way, which is exactly "waves that only
+        /// move left to right". Travelling waves cannot be arranged not to
+        /// travel.
+        ///
+        /// **Strands braid.** Each strand mixes the bands with phases of its
+        /// own (a golden-angle step per strand and band), so two strands cross
+        /// one another instead of riding as shifted copies.
+        ///
+        /// On a line the trace gathers to the line at both ends, the way it
+        /// does on a scope's screen; round a ring every frequency is a whole
+        /// number of turns, or the wave would not meet itself.
+        func signal(
+            samples: Int,
+            bands: Int,
+            amplitude: (Int) -> Double,
+            time: Double,
+            flow: Double,
+            strand: Int,
+            shift: Double,
+        ) -> [(x: Double, y: Double)] {
+            let low = 0.75
+            let high = max(low * 2, min(Double(samples) / 5, 24))
+            let levels = (0 ..< bands).map(amplitude)
+            let norm = 1 / Double(bands).squareRoot()
+            let seconds = time / 1000
+
+            let waves = (0 ..< bands).map { band -> (k: Double, place: Double, swing: Double, amplitude: Double) in
+                let position = bands > 1 ? Double(band) / Double(bands - 1) : 0
+                var k = low * pow(high / low, position)
+                if closed { k = max(1, k.rounded()) }
+                // Where its crests sit and when it swings, both different per
+                // band and per strand — the strand's share is what braids.
+                let braid = Double(strand) * 2.399963 * Double(band + 1)
+                let place = braid + Double(band) * 0.618
+                let swing = 2 * .pi * flow * (0.5 + 1.5 * position) * seconds + Double(band) * 1.7 + braid
+                return (k, place, swing, levels[band] * norm)
+            }
+
+            return (0 ..< samples).map { sample in
+                let along = closed
+                    ? Double(sample) / Double(samples)
+                    : Double(sample) / Double(samples - 1)
+                let window = closed ? 1 : sin(.pi * along)
+                let sum = waves.reduce(0.0) { total, wave in
+                    total + wave.amplitude * sin(2 * .pi * wave.k * along + wave.place) * cos(wave.swing)
+                }
+                return place(along: along, offset: sum * window + shift)
+            }
+        }
+
         /// The samples, displaced by `offsets` (one per point, interpolated
         /// between them) and shifted a strand's spread outward.
         func samples(offsets: [Double], shift: Double) -> [(x: Double, y: Double)] {
@@ -270,17 +379,7 @@ public struct AudioWavesEffect: Effect {
                 let position = Double(sample) / Double(subdivide)
                 let offset = interpolate(offsets, at: position) + shift
                 let along = closed ? position / Double(points) : position / Double(points - 1)
-                switch layout {
-                case .line:
-                    // Up is away from the line: storyboard Y grows downward.
-                    let x = TransformProperty.x.defaultValue - width / 2 + width * along
-                    return (x, TransformProperty.y.defaultValue - offset)
-                case .circle:
-                    let angle = -Double.pi / 2 + 2 * .pi * along
-                    let r = radius + offset
-                    return (TransformProperty.x.defaultValue + cos(angle) * r,
-                            TransformProperty.y.defaultValue + sin(angle) * r)
-                }
+                return place(along: along, offset: offset)
             }
         }
 

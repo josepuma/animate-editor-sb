@@ -65,7 +65,7 @@ struct AudioWavesTests {
     // ─── It reacts to the music, and only to it ──────────────────────────────
 
     /// Silence is a flat line, and a still one — whatever the style.
-    @Test("silence draws a flat, still line", arguments: ["Zigzag", "Flowing"])
+    @Test("silence draws a flat, still line", arguments: ["Zigzag", "Flowing", "Signal"])
     func silenceIsFlat(style: String) {
         let sprites = waves(dots.merging([AudioWavesEffect.Param.style: .choice(style)]) { $1 }, audio: song(level: 0))
         for time in [100.0, 900, 1700] {
@@ -77,7 +77,7 @@ struct AudioWavesTests {
 
     /// The same clip under a quiet song and a loud one: the loud one reaches
     /// further from the line.
-    @Test("a louder song draws a taller wave", arguments: ["Zigzag", "Flowing"])
+    @Test("a louder song draws a taller wave", arguments: ["Zigzag", "Flowing", "Signal"])
     func louderIsTaller(style: String) {
         func reach(_ level: Float) -> Double {
             let values = dots.merging([AudioWavesEffect.Param.style: .choice(style)]) { $1 }
@@ -198,5 +198,163 @@ struct AudioWavesTests {
         let before = states(sprites, at: 2800).map { abs($0.y - centre.y) }.max() ?? 0
         let after = states(sprites, at: 3500).map { abs($0.y - centre.y) }.max() ?? 0
         #expect(before < 1 && after > 20, "before \(before), after \(after)")
+    }
+
+    // ─── Signal: a waveform rebuilt from the spectrum ────────────────────────
+
+    /// The heights of one strand's samples at a moment, left to right.
+    private func profile(_ sprites: [StoryboardSprite], at time: Double, strand: Int = 0) -> [Double] {
+        states(sprites.filter { $0.id.contains("/s\(strand)/dot") }, at: time)
+            .sorted { $0.x < $1.x }
+            .map { centre.y - $0.y }
+    }
+
+    private func signal(_ extra: [String: EffectValue] = [:]) -> [String: EffectValue] {
+        [
+            AudioWavesEffect.Param.style: .choice("Signal"),
+            AudioWavesEffect.Param.drawAs: .choice("Dots"),
+            AudioWavesEffect.Param.samples: .integer(96),
+        ].merging(extra) { $1 }
+    }
+
+    private func crossings(_ ys: [Double]) -> [Int] {
+        ys.indices.dropFirst().filter { ys[$0 - 1] * ys[$0] < 0 }
+    }
+
+    /// Reported as "it looks like it only bounces": a saw alternates on every
+    /// point, at a fixed rhythm. A signal crosses the line where its sum of
+    /// frequencies happens to, which is irregular.
+    @Test("a signal crosses the line irregularly, not as a saw")
+    func signalIsIrregular() {
+        let ys = profile(waves(signal(), audio: song(level: 0.8)), at: 1000)
+        let at = crossings(ys)
+        #expect(Double(at.count) < Double(ys.count - 1) * 0.6, "\(at.count) crossings in \(ys.count) samples — a saw")
+        let gaps = zip(at, at.dropFirst()).map { $1 - $0 }
+        #expect(Set(gaps).count > 2, "crossings evenly spaced: \(gaps)")
+    }
+
+    /// Each band is a frequency: the bass draws long waves, the treble a fine
+    /// ripple. Heard one band at a time, the treble crosses far more often.
+    @Test("the bass draws long waves and the treble a fine ripple")
+    func bandsAreFrequencies() {
+        let points = 32
+        func count(_ band: Int) -> Int {
+            crossings(profile(waves(signal([AudioWavesEffect.Param.points: .integer(points)]),
+                                    audio: song(level: 0, loudBand: band)), at: 1000)).count
+        }
+        #expect(count(points - 2) > count(1) * 3, "treble \(count(points - 2)), bass \(count(1))")
+    }
+
+    /// The other half of the report: "waves that only move left to right". A
+    /// travelling wave is the previous frame slid sideways; measured by the
+    /// best slide that explains the next frame from this one. For Flowing it
+    /// explains almost everything — which is the point of checking it too:
+    /// the measure has to be able to see a travelling wave before its
+    /// verdict on Signal means anything.
+    @Test("a signal vibrates instead of travelling", arguments: [("Flowing", false), ("Signal", true)])
+    func vibratesNotTravels(style: String, vibrates: Bool) {
+        // A flow worth seeing: at the default a phase barely turns in 200ms,
+        // and a frame that hardly changed is explained by any slide at all.
+        let values = signal([
+            AudioWavesEffect.Param.style: .choice(style),
+            AudioWavesEffect.Param.flow: .number(1.5),
+        ])
+        let sprites = waves(values, audio: song(level: 0.8))
+        let a = profile(sprites, at: 1000), b = profile(sprites, at: 1200)
+        let energy = a.map(abs).reduce(0, +) / Double(a.count)
+
+        var best = Double.infinity
+        for shift in -24 ... 24 {
+            var total = 0.0, n = 0
+            for i in a.indices where b.indices.contains(i + shift) {
+                total += abs(b[i + shift] - a[i]); n += 1
+            }
+            best = min(best, total / Double(max(1, n)))
+        }
+        let unexplained = best / max(energy, 1e-9)
+        if vibrates {
+            #expect(unexplained > 0.3, "\(style): a slide explains the next frame (\(unexplained))")
+        } else {
+            #expect(unexplained < 0.15, "the measure cannot see a travelling wave (\(unexplained))")
+        }
+    }
+
+    /// On a line the signal gathers to the line at its two ends, the way a
+    /// trace does on a scope's screen.
+    @Test("a signal gathers to the line at its ends")
+    func signalTapers() {
+        let ys = profile(waves(signal(), audio: song(level: 0.9)), at: 1000)
+        let peak = ys.map(abs).max() ?? 0
+        #expect(abs(ys.first ?? 1) < peak * 0.1 && abs(ys.last ?? 1) < peak * 0.1)
+    }
+
+    /// Strands braid: each mixes the bands with phases of its own, so they
+    /// cross one another rather than riding as shifted copies.
+    @Test("strands of a signal braid rather than copy")
+    func strandsBraid() {
+        let sprites = waves(signal([
+            AudioWavesEffect.Param.strands: .integer(2),
+            AudioWavesEffect.Param.lag: .number(0),
+            AudioWavesEffect.Param.spread: .number(0),
+        ]), audio: song(level: 0.8))
+        let a = profile(sprites, at: 1000, strand: 0), b = profile(sprites, at: 1000, strand: 1)
+        let crossing = zip(a, b).map { $0 - $1 }
+        #expect(crossings(crossing).count >= 2, "the strands never cross")
+    }
+
+    /// The best slide from one frame to the next, in samples, and how well it
+    /// fits — by normalised correlation.
+    ///
+    /// Not by absolute difference, which is what the first version used and
+    /// what made it lie. A standing wave changing its swing is the same shape
+    /// scaled, and a difference punishes scaling: sliding the comparison so it
+    /// covers less of the line lowered the error, and that read as a slide of
+    /// two to four samples every frame — on something that cannot move at all.
+    /// Correlation does not care about scale, so a scaled copy fits perfectly
+    /// where it is.
+    private func slide(_ a: [Double], _ b: [Double]) -> (shift: Int, fit: Double) {
+        var best = (shift: 0, fit: -Double.infinity)
+        for shift in -12 ... 12 {
+            let pairs = a.indices.compactMap { i -> (Double, Double)? in
+                b.indices.contains(i + shift) ? (a[i], b[i + shift]) : nil
+            }
+            guard pairs.count > a.count / 2 else { continue }
+            let ma = pairs.map(\.0).reduce(0, +) / Double(pairs.count)
+            let mb = pairs.map(\.1).reduce(0, +) / Double(pairs.count)
+            var num = 0.0, da = 0.0, db = 0.0
+            for (x, y) in pairs {
+                num += (x - ma) * (y - mb); da += (x - ma) * (x - ma); db += (y - mb) * (y - mb)
+            }
+            let fit = num / max((da * db).squareRoot(), 1e-12)
+            if fit > best.fit { best = (shift, fit) }
+        }
+        return best
+    }
+
+    /// "Waves that only move left to right": a slide that keeps going the same
+    /// way, frame after frame. The earlier check — can one slide explain the
+    /// next frame? — passed a signal whose bands all turned the same way,
+    /// because bands at different speeds deform and no single slide fits;
+    /// yet the line as a whole still drifted to one side. What tells a drift
+    /// from a vibration is that a drift keeps a DIRECTION.
+    @Test("a signal has no side to drift towards", arguments: [("Flowing", true), ("Signal", false)])
+    func noDirection(style: String, drifts: Bool) {
+        let sprites = waves(signal([
+            AudioWavesEffect.Param.style: .choice(style),
+            AudioWavesEffect.Param.flow: .number(1.5),
+        ]), audio: song(level: 0.8))
+        let times = stride(from: 1000.0, through: 1800, by: 100).map { $0 }
+        // A frame pair drifts when a slide explains it almost perfectly and the
+        // slide is not zero. Drifting one way is every pair doing so, the
+        // same way.
+        let slides = zip(times, times.dropFirst()).map { slide(profile(sprites, at: $0), profile(sprites, at: $1)) }
+        let drifting = slides.filter { $0.fit > 0.9 && $0.shift != 0 }.map(\.shift)
+        let oneWay = drifting.count == slides.count
+            && (drifting.allSatisfy { $0 > 0 } || drifting.allSatisfy { $0 < 0 })
+        if drifts {
+            #expect(oneWay, "the measure cannot see Flowing drift: \(slides)")
+        } else {
+            #expect(!oneWay, "\(style) drifts one way: \(slides)")
+        }
     }
 }

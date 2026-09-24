@@ -30,30 +30,45 @@ public extension AudioWavesEffect {
         )
     }
 
-    /// A saw drawn by the song: each tooth as tall as its band is loud, the
-    /// bass end jagged and the treble end calm when the mix sits that way.
-    static let oscilloscope = preset("oscilloscope", "Oscilloscope", "A jagged line, each tooth a band",
-                                     duration: 8000, [
-        Param.style: .choice(Style.zigzag.rawValue),
+    /// A scope trace: the song rebuilt as a waveform — bass as long swells,
+    /// treble as a fine shiver over them — with a second, fainter strand one
+    /// frame behind as the phosphor's afterglow.
+    ///
+    /// The first version was a zigzag, and it read as a spring bouncing: every
+    /// tooth alternating on a fixed rhythm, all of them jumping together. A
+    /// real trace crosses the line where its frequencies happen to sum to zero.
+    static let oscilloscope = preset("oscilloscope", "Oscilloscope", "A scope trace, with afterglow",
+                                     duration: 4000, [
+        Param.style: .choice(Style.signal.rawValue),
         Param.drawAs: .choice(Draw.line.rawValue),
-        Param.points: .integer(32),
-        Param.height: .number(90),
-        Param.thickness: .number(4),
-        Param.color: .color(EffectColor(r: 230, g: 90, b: 230)),
-        Param.colorEnd: .color(EffectColor(r: 230, g: 90, b: 230)),
+        Param.points: .integer(24),
+        Param.samples: .integer(64),
+        Param.flow: .number(1.2),
+        Param.height: .number(110),
+        Param.thickness: .number(2.5),
+        Param.strands: .integer(2),
+        // One frame behind at 12fps, in place: the glow a trace leaves.
+        Param.lag: .number(80), Param.spread: .number(0), Param.falloff: .number(0.7),
+        Param.rate: .integer(12),
+        Param.color: .color(EffectColor(r: 230, g: 110, b: 240)),
+        Param.colorEnd: .color(EffectColor(r: 140, g: 40, b: 170)),
+        Param.additive: .toggle(true),
     ])
 
-    /// Silk: a bundle of smooth strands, each hearing the song a moment after
-    /// the one in front, so a hit runs down the bundle instead of lifting it
-    /// as one block. Additive, so where the strands cross they brighten.
-    static let silkStrands = preset("silk-strands", "Silk Strands", "Smooth strands flowing one after another",
+    /// Silk: strands of the same signal, each mixing the bands with phases of
+    /// its own, so they cross and braid — and each hearing the song a moment
+    /// after the one in front, so a hit runs down the bundle.
+    ///
+    /// The first version slid one smooth wave from left to right; strands that
+    /// were shifted copies of it read as a ribbon travelling, not as silk.
+    static let silkStrands = preset("silk-strands", "Silk Strands", "Strands that braid and shiver with the song",
                                     duration: 4000, [
-        Param.style: .choice(Style.flowing.rawValue),
+        Param.style: .choice(Style.signal.rawValue),
         Param.drawAs: .choice(Draw.line.rawValue),
         Param.points: .integer(16),
-        Param.smoothness: .integer(2),
-        Param.waves: .number(2.5), Param.flow: .number(0.35),
-        Param.height: .number(110),
+        Param.samples: .integer(32),
+        Param.flow: .number(0.6),
+        Param.height: .number(120),
         Param.thickness: .number(2),
         Param.strands: .integer(4),
         Param.lag: .number(60), Param.spread: .number(10), Param.falloff: .number(0.6),
@@ -64,15 +79,15 @@ public extension AudioWavesEffect {
         Param.additive: .toggle(true),
     ])
 
-    /// The dotted strands under the silk: the same wave drawn in points, which
-    /// reads lighter and costs a third per sample.
-    static let dottedFlow = preset("dotted-flow", "Dotted Flow", "A wave drawn in points, in strands",
+    /// The dotted strands under the silk: the same signal drawn in points,
+    /// which reads lighter and costs a third per sample.
+    static let dottedFlow = preset("dotted-flow", "Dotted Flow", "A signal drawn in points, in strands",
                                    duration: 4000, [
-        Param.style: .choice(Style.flowing.rawValue),
+        Param.style: .choice(Style.signal.rawValue),
         Param.drawAs: .choice(Draw.dots.rawValue),
-        Param.points: .integer(24),
-        Param.smoothness: .integer(4),
-        Param.waves: .number(2), Param.flow: .number(-0.25),
+        Param.points: .integer(16),
+        Param.samples: .integer(64),
+        Param.flow: .number(0.5),
         Param.height: .number(90),
         Param.dotSize: .number(3),
         Param.strands: .integer(3),
@@ -82,16 +97,17 @@ public extension AudioWavesEffect {
         Param.colorEnd: .color(EffectColor(r: 140, g: 140, b: 150)),
     ])
 
-    /// A wave closed round a ring, riding in and out as the song plays.
-    static let waveRing = preset("wave-ring", "Wave Ring", "A flowing wave closed round a ring",
+    /// A signal closed round a ring, shivering in and out as the song plays.
+    /// Every frequency is a whole number of turns round it, so it meets itself.
+    static let waveRing = preset("wave-ring", "Wave Ring", "A signal closed round a ring",
                                  duration: 4000, [
         Param.layout: .choice(Layout.circle.rawValue),
         Param.radius: .number(110),
-        Param.style: .choice(Style.flowing.rawValue),
+        Param.style: .choice(Style.signal.rawValue),
         Param.drawAs: .choice(Draw.line.rawValue),
-        Param.points: .integer(24),
-        Param.smoothness: .integer(2),
-        Param.waves: .number(6), Param.flow: .number(0.2),
+        Param.points: .integer(16),
+        Param.samples: .integer(48),
+        Param.flow: .number(0.8),
         Param.height: .number(40),
         Param.thickness: .number(3),
         Param.strands: .integer(2),
