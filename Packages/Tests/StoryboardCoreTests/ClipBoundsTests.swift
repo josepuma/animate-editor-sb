@@ -120,53 +120,45 @@ struct ClipBoundsTests {
         #expect(box.maxX == 400)  // 100 wide, tripled
     }
 
-    /// **A mirror moves an off-centre sprite**, and the box has to follow.
+    /// **A flip turns the image over INSIDE its own box.**
     ///
-    /// The flip is a sign flip on the half-extent, and the anchor offset is
-    /// computed from that signed value — so a `CentreLeft` sprite draws to the
-    /// right normally and to the **left** once mirrored. Reading the anchor
-    /// without the sign put the frame on the opposite side of the picture from
-    /// the picture: seen on screen as a gradient on the right with its
-    /// selection box on the left.
-    @Test("a mirrored sprite takes its box with it")
-    func flipMovesTheBox() throws {
+    /// osu! keeps the box where origin plus position put it and mirrors the
+    /// pixels within. A `TopCentre` bar at y=480 hangs off the bottom of the
+    /// frame flipped or not — the box never swings to the other side of the
+    /// origin, which is what the renderer used to do and why a mirrored bottom
+    /// bar was visible in the editor and gone in the game.
+    @Test("a flip never moves the box, for any origin", arguments: Origin.allCases)
+    func flipIsInPlace(origin: Origin) throws {
         let plain = try #require(ClipBounds.around(
-            [state("a", x: 100, y: 100)],
-            sizeOf: size,
-            originOf: { _ in .centreLeft },
+            [state("a", x: 100, y: 100)], sizeOf: size, originOf: { _ in origin },
         ))
+
+        for (h, v) in [(true, false), (false, true), (true, true)] {
+            let flipped = try #require(ClipBounds.around(
+                [state("a", x: 100, y: 100, flipH: h, flipV: v)],
+                sizeOf: size, originOf: { _ in origin },
+            ))
+            #expect(flipped.minX == plain.minX && flipped.maxX == plain.maxX, "\(origin) h=\(h) v=\(v)")
+            #expect(flipped.minY == plain.minY && flipped.maxY == plain.maxY, "\(origin) h=\(h) v=\(v)")
+        }
+    }
+
+    @Test("a horizontally flipped CentreLeft sprite still runs right from its position")
+    func flipKeepsTheSide() throws {
         let mirrored = try #require(ClipBounds.around(
             [state("a", x: 100, y: 100, flipH: true)],
-            sizeOf: size,
-            originOf: { _ in .centreLeft },
+            sizeOf: size, originOf: { _ in .centreLeft },
         ))
-
-        #expect(plain.minX == 100, "unflipped it runs right from its position")
-        #expect(mirrored.maxX == 100, "mirrored it runs left to it")
+        #expect(mirrored.minX == 100)
     }
 
-    @Test("a vertical mirror moves the box vertically")
-    func verticalFlipMovesTheBox() throws {
+    @Test("a vertically flipped TopCentre sprite still hangs downward")
+    func verticalFlipKeepsTheSide() throws {
         let mirrored = try #require(ClipBounds.around(
             [state("a", x: 100, y: 100, flipV: true)],
-            sizeOf: size,
-            originOf: { _ in .topCentre },
+            sizeOf: size, originOf: { _ in .topCentre },
         ))
-
-        #expect(mirrored.maxY == 100, "a top-anchored sprite hangs upward once flipped")
-    }
-
-    /// A centred sprite is symmetric, so mirroring it changes nothing — the
-    /// case that would hide the bug if it were the only one tested.
-    @Test("mirroring a centred sprite leaves its box alone")
-    func flipDoesNotMoveACentredSprite() throws {
-        let plain = try #require(ClipBounds.around([state("a", x: 100, y: 100)], sizeOf: size))
-        let mirrored = try #require(
-            ClipBounds.around([state("a", x: 100, y: 100, flipH: true)], sizeOf: size),
-        )
-
-        #expect(mirrored.minX == plain.minX)
-        #expect(mirrored.maxX == plain.maxX)
+        #expect(mirrored.minY == 100)
     }
 
     /// A resize preview has to grow the way the sprite grows.

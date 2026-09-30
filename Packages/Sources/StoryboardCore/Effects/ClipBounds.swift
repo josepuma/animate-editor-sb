@@ -83,16 +83,16 @@ public struct ClipBounds: Sendable, Equatable {
             //
             // Same expression the vertex shader uses, so the two cannot drift:
             // `(0.5 - anchor) * 2 * halfSize`.
-            // A mirror is a sign flip on the half-extent, and the anchor
-            // offset is computed from that signed value — so a `CentreLeft`
-            // sprite draws to the right normally and to the **left** once
-            // flipped. Reading the anchor without the sign put the frame on the
-            // opposite side of the picture from the picture.
+            //
+            // The half-extent is UNSIGNED here on purpose. osu! flips a sprite
+            // in place — the box stays where origin plus position put it and
+            // only the pixels inside are mirrored. Folding the flip into this
+            // offset (as the renderer once did) swung a `TopCentre` bar at
+            // y=480 upward into the frame, where osu! leaves it hanging off
+            // the bottom edge, invisible.
             let anchor = originOf(state.spriteId).anchor
-            let signedHalfWidth = halfWidth * (state.flipH ? -1 : 1)
-            let signedHalfHeight = halfHeight * (state.flipV ? -1 : 1)
-            let centreX = state.x + (0.5 - Double(anchor.x)) * 2 * signedHalfWidth
-            let centreY = state.y + (0.5 - Double(anchor.y)) * 2 * signedHalfHeight
+            let centreX = state.x + (0.5 - Double(anchor.x)) * 2 * halfWidth
+            let centreY = state.y + (0.5 - Double(anchor.y)) * 2 * halfHeight
 
             // Measured upright, about each sprite's own centre. The angle is
             // reported alongside instead of being folded in, so the frame can

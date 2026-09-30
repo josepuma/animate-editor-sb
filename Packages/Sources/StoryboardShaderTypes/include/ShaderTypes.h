@@ -26,6 +26,8 @@ typedef struct {
     /// scaled and rotated about.
     vector_float2 position;
     /// Scaled half-extent, sign-flipped for horizontal or vertical mirroring.
+    /// The sign mirrors the image only; the anchor offset uses the magnitude,
+    /// so a flipped sprite stays in the same box.
     vector_float2 halfSize;
     /// Normalised anchor within the quad, (0, 0) top-left to (1, 1)
     /// bottom-right. The shader offsets the quad so this point lands on

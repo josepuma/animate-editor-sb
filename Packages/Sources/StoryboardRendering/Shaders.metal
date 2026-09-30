@@ -72,14 +72,21 @@ vertex RasterizerData spriteVertex(
     const float2 unit = kQuadCorners[corner];
 
     // Scale by half-extent. A negative component mirrors the quad, which also
-    // reverses winding — culling stays disabled so both faces draw.
+    // reverses winding — culling stays disabled so both faces draw. Because the
+    // quad is centred on the box, this flips the image IN PLACE.
     float2 local = unit * sprite.halfSize;
 
     // Shift the quad so its anchor sits on the origin. Doing this here, after
     // scaling and before rotation, is what keeps a scaling sprite pinned to its
     // origin: computing the offset on the CPU from an already-scaled size makes
     // it grow with the sprite and drift away.
-    const float2 anchorOffset = (float2(0.5, 0.5) - sprite.anchor) * 2.0 * sprite.halfSize;
+    //
+    // The offset uses the UNSIGNED half-extent. osu! flips a sprite inside its
+    // own box: the box stays where origin plus position put it and only the
+    // pixels mirror. With the sign in the offset the whole box swung to the
+    // other side of the origin, so a mirrored `TopCentre` bar at y=480 drew
+    // inside the frame in the editor while osu! left it hanging off the bottom.
+    const float2 anchorOffset = (float2(0.5, 0.5) - sprite.anchor) * 2.0 * abs(sprite.halfSize);
     local += anchorOffset;
 
     // Rotate clockwise on screen. In this Y-down space that is the standard

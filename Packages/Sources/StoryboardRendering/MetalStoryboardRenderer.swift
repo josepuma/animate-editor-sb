@@ -530,9 +530,10 @@ public final class MetalStoryboardRenderer {
             let scaledWidth = size.x * Float(state.scaleX)
             let scaledHeight = size.y * Float(state.scaleY)
 
-            // Mirroring is a sign flip on the half-extent. The shader applies
-            // the anchor to this same value, so a mirrored sprite stays pinned
-            // to its origin.
+            // Mirroring is a sign flip on the half-extent, which turns the image
+            // over. The shader takes the anchor offset from the absolute value,
+            // so the box stays put and only its pixels mirror — osu!'s in-place
+            // flip.
             let halfSize = SIMD2<Float>(
                 scaledWidth * 0.5 * (state.flipH ? -1 : 1),
                 scaledHeight * 0.5 * (state.flipV ? -1 : 1),

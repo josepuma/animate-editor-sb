@@ -366,6 +366,104 @@ struct NewFilterTests {
         #expect(evaluator.evaluate(document).count == plain * 4)
     }
 
+    // ─── Mirror: geometry ────────────────────────────────────────────────────
+
+    /// A 64px image drawn with `_V` at `width` x `height`, so its box is known.
+    private func bar(origin: Origin, x: Double, y: Double, width: Double, height: Double) -> StoryboardSprite {
+        var sprite = StoryboardSprite(
+            id: "bar", layer: .foreground, origin: origin,
+            filePath: "fill.png", defaultX: x, defaultY: y,
+        )
+        sprite.commands = [Command(
+            easing: .linear, startTime: 0, endTime: 1000,
+            payload: .vectorScale(startX: width / 64, startY: height / 64, endX: width / 64, endY: height / 64),
+        )]
+        return sprite
+    }
+
+    /// Mirrors `sprite` and measures both boxes the way the editor and the
+    /// renderer do: through the resolver, then `ClipBounds`.
+    private func mirroredBoxes(
+        _ sprite: StoryboardSprite, axis: MirrorFilter.Axis,
+    ) throws -> (original: ClipBounds, copies: [(origin: Origin, box: ClipBounds, flipH: Bool, flipV: Bool)]) {
+        let node = FilterNode(
+            id: "m", type: MirrorFilter.descriptor.type,
+            values: [MirrorFilter.Param.axis: .choice(axis.rawValue)],
+        )
+        let context = FilterContext(descriptor: MirrorFilter.descriptor, node: node)
+        let result = MirrorFilter().apply(to: [sprite], in: context)
+
+        func measure(_ s: StoryboardSprite) throws -> (ClipBounds, SpriteRenderState) {
+            let state = StoryboardResolver.resolve(StoryboardResolver.prepare([s]), at: 500)[0]
+            let box = try #require(ClipBounds.around(
+                [state], sizeOf: { _ in (64, 64) }, originOf: { _ in s.origin },
+            ))
+            return (box, state)
+        }
+
+        let original = try measure(result[0]).0
+        var copies: [(Origin, ClipBounds, Bool, Bool)] = []
+        for copy in result.dropFirst() {
+            let (box, state) = try measure(copy)
+            copies.append((copy.origin, box, state.flipH, state.flipV))
+        }
+        return (original, copies)
+    }
+
+    /// **The evidence from a real export.** A letterbox bar `TopCentre` at y=0
+    /// mirrored vertically has to land as a `BottomCentre` bar at y=480 with a
+    /// V flip: osu! flips in place, so the copy only ends up at the bottom of
+    /// the frame if its origin is reflected as well as its position.
+    @Test("a vertical mirror of a TopCentre bar becomes a BottomCentre bar at the bottom")
+    func mirrorReflectsTheOrigin() throws {
+        let sprite = bar(origin: .topCentre, x: 320, y: 0, width: 854, height: 120)
+        let result = try mirroredBoxes(sprite, axis: .vertical)
+        let copy = try #require(result.copies.first)
+
+        #expect(copy.origin == .bottomCentre)
+        #expect(copy.flipV && !copy.flipH)
+        #expect(copy.box.minY == 360 && copy.box.maxY == 480)
+        #expect(copy.box.minX == result.original.minX && copy.box.maxX == result.original.maxX)
+    }
+
+    @Test("a horizontal mirror swaps left and right origins", arguments: [
+        (Origin.topLeft, Origin.topRight), (.centreLeft, .centreRight),
+        (.bottomLeft, .bottomRight), (.topCentre, .topCentre), (.centre, .centre),
+    ])
+    func horizontalOriginSwap(pair: (Origin, Origin)) throws {
+        let sprite = bar(origin: pair.0, x: 100, y: 50, width: 200, height: 40)
+        let result = try mirroredBoxes(sprite, axis: .horizontal)
+        let copy = try #require(result.copies.first)
+        #expect(copy.origin == pair.1)
+    }
+
+    /// Measured rather than named: the copy's box is the original's reflected
+    /// about the stage centre line, for every origin and every axis.
+    @Test("the copy's box is the reflection of the original's", arguments: Origin.allCases)
+    func boxesAreReflections(origin: Origin) throws {
+        let sprite = bar(origin: origin, x: 150, y: 60, width: 200, height: 40)
+        let centreX = TransformProperty.x.defaultValue
+        let centreY = TransformProperty.y.defaultValue
+
+        for axis in [MirrorFilter.Axis.horizontal, .vertical, .both] {
+            let result = try mirroredBoxes(sprite, axis: axis)
+            let reflectsX = axis != .vertical
+            let reflectsY = axis != .horizontal
+            let o = result.original
+            let expected = ClipBounds(
+                minX: reflectsX ? 2 * centreX - o.maxX : o.minX,
+                minY: reflectsY ? 2 * centreY - o.maxY : o.minY,
+                maxX: reflectsX ? 2 * centreX - o.minX : o.maxX,
+                maxY: reflectsY ? 2 * centreY - o.minY : o.maxY,
+            )
+            let copy = try #require(result.copies.last, "\(axis)")
+            #expect(abs(copy.box.minX - expected.minX) < 1e-9, "\(origin) \(axis) minX")
+            #expect(abs(copy.box.maxX - expected.maxX) < 1e-9, "\(origin) \(axis) maxX")
+            #expect(abs(copy.box.minY - expected.minY) < 1e-9, "\(origin) \(axis) minY")
+            #expect(abs(copy.box.maxY - expected.maxY) < 1e-9, "\(origin) \(axis) maxY")
+        }
+    }
+
     // ─── Chromatic ───────────────────────────────────────────────────────────
 
     @Test("chromatic makes three channels")

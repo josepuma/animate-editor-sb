@@ -88,6 +88,13 @@ public struct MirrorFilter: SpriteFilter {
                 copy.id = "\(context.idPrefix)/m\(flipIndex)-\(index)"
                 copy.defaultX = mirroredX(sprite.defaultX, flip: flip, offset: offset)
                 copy.defaultY = mirroredY(sprite.defaultY, flip: flip, offset: offset)
+                // osu! flips a sprite in place, inside the box its origin
+                // puts it in, so reflecting the position alone leaves the copy
+                // hanging off the wrong side of it: a `TopCentre` bar mirrored
+                // to y=480 extends further down, out of the frame. The origin
+                // is reflected with the position and the box lands where the
+                // reflection of the original's does.
+                copy.origin = Self.reflected(sprite.origin, flip: flip)
 
                 copy.commands = sprite.commands.compactMap { command in
                     mirror(command, flip: flip, offset: offset, opacity: opacity)
@@ -115,6 +122,33 @@ public struct MirrorFilter: SpriteFilter {
             }
         }
 
+        return result
+    }
+
+    static func reflected(_ origin: Origin, flip: (x: Bool, y: Bool)) -> Origin {
+        var result = origin
+        if flip.x {
+            result = switch result {
+            case .topLeft: .topRight
+            case .topRight: .topLeft
+            case .centreLeft: .centreRight
+            case .centreRight: .centreLeft
+            case .bottomLeft: .bottomRight
+            case .bottomRight: .bottomLeft
+            case .topCentre, .centre, .bottomCentre: result
+            }
+        }
+        if flip.y {
+            result = switch result {
+            case .topLeft: .bottomLeft
+            case .bottomLeft: .topLeft
+            case .topCentre: .bottomCentre
+            case .bottomCentre: .topCentre
+            case .topRight: .bottomRight
+            case .bottomRight: .topRight
+            case .centreLeft, .centre, .centreRight: result
+            }
+        }
         return result
     }
 

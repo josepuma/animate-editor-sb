@@ -26,6 +26,10 @@ enum ImageConstants {
         // by where it ends, a shape by where its edges are.
         "fill": BuiltInSprite.fill,
         "disc": BuiltInSprite.disc,
+        // The one shipped texture a script can name. It is not a particle or
+        // a shape but a light cone, and a script laying out stage lighting
+        // had no other way to ask for it.
+        "strobe": BuiltInSprite.strobe,
     ]
 }
 

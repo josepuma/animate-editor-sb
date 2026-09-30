@@ -159,6 +159,17 @@ public enum BuiltInTextures {
         case sparkle = "star_04"
         case debris = "dirt_01"
         case pane = "window_01"
+        /// A spotlight cone: a bright point at the top centre opening downward.
+        ///
+        /// Not from the Kenney pack — the mapper's own picture, converted once
+        /// to white-with-alpha (see `scripts/make-strobe-texture.swift`).
+        /// **255×248**, not 512: `Scale` 1 is 255px wide, so a cone spanning
+        /// the 854-wide stage is about 3.3.
+        ///
+        /// Anchored `TopCentre` it hangs like a beam from its source, which
+        /// sits a few pixels below the top edge. Draw it additive: the light
+        /// adds, and in normal blend the soft fall-off reads as a grey wedge.
+        case strobe
 
         public var path: String { "\(prefix)\(rawValue).png" }
 
@@ -193,6 +204,11 @@ public enum BuiltInTextures {
             case .sparkle: "Sparkle"
             case .debris: "Debris"
             case .pane: "Pane"
+            // Named for what it is, not for the raw value: "Strobe" describes
+            // a flashing, which is what a script does with it, while the
+            // menu is for someone looking for a cone of light. `slashWide`
+            // is "Wave" for the same reason.
+            case .strobe: "Spotlight"
             }
         }
 

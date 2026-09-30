@@ -394,6 +394,9 @@ public enum BuiltInSprite {
     public static let sparkle = "__builtin__/star_04.png"
     public static let debris = "__builtin__/dirt_01.png"
     public static let pane = "__builtin__/window_01.png"
+    /// A spotlight cone, 255×248, source at the top centre. Not from the
+    /// Kenney pack: white-with-alpha from the mapper's own picture.
+    public static let strobe = "__builtin__/strobe.png"
 
     public static let textures = [
         lightning, lightningWide, bolt, boltThin,
@@ -402,7 +405,7 @@ public enum BuiltInSprite {
         scratch, slash, slashWide, slashDeep, slashThin,
         beam, beamThin, scorch, rune,
         flare, flareSoft, runeRing,
-        cloud, cloudWisp, sparkle, debris, pane,
+        cloud, cloudWisp, sparkle, debris, pane, strobe,
     ]
 
     public static let all = shapes + textures

@@ -87,4 +87,23 @@ struct StoryboardExportTests {
             ))
         }
     }
+
+    /// The export is the one door every sprite goes through, so the S/V and
+    /// zero-length-P fixes live behind it — not in each effect that could
+    /// produce the pattern.
+    @Test("prepare normalises S beside V and instant P flags")
+    func prepareNormalises() {
+        var s = sprite("sb/a.png")
+        s.commands = [
+            Command(easing: .linear, startTime: 0, endTime: 3000, payload: .fade(start: 1, end: 1)),
+            Command(easing: .linear, startTime: 0, endTime: 100, payload: .scale(start: 0, end: 0)),
+            Command(easing: .linear, startTime: 100, endTime: 200,
+                    payload: .vectorScale(startX: 0, startY: 0, endX: 1, endY: 2)),
+            Command(easing: .linear, startTime: 50, endTime: 50, payload: .parameter(.flipHorizontal)),
+        ]
+        let text = StoryboardExport.prepare([s]) { _ in nil }.storyboard
+
+        #expect(!text.contains("\n S,"), Comment(rawValue: text))
+        #expect(text.contains(" P,0,50,3000,H"), Comment(rawValue: text))
+    }
 }

@@ -125,8 +125,10 @@ struct OsbExportNormalizationTests {
 
     @Test("a P that already has a length is left alone")
     func nonZeroParameterUntouched() {
-        let lines = written([sprite([fade(0, 3000), flip(500, 900, .additive)])])
-        #expect(commandLines(lines, "P") == [" P,0,500,900,A"])
+        // Beside an instant one, so the sprite is normalised at all — a sprite
+        // with nothing to fix is returned untouched and would prove nothing.
+        let lines = written([sprite([fade(0, 3000), flip(500, 900, .additive), flip(700)])])
+        #expect(commandLines(lines, "P") == [" P,0,500,900,A", " P,0,700,3000,H"])
     }
 
     /// Inside a loop the body is relative to each iteration, so the hold ends
@@ -228,10 +230,16 @@ struct OsbExportNormalizationTests {
             Keyframe(time: 0, value: 1, easing: .linear),
             Keyframe(time: 2000, value: 2, easing: .linear),
         ])
-        let base = sprite([fade(0, 2000), scale(0, 500, 0, 0), vector(500, 1500, 0.3, 0.6)])
+        // The real pattern: a pop-in from (0, 0). Before it starts the
+        // resolver holds the first V's start value — equal axes — so the bake
+        // writes that stretch as an S beside the V that follows.
+        let base = sprite([
+            fade(0, 2000),
+            Command(easing: .linear, startTime: 500, endTime: 1500,
+                    payload: .vectorScale(startX: 0, startY: 0, endX: 0.3, endY: 0.6)),
+        ])
         let baked = CameraTransform.apply(camera, to: [base])
 
-        print(OsbWriter.write(baked))
         #expect(baked.flatMap(\.commands).contains { $0.kind == .vectorScale })
         #expect(baked.flatMap(\.commands).contains { $0.kind == .scale },
                 "the bake no longer writes an S here — this test lost its premise")
@@ -239,20 +247,22 @@ struct OsbExportNormalizationTests {
         #expect(commandLines(written(baked), "S").isEmpty)
     }
 
-    /// The transform path chooses `_S` per segment too (TransformCommands).
-    @Test("a group transform beside a V sprite exports without S")
-    func groupTransformStrayScaleIsGone() throws {
-        var document = EffectDocument()
-        let node = document.add(ShapeEffect.descriptor, at: 0, duration: 3000)
-        // Unequal axes, so the shape is a V sprite to begin with.
-        document.setValue(.number(800), for: ShapeEffect.Param.width, on: node.id)
-        document.setValue(.number(20), for: ShapeEffect.Param.height, on: node.id)
-        for property in [TransformProperty.scaleX, .scaleY] {
-            document.setKeyframe(0, for: property, at: 0, on: node.id)
-            document.setKeyframe(1, for: property, at: 1000, on: node.id)
-        }
+    /// The transform path chooses `_S` per segment too (`buildScale`): a uniform
+    /// animation is one number where a stretch is two. Beside any `V` — from a
+    /// script, a shape, a filter — that choice is the same stray S.
+    @Test("a transform's uniform scale beside a V exports without S")
+    func transformStrayScaleIsGone() {
+        let ramp = KeyframeTrack([
+            Keyframe(time: 0, value: 0, easing: .linear),
+            Keyframe(time: 1000, value: 1, easing: .linear),
+        ])
+        let uniform = TransformCommands.buildScale(
+            x: ramp, y: ramp, restingX: 1, restingY: 1, duration: 3000,
+        )
+        #expect(uniform.contains { $0.kind == .scale },
+                "the transform no longer writes an S here — this test lost its premise")
 
-        let sprites = EffectEvaluator().evaluate(document)
-        #expect(commandLines(written(sprites), "S").isEmpty)
+        let mixed = sprite([fade(0, 3000), vector(1000, 3000, 0.4, 0.1)] + uniform)
+        #expect(commandLines(written([mixed]), "S").isEmpty)
     }
 }

@@ -1516,6 +1516,7 @@ private struct SpriteChoice: Hashable, Identifiable {
         SpriteChoice(id: "sparkle", title: "Sparkle", path: BuiltInSprite.sparkle),
         SpriteChoice(id: "debris", title: "Debris", path: BuiltInSprite.debris),
         SpriteChoice(id: "pane", title: "Pane", path: BuiltInSprite.pane),
+        SpriteChoice(id: "strobe", title: "Spotlight", path: BuiltInSprite.strobe),
     ]
 
     private static let known = shapes + textures
