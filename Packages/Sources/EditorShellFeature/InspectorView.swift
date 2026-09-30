@@ -65,7 +65,13 @@ struct InspectorView: View {
                 FieldGroups {
                     trackSummary
 
-                    if let node = shell.selectedEffect, let descriptor = shell.selectedDescriptor {
+                    if shell.isEditingCamera {
+                        // The timeline is showing the camera, so that is what
+                        // this panel describes — two halves of the window
+                        // disagreeing about the selection is the bug this
+                        // panel already had once, with keyframe mode.
+                        cameraSections
+                    } else if let node = shell.selectedEffect, let descriptor = shell.selectedDescriptor {
                         effectParameters(descriptor: descriptor, node: node)
                     } else if let track = shell.selectedTrack {
                         trackParameters(track)
@@ -86,7 +92,7 @@ struct InspectorView: View {
                     // and the library tab is where filters are found anyway.
                     // A clip's filters, under whatever it is. They belong to
                     // the clip now, so they show wherever it does.
-                    if let node = shell.selectedEffect, !node.filters.isEmpty {
+                    if !shell.isEditingCamera, let node = shell.selectedEffect, !node.filters.isEmpty {
                         filterSection(node)
                     }
                 }
@@ -547,7 +553,10 @@ struct InspectorView: View {
     @ViewBuilder
     private func transformRow(_ property: TransformProperty, node: EffectNode) -> some View {
         TransformRow(
-                    property: property,
+                    title: property.title,
+                    unit: property.unit,
+                    step: property.step,
+                    range: property.range,
                     track: node.transform[property],
                     current: node.transform.value(
                         property,
@@ -778,6 +787,37 @@ struct InspectorView: View {
                     label: \.title,
                 )
             }
+
+            // Where the lane is in the scene the storyboard camera looks at.
+            // Beside the layer because it is the same kind of statement —
+            // where this row sits — and the switch is the one to reach for on
+            // lyrics or a HUD, which must stay on screen whatever the camera
+            // does.
+            PropertyRow("Follows Camera") {
+                Toggle("", isOn: Binding(
+                    get: { track.followsCamera },
+                    set: { shell.setFollowsCamera($0, on: track.id) },
+                ))
+                .labelsHidden()
+                .controlSize(.mini)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if track.followsCamera {
+                PropertyRow("Depth (Z)") {
+                    NumberField(
+                        value: Binding(
+                            get: { track.z },
+                            set: { shell.setDepth($0, on: track.id) },
+                        ),
+                        unit: "px",
+                        step: CameraProperty.z.step,
+                        range: CameraProperty.z.range,
+                        format: "%.0f",
+                    )
+                    .help("0 is drawn as it is; 1000 back is half size and pans half as far; negative is closer")
+                }
+            }
         }
 
         if track.nodes.count > 1 {
@@ -803,6 +843,93 @@ struct InspectorView: View {
         }
     }
 
+    // ─── Camera ──────────────────────────────────────────────────────────────
+
+    /// The storyboard camera: where it looks and how close, and the key being
+    /// edited if one is selected.
+    @ViewBuilder
+    private var cameraSections: some View {
+        let camera = shell.camera
+
+        FieldGroup("Camera") {
+            ForEach(CameraProperty.allCases, id: \.self) { property in
+                TransformRow(
+                    title: property.title,
+                    unit: property.unit,
+                    step: property.step,
+                    range: property.range,
+                    track: camera[property],
+                    current: camera.value(property, at: playheadTime),
+                    // Song time: the camera belongs to no clip.
+                    localTime: playheadTime,
+                    duration: .greatestFiniteMagnitude,
+                    setValue: { value, time in
+                        if camera[property].isEmpty {
+                            shell.setCameraValue(value, for: property)
+                        } else {
+                            shell.setCameraKeyframe(value, for: property, at: time)
+                        }
+                    },
+                    beginAnimating: { shell.beginAnimatingCamera(property, at: $0) },
+                    setEnabled: { shell.setCameraAnimationEnabled($0, for: property, keeping: $1) },
+                    clear: { shell.clearCameraKeyframes(for: property, keeping: $0) },
+                )
+            }
+
+            Text("Each track sits at its own Depth (Z): farther tracks draw smaller and move less.")
+                .font(Theme.Typography.micro)
+                .foregroundStyle(Theme.Palette.tertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
+        if let selection = shell.selectedCameraKeyframe, let key = shell.selectedCameraKeyframeValue {
+            FieldGroup("Keyframe · \(selection.property.title)") {
+                PropertyRow("Time") {
+                    NumberField(
+                        value: Binding(
+                            get: { key.time },
+                            set: { shell.moveCameraKeyframe(key.id, in: selection.property, to: $0) },
+                        ),
+                        unit: "ms",
+                        step: 10,
+                        range: 0...(.greatestFiniteMagnitude),
+                        format: "%.0f",
+                    )
+                }
+
+                PropertyRow("Value") {
+                    NumberField(
+                        value: Binding(
+                            get: { key.value },
+                            set: { shell.setCameraKeyframeValue($0, for: key.id, in: selection.property) },
+                        ),
+                        unit: selection.property.unit,
+                        step: selection.property.step,
+                        range: selection.property.range,
+                        format: selection.property.step < 1 ? "%.2f" : "%.0f",
+                    )
+                }
+
+                PropertyRow("Easing") {
+                    MenuField(
+                        items: KeyframeEasing.allCases.map(EasingOption.init),
+                        selection: Binding(
+                            get: { EasingOption(KeyframeEasing.matching(key.easing)) },
+                            set: { shell.setCameraKeyframeEasing($0.curve.easing, for: key.id, in: selection.property) },
+                        ),
+                        label: \.title,
+                    )
+                }
+
+                Button("Delete Keyframe", systemImage: "trash", role: .destructive) {
+                    shell.removeCameraKeyframe(key.id, from: selection.property)
+                }
+                .font(Theme.Typography.micro)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
     // ─── Sections ────────────────────────────────────────────────────────────
 
 
@@ -821,7 +948,7 @@ struct InspectorView: View {
     /// What the selected track is, above the parameters that shape it.
     @ViewBuilder
     private var trackSummary: some View {
-        if let track = shell.selectedTrack {
+        if !shell.isEditingCamera, let track = shell.selectedTrack {
             HStack(spacing: Theme.Spacing.snug) {
                 Circle()
                     .fill(track.tint)
@@ -851,7 +978,15 @@ struct InspectorView: View {
 /// a number until you say otherwise, and saying otherwise is one click. Before
 /// that there are no keys to manage and no row to read.
 private struct TransformRow: View {
-    let property: TransformProperty
+    /// What the row edits, as the four facts it needs about it.
+    ///
+    /// Not a `TransformProperty`, which is all it ever read one for: taking
+    /// the facts lets the camera's pan and zoom use the same row — one
+    /// stopwatch, one meaning, everywhere in the app.
+    let title: String
+    let unit: String?
+    let step: Double
+    let range: ClosedRange<Double>
     // Qualified: SwiftUI ships a `KeyframeTrack` of its own for view
     // animation, and this target imports both.
     let track: StoryboardCore.KeyframeTrack
@@ -878,7 +1013,7 @@ private struct TransformRow: View {
     }
 
     var body: some View {
-        PropertyRow(property.title) {
+        PropertyRow(title) {
             HStack(spacing: Theme.Spacing.tight) {
                 NumberField(
                     value: Binding(
@@ -888,10 +1023,10 @@ private struct TransformRow: View {
                         // with a timeline. Otherwise it sets the value.
                         set: { setValue($0, keyTime) },
                     ),
-                    unit: property.unit,
-                    step: property.step,
-                    range: property.range,
-                    format: property.step < 1 ? "%.2f" : "%.0f",
+                    unit: unit,
+                    step: step,
+                    range: range,
+                    format: step < 1 ? "%.2f" : "%.0f",
                 )
 
                 // The stopwatch: starts animating, and afterwards switches the
@@ -959,10 +1094,10 @@ private struct TransformRow: View {
     }
 
     private var stopwatchHelp: String {
-        if !hasKeys { return "Animate \(property.title)" }
+        if !hasKeys { return "Animate \(title)" }
         return isAnimating
-            ? "Switch off \(property.title) animation (keys are kept)"
-            : "Switch \(property.title) animation back on"
+            ? "Switch off \(title) animation (keys are kept)"
+            : "Switch \(title) animation back on"
     }
 }
 

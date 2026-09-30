@@ -27,11 +27,29 @@ struct TrackTimelineView: View {
     /// room than its contents needed.
     /// The header in force, so every measurement in this view agrees on it.
     private var headerWidth: CGFloat {
-        Self.headerWidth(isEditingKeyframes: shell.keyframeNode != nil)
+        Self.headerWidth(isEditingKeyframes: isEditingKeyframes)
     }
 
     private var contentOrigin: CGFloat {
-        Self.contentOrigin(isEditingKeyframes: shell.keyframeNode != nil)
+        Self.contentOrigin(isEditingKeyframes: isEditingKeyframes)
+    }
+
+    /// Whether a keyframe editor owns the timeline — a clip's or the camera's.
+    ///
+    /// One question for every measurement below: the header width, the
+    /// origin and all three heights change together, and one of them asking a
+    /// narrower question is how they came to disagree before.
+    private var isEditingKeyframes: Bool {
+        shell.keyframeNode != nil || shell.isEditingCamera
+    }
+
+    /// How many lanes the lane view draws: every track, plus the camera's.
+    ///
+    /// The camera lane is a lane like the others — same height, same gap — so
+    /// it is counted here rather than added as a height of its own, which
+    /// would be a fourth formula for the same timeline.
+    private var laneCount: Int {
+        shell.effects.tracks.count + 1
     }
 
     /// Where the playhead sits inside a clip, clamped to it.
@@ -43,6 +61,7 @@ struct TrackTimelineView: View {
     }
 
     private var keyframeRowCount: Int {
+        if shell.isEditingCamera { return CameraKeyframeRows.rowCount(isExpanded: shell.isCameraGroupExpanded) }
         guard let node = shell.keyframeNode else { return 0 }
         return KeyframeRows.rowCount(
             of: node,
@@ -347,8 +366,8 @@ struct TrackTimelineView: View {
                 // is what "it does not reach the bottom" looked like.
                 .frame(
                     height: Self.stackHeight(
-                        trackCount: shell.effects.tracks.count,
-                        isEditingKeyframes: shell.keyframeNode != nil,
+                        trackCount: laneCount,
+                        isEditingKeyframes: isEditingKeyframes,
                         keyframeRows: keyframeRowCount,
                     ),
                     alignment: .top,
@@ -363,8 +382,8 @@ struct TrackTimelineView: View {
         }
         .padding(Theme.Spacing.compact)
         .frame(height: Self.height(
-            trackCount: shell.effects.tracks.count,
-            isEditingKeyframes: shell.keyframeNode != nil,
+            trackCount: laneCount,
+            isEditingKeyframes: isEditingKeyframes,
             keyframeRows: keyframeRowCount,
         ), alignment: .top)
         .onChange(of: shell.keyframeNodeID) { _, newValue in
@@ -466,14 +485,37 @@ struct TrackTimelineView: View {
                     .lineLimit(1)
 
                 BarDivider()
+            } else if shell.isEditingCamera {
+                IconButton(
+                    systemImage: "chevron.left",
+                    size: Theme.Size.controlTiny,
+                    help: "Back to tracks",
+                ) { shell.isEditingCamera = false }
+
+                Text("Camera")
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.secondary)
+                    .lineLimit(1)
+
+                // In camera mode no clip is on screen to carry a spinner, so
+                // the mode's own title does: a camera edit on a heavy project
+                // takes a moment, and nothing saying so reads as an edit that
+                // did not take.
+                if shell.isApplyingCamera {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .help("Applying the camera")
+                }
+
+                BarDivider()
             }
 
             IconButton(
                 systemImage: "plus",
                 size: Theme.Size.controlTiny,
-                help: shell.keyframeNode == nil ? "New track" : "Add keyframe at playhead",
+                help: isEditingKeyframes ? "Add keyframe at playhead" : "New track",
             ) {
-                if shell.keyframeNode == nil { shell.addTrack() }
+                if !isEditingKeyframes { shell.addTrack() }
             }
 
             IconButton(
@@ -1125,7 +1167,26 @@ struct TrackTimelineView: View {
                     VStack(spacing: Theme.Spacing.tight) {
                         if let node = shell.keyframeNode {
                             keyframeEditor(node, contentWidth: contentWidth)
+                        } else if shell.isEditingCamera {
+                            CameraKeyframeRows(
+                                shell: shell,
+                                scale: TimelineScale(range: visibleRange, width: contentWidth),
+                                headerWidth: headerWidth,
+                                isPlaying: isPlaying,
+                                seek: seek,
+                            )
                         } else {
+                            // The camera first: it is above everything, the
+                            // view every lane below is seen through.
+                            CameraLaneView(
+                                camera: shell.camera,
+                                scale: TimelineScale(range: visibleRange, width: contentWidth),
+                                headerWidth: Self.headerWidth,
+                                height: Self.trackHeight,
+                                isApplying: shell.isApplyingCamera,
+                                open: { shell.isEditingCamera = true },
+                            )
+
                             // Identified by id alone, not by id plus revision.
                             //
                             // Keying on the revision gives every row a fresh
@@ -1161,8 +1222,8 @@ struct TrackTimelineView: View {
                 // grown to 336pt. Told exactly how tall to be, it keeps the
                 // overflow and scrolls it.
                 .frame(height: Self.rowsHeight(
-                    trackCount: shell.effects.tracks.count,
-                    isEditingKeyframes: shell.keyframeNode != nil,
+                    trackCount: laneCount,
+                    isEditingKeyframes: isEditingKeyframes,
                     keyframeRows: keyframeRowCount,
                 ))
 
@@ -1190,8 +1251,8 @@ struct TrackTimelineView: View {
                 },
         )
         .frame(height: Self.rowsHeight(
-                    trackCount: shell.effects.tracks.count,
-                    isEditingKeyframes: shell.keyframeNode != nil,
+                    trackCount: laneCount,
+                    isEditingKeyframes: isEditingKeyframes,
                     keyframeRows: keyframeRowCount,
                 ))
     }

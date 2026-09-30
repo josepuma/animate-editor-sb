@@ -15,6 +15,7 @@ public extension EmitterEffect {
         petals, nebula, lightStreaks, aurora, sparkler,
         popDots, ringPulse, pixelDissolve, speedLines, dotRain,
         fallingLeaves, dataRain, rayBurst, bubblePop, orbitDots,
+        chevronMarch, hazardStripes, vectorNodes, arrowBurst, crossField, triangleShards,
         spectrumFountain, bassBurst, trebleSparkles, beatDots, kickConfetti,
         dustMotes, fogLayers, lightShafts, cloudScroll,
     ]
@@ -25,6 +26,7 @@ public extension EmitterEffect {
         _ summary: String,
         duration: Double = 4000,
         pack: String? = nil,
+        filters: [EffectPreset.Filter] = [],
         _ values: [String: EffectValue],
     ) -> EffectPreset {
         EffectPreset(
@@ -36,6 +38,7 @@ public extension EmitterEffect {
             values: descriptor.defaultValues.merging(values) { _, override in override },
             overrides: values,
             pack: pack,
+            filters: filters,
         )
     }
 
@@ -1093,6 +1096,199 @@ public extension EmitterEffect {
         Param.fadeIn: .number(0.1), Param.fadeOut: .number(0.3),
         Param.additive: .toggle(false),
     ])
+
+    // ── The poster vocabulary ───────────────────────────────────────────────
+    //
+    // Chevrons, block arrows, hazard stripes, vector-editor nodes and plus
+    // marks: the look of a Swiss/techno poster. All drawn at 512 and hard-
+    // edged, so `Scale` 1 is 512px and a 24px mark is about 0.047.
+    //
+    // The palette is the poster's own — a warm signal yellow, white, and a
+    // near-black that only shows on a lighter backdrop — and every one keeps
+    // to the family's rules: not additive, no soft edge, timing that snaps.
+
+    /// Chevrons marching along one line, point first.
+    ///
+    /// Zero spread and zero randomness anywhere: a march is a rhythm, and one
+    /// chevron a little faster than its neighbour is a queue, not a march.
+    /// Births are dealt evenly across the block, so with a constant speed the
+    /// spacing in space is even too. The sprite points up and `Align to
+    /// Motion` turns that toward the velocity, so they lead.
+    static let chevronMarch = preset("chevron-march", "Chevron March", "Chevrons marching point-first along a line",
+                                     duration: 4000, pack: "Flat", [
+        Param.count: .integer(24),
+        Param.emission: .choice(Emission.continuous.rawValue),
+        Param.sprite: .text(BuiltInSprite.chevron),
+        // Born off the left edge, running 800px: it lands at 740, inside the
+        // stage, rather than spending commands past the right edge.
+        Param.x: .number(-60), Param.y: .number(240),
+        Param.shape: .choice(Shape.point.rawValue),
+        Param.direction: .number(0), Param.spread: .number(0),
+        Param.velocity: .number(420), Param.velocityRandom: .number(0),
+        Param.gravity: .number(0), Param.drag: .number(0),
+        Param.life: .number(1900), Param.lifeRandom: .number(0),
+        // The chevron is 512px: 0.09 is a 46px mark, 70px from the next.
+        Param.scaleStart: .number(0.09), Param.scaleEnd: .number(0.09),
+        Param.scaleRandom: .number(0),
+        Param.stretch: .number(1), Param.alignToMotion: .toggle(true),
+        Param.color: .color(EffectColor(r: 230, g: 195, b: 65)),
+        Param.colorEnd: .color(EffectColor(r: 230, g: 195, b: 65)),
+        Param.opacity: .number(1),
+        Param.fadeIn: .number(0), Param.fadeOut: .number(0.06),
+        Param.additive: .toggle(false),
+    ])
+
+    /// A band of hazard stripes sliding sideways.
+    ///
+    /// Emitted from a point off the left edge at a fixed speed, so the bars
+    /// stand at an even pitch — 60px, twice a stripe's own width, which is what
+    /// makes the gap read as the other colour. They never turn: the slant is
+    /// the drawing.
+    static let hazardStripes = preset("hazard-stripes", "Hazard Stripes", "A band of slanted stripes sliding sideways",
+                                      duration: 6000, pack: "Flat", [
+        Param.count: .integer(28),
+        Param.emission: .choice(Emission.continuous.rawValue),
+        Param.sprite: .text(BuiltInSprite.stripe),
+        // Born at the stage's left edge (−107) and running 840px, so the
+        // band crosses the whole frame and lands inside it: a stripe born
+        // further out, or run further, spends commands on nothing.
+        Param.x: .number(-100), Param.y: .number(240),
+        Param.shape: .choice(Shape.point.rawValue),
+        Param.direction: .number(0), Param.spread: .number(0),
+        Param.velocity: .number(280), Param.velocityRandom: .number(0),
+        Param.gravity: .number(0), Param.drag: .number(0),
+        Param.life: .number(3000), Param.lifeRandom: .number(0),
+        // The stripe is 512px: 0.18 is a 92px bar, 30px wide across its slant.
+        Param.scaleStart: .number(0.18), Param.scaleEnd: .number(0.18),
+        Param.scaleRandom: .number(0),
+        Param.stretch: .number(1), Param.alignToMotion: .toggle(false),
+        Param.rotation: .number(0), Param.spin: .number(0),
+        Param.color: .color(EffectColor(r: 230, g: 195, b: 65)),
+        Param.colorEnd: .color(EffectColor(r: 230, g: 195, b: 65)),
+        Param.opacity: .number(1),
+        Param.fadeIn: .number(0), Param.fadeOut: .number(0.05),
+        Param.additive: .toggle(false),
+    ])
+
+    /// Vector-editor anchor handles appearing at scattered points.
+    ///
+    /// They snap in at full size and hold, then go: no swell and no travel,
+    /// because an anchor is a place. **No overshoot** — the emitter writes one
+    /// linear scale command per particle, so a settle would be a slow shrink
+    /// across the whole life, which is the floaty motion this family avoids.
+    static let vectorNodes = preset("vector-nodes", "Vector Nodes", "Hollow anchor squares snapping in and holding",
+                                    duration: 6000, pack: "Flat", [
+        Param.count: .integer(60),
+        Param.emission: .choice(Emission.continuous.rawValue),
+        Param.sprite: .text(BuiltInSprite.node),
+        Param.x: .number(320), Param.y: .number(240),
+        Param.shape: .choice(Shape.rectangle.rawValue),
+        Param.width: .number(700), Param.height: .number(360),
+        Param.direction: .number(270), Param.spread: .number(0),
+        Param.velocity: .number(0), Param.velocityRandom: .number(0),
+        Param.gravity: .number(0), Param.drag: .number(0),
+        Param.life: .number(900), Param.lifeRandom: .number(0.3),
+        // The node is 512px: 0.035 is an 18px square.
+        Param.scaleStart: .number(0.035), Param.scaleEnd: .number(0.035),
+        Param.scaleRandom: .number(0.5),
+        Param.rotation: .number(0), Param.spin: .number(0),
+        Param.alignToMotion: .toggle(false),
+        Param.color: .color(EffectColor(r: 255, g: 255, b: 255)),
+        Param.colorEnd: .color(EffectColor(r: 255, g: 255, b: 255)),
+        Param.opacity: .number(1),
+        Param.fadeIn: .number(0), Param.fadeOut: .number(0.08),
+        Param.additive: .toggle(false),
+    ])
+
+    /// Block arrows fired out of one point and braking hard.
+    ///
+    /// Point + Radial sends each in its own direction, and `Align to Motion`
+    /// turns the up-pointing sprite toward it, so every arrow points where it
+    /// goes. Radial's neutral Direction is 270.
+    static let arrowBurst = preset("arrow-burst", "Arrow Burst", "Block arrows radiating from a point",
+                                   duration: 1000, pack: "Flat", [
+        Param.count: .integer(24),
+        Param.emission: .choice(Emission.burst.rawValue),
+        Param.sprite: .text(BuiltInSprite.arrow),
+        Param.shape: .choice(Shape.point.rawValue),
+        Param.radial: .toggle(true),
+        Param.direction: .number(270), Param.spread: .number(0),
+        Param.velocity: .number(460), Param.velocityRandom: .number(0.15),
+        Param.gravity: .number(0), Param.drag: .number(0.85),
+        Param.life: .number(800), Param.lifeRandom: .number(0.15),
+        // The arrow is 512px: a 36px arrow shrinking to 10 as it stops.
+        Param.scaleStart: .number(0.07), Param.scaleEnd: .number(0.02),
+        Param.scaleRandom: .number(0.2),
+        Param.stretch: .number(1), Param.alignToMotion: .toggle(true),
+        Param.color: .color(EffectColor(r: 230, g: 195, b: 65)),
+        Param.colorEnd: .color(EffectColor(r: 230, g: 195, b: 65)),
+        Param.opacity: .number(1),
+        Param.fadeIn: .number(0), Param.fadeOut: .number(0.15),
+        Param.additive: .toggle(false),
+    ])
+
+    /// A lattice of plus marks landing one after another.
+    ///
+    /// One cross and a Grid filter, not a scatter: an emitter places
+    /// particles at random, and a scatter is what Vector Nodes already is. The
+    /// grid is what makes it a *field*, and its diagonal delay is what makes it
+    /// land like a wipe rather than appear as wallpaper.
+    static let crossField = preset("cross-field", "Cross Field", "Plus marks landing across a grid",
+                                   duration: 4000, pack: "Flat",
+                                   filters: [
+        EffectPreset.Filter(type: GridFilter.descriptor.type, values: [
+            GridFilter.Param.columns: .integer(9),
+            GridFilter.Param.rows: .integer(5),
+            GridFilter.Param.spacingX: .number(90),
+            GridFilter.Param.spacingY: .number(90),
+            GridFilter.Param.delay: .number(45),
+            GridFilter.Param.stagger: .choice(GridFilter.Stagger.diagonal.rawValue),
+        ]),
+    ], [
+        Param.count: .integer(1),
+        Param.emission: .choice(Emission.burst.rawValue),
+        Param.sprite: .text(BuiltInSprite.cross),
+        Param.x: .number(320), Param.y: .number(240),
+        Param.shape: .choice(Shape.point.rawValue),
+        Param.velocity: .number(0), Param.velocityRandom: .number(0),
+        Param.spread: .number(0), Param.gravity: .number(0), Param.drag: .number(0),
+        Param.life: .number(3800), Param.lifeRandom: .number(0),
+        // The cross is 512px: 0.035 is an 18px plus mark.
+        Param.scaleStart: .number(0.035), Param.scaleEnd: .number(0.035),
+        Param.scaleRandom: .number(0),
+        Param.color: .color(EffectColor(r: 255, g: 255, b: 255)),
+        Param.colorEnd: .color(EffectColor(r: 255, g: 255, b: 255)),
+        Param.opacity: .number(1),
+        Param.fadeIn: .number(0), Param.fadeOut: .number(0.05),
+        Param.additive: .toggle(false),
+    ])
+
+    /// Solid triangles scattering and turning, braking as they go.
+    ///
+    /// No gravity, so the scatter is symmetrical: a shard falling is debris,
+    /// and this is a graphic. Each turns at its own pace from its own angle.
+    static let triangleShards = preset("triangle-shards", "Triangle Shards", "Solid triangles scattering and spinning away",
+                                       duration: 1200, pack: "Flat", [
+        Param.count: .integer(30),
+        Param.emission: .choice(Emission.burst.rawValue),
+        Param.sprite: .text(BuiltInSprite.triangle),
+        Param.shape: .choice(Shape.point.rawValue),
+        Param.radial: .toggle(true),
+        Param.direction: .number(270), Param.spread: .number(0),
+        Param.velocity: .number(520), Param.velocityRandom: .number(0.5),
+        Param.gravity: .number(0), Param.drag: .number(0.75),
+        Param.life: .number(900), Param.lifeRandom: .number(0.3),
+        // The triangle is 512px: a 46px shard shrinking to nothing — the pop.
+        Param.scaleStart: .number(0.09), Param.scaleEnd: .number(0),
+        Param.scaleRandom: .number(0.5),
+        Param.rotation: .number(180), Param.spin: .number(500),
+        Param.alignToMotion: .toggle(false),
+        Param.color: .color(EffectColor(r: 230, g: 195, b: 65)),
+        Param.colorEnd: .color(EffectColor(r: 230, g: 195, b: 65)),
+        Param.opacity: .number(1),
+        Param.fadeIn: .number(0), Param.fadeOut: .number(0.1),
+        Param.additive: .toggle(false),
+    ])
 }
 
 // ─── Audio ───────────────────────────────────────────────────────────────────
@@ -1353,7 +1549,7 @@ public extension EmitterEffect {
     /// reads as none of them.
     static let compoundPresets: [EffectPreset] = [
         fireRing, portal, tunnel, impact, stormCell, energyOrb, arcReactor, firework, shapeDrift,
-        splash, blackHole, starfieldParallax,
+        splash, blackHole, starfieldParallax, hudSweep,
     ]
 
     /// Builds a layer with the emitter's own defaults underneath.
@@ -2204,6 +2400,38 @@ public extension EmitterEffect {
                 Param.fadeIn: .number(0.12), Param.fadeOut: .number(0.15),
                 Param.additive: .toggle(false),
             ]),
+        ],
+    )
+
+    /// The poster vocabulary in one clip: a hazard band sliding along the
+    /// bottom, chevrons marching across the top, and anchor nodes appearing
+    /// over the frame.
+    ///
+    /// Three sprites, three layers, three motions — the band slides, the
+    /// chevrons travel, the nodes hold. The parent is the nodes, and that is
+    /// not arbitrary: a parent's position is the group's anchor, so it has to
+    /// sit at the stage centre where its own scatter is already centred, and
+    /// the other two are placed by their own absolute positions.
+    static let hudSweep = compound(
+        "hud-sweep", "HUD Sweep", "A hazard band, marching chevrons and anchor nodes",
+        duration: 6000,
+        vectorNodes.overrides.merging([
+            Param.count: .integer(40),
+            Param.color: .color(EffectColor(r: 230, g: 195, b: 65)),
+            Param.colorEnd: .color(EffectColor(r: 230, g: 195, b: 65)),
+        ]) { _, new in new },
+        pack: "Flat",
+        layers: [
+            layer("Stripes", hazardStripes.overrides.merging([
+                Param.y: .number(410),
+            ]) { _, new in new }),
+            layer("Chevrons", chevronMarch.overrides.merging([
+                // Same 70px pitch as the standalone preset over a longer block.
+                Param.count: .integer(36),
+                Param.y: .number(150),
+                Param.color: .color(EffectColor(r: 255, g: 255, b: 255)),
+                Param.colorEnd: .color(EffectColor(r: 255, g: 255, b: 255)),
+            ]) { _, new in new }),
         ],
     )
 

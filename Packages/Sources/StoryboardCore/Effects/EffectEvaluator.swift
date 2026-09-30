@@ -53,7 +53,7 @@ public struct EffectLibrary: Sendable {
     ///
     /// Removing `ScriptEffect()` from this list turns scripting off entirely —
     /// nothing else reaches it, so this one line is the rollback.
-    public static let standard = EffectLibrary(effects: [ImageEffect(), ShapeEffect(), TextEffect(), EmitterEffect(), AudioBarsEffect(), AudioWavesEffect(), SignalLossEffect(), ScriptEffect()])
+    public static let standard = EffectLibrary(effects: [ImageEffect(), ShapeEffect(), TextEffect(), EmitterEffect(), AudioBarsEffect(), AudioWavesEffect(), SignalLossEffect(), TileWipeEffect(), ScriptEffect()])
 }
 
 /// Turns placed effect nodes into the sprites the renderer and the exporter
@@ -172,8 +172,16 @@ public struct EffectEvaluator: Sendable {
     /// Track order is draw order within a layer, and a hidden track contributes
     /// nothing regardless of what its effects say — hiding a lane has to hide
     /// what is on it, which is the only reading of the control that makes sense.
+    ///
+    /// Each lane is then seen through the storyboard camera at its own depth.
+    /// Last, and per lane, because the camera is keyed in song time and a
+    /// lane's depth is the lane's: see `CameraTransform`.
     public func evaluate(_ document: EffectDocument) -> [StoryboardSprite] {
-        document.tracks.flatMap { evaluate($0) }
+        document.tracks.flatMap { track in
+            CameraTransform.apply(
+                document.camera, to: evaluate(track), z: track.z, followsCamera: track.followsCamera,
+            )
+        }
     }
 
     /// Evaluates one track: its effects, then its filters over the result.

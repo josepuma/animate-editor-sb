@@ -45,15 +45,22 @@ public enum DerivedSprite {
         let source = String(body[body.index(after: slash)...])
         guard !source.isEmpty else { return nil }
 
-        guard descriptor.hasPrefix("blur"),
-              let radius = Double(descriptor.dropFirst(4))
-        else { return nil }
-
-        return (.blur(radius: radius), source)
+        if descriptor.hasPrefix("blur"), let radius = Double(descriptor.dropFirst(4)) {
+            return (.blur(radius: radius), source)
+        }
+        if let kind = parseDots(descriptor) { return (kind, source) }
+        if let kind = parsePanel(descriptor, extent: source) { return (kind, source) }
+        return nil
     }
 
     public enum Kind: Equatable, Sendable {
         case blur(radius: Double)
+        /// The source re-drawn as a grid of dots. All four numbers are the
+        /// quantised ones the path carries, so what is parsed is exactly what
+        /// was written.
+        case dotMatrix(pitch: Int, dotPercent: Int, shape: DotShape, thresholdPercent: Int)
+        /// A lattice of dots with no source: the unlit ones behind an LED sign.
+        case dotPanel(columns: Int, rows: Int, pitch: Int, dotPercent: Int, shape: DotShape)
     }
 
     public static func isDerived(_ path: String) -> Bool {
@@ -91,5 +98,129 @@ public enum DerivedSprite {
 
         let step = Int(quantumStep)
         return stride(from: low, through: high, by: step).map { $0 }
+    }
+
+    // ─── Dot matrix ──────────────────────────────────────────────────────────
+
+    /// The shape of one dot.
+    public enum DotShape: String, Sendable, Equatable, CaseIterable {
+        case round = "r"
+        case square = "s"
+    }
+
+    /// Bounds on a dot grid's parameters, shared by the paths that carry them
+    /// and the filter that exposes them.
+    public static let dotPitchRange: ClosedRange<Int> = 2...64
+
+    /// The source re-drawn as a grid of hard-edged dots.
+    ///
+    /// The texture that makes an LED sign: one image per glyph instead of one
+    /// sprite per dot. A line of forty characters at a pitch of 8 is roughly
+    /// three thousand lit dots — as sprites, three thousand of them with their
+    /// own commands; as this, forty.
+    ///
+    /// Every number is quantised into the path, for the reason blur radii are:
+    /// a slider dragged across a range would otherwise mint a texture per
+    /// position, and an atlas is a fixed size.
+    ///
+    /// - Parameters:
+    ///   - pitch: cell size in source pixels.
+    ///   - dotSize: dot diameter as a fraction of the pitch.
+    ///   - threshold: how much of a cell the source must cover to light it.
+    public static func dotMatrix(
+        _ source: String,
+        pitch: Double,
+        dotSize: Double,
+        shape: DotShape,
+        threshold: Double,
+    ) -> String {
+        let p = quantisePitch(pitch)
+        let d = quantisePercent(dotSize, in: 1...100)
+        let t = quantisePercent(threshold, in: 1...99)
+        return "\(prefix)dots\(p)-\(d)-\(shape.rawValue)-\(t)/\(source)"
+    }
+
+    /// A lattice of dots with no source, `columns × rows` cells.
+    ///
+    /// Its extent is named in cells and lives where a source path would: the
+    /// path is `descriptor/source`, and a panel's only "source" is how big it
+    /// is.
+    public static func dotPanel(
+        columns: Int,
+        rows: Int,
+        pitch: Double,
+        dotSize: Double,
+        shape: DotShape,
+    ) -> String {
+        let p = quantisePitch(pitch)
+        let d = quantisePercent(dotSize, in: 1...100)
+        return "\(prefix)panel\(p)-\(d)-\(shape.rawValue)/\(max(1, columns))x\(max(1, rows))"
+    }
+
+    /// How many cells a dot grid needs to cover `length` — always an even
+    /// number.
+    ///
+    /// Even is the whole trick. A sprite's anchor is the left edge, the middle
+    /// or the right edge of its texture, so the dots stay on a shared lattice
+    /// for **every** origin only if half the texture is also a whole number of
+    /// cells. With an odd count the centre would sit half a pitch off the
+    /// lattice, and the filter would have to know the image's size to fix it —
+    /// which Core, unable to open a file, does not.
+    public static func cells(covering length: Double, pitch: Int) -> Int {
+        let needed = max(1, Int((max(0, length) / Double(max(1, pitch))).rounded(.up)))
+        return needed % 2 == 0 ? needed : needed + 1
+    }
+
+    private static func quantisePitch(_ pitch: Double) -> Int {
+        min(dotPitchRange.upperBound, max(dotPitchRange.lowerBound, Int(pitch.rounded())))
+    }
+
+    private static func quantisePercent(_ fraction: Double, in range: ClosedRange<Int>) -> Int {
+        min(range.upperBound, max(range.lowerBound, Int((fraction * 100).rounded())))
+    }
+
+    private static func parseDots(_ descriptor: String) -> Kind? {
+        guard descriptor.hasPrefix("dots") else { return nil }
+        let parts = descriptor.dropFirst(4).split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 4,
+              let pitch = Int(parts[0]), let dot = Int(parts[1]),
+              let shape = DotShape(rawValue: String(parts[2])),
+              let threshold = Int(parts[3])
+        else { return nil }
+        return .dotMatrix(pitch: pitch, dotPercent: dot, shape: shape, thresholdPercent: threshold)
+    }
+
+    private static func parsePanel(_ descriptor: String, extent: String) -> Kind? {
+        guard descriptor.hasPrefix("panel") else { return nil }
+        let parts = descriptor.dropFirst(5).split(separator: "-", omittingEmptySubsequences: false)
+        let size = extent.split(separator: "x", omittingEmptySubsequences: false)
+        guard parts.count == 3, size.count == 2,
+              let pitch = Int(parts[0]), let dot = Int(parts[1]),
+              let shape = DotShape(rawValue: String(parts[2])),
+              let columns = Int(size[0]), let rows = Int(size[1])
+        else { return nil }
+        return .dotPanel(columns: columns, rows: rows, pitch: pitch, dotPercent: dot, shape: shape)
+    }
+}
+
+/// The lattice LED dots sit on, anchored to the stage.
+///
+/// One lattice for every sprite under the filter, and for the panel behind
+/// them: dots that belong to one sign have to line up across glyphs that were
+/// rasterised separately.
+public enum DotGrid {
+    /// The stage's top-left corner, in storyboard coordinates. The wide stage
+    /// starts left of the frame.
+    public static let originX: Double = StageSnap.Stage.minX
+    public static let originY: Double = StageSnap.Stage.minY
+
+    /// `value` moved to the nearest multiple of `pitch` from `origin`.
+    public static func snap(_ value: Double, origin: Double, pitch: Double) -> Double {
+        origin + ((value - origin) / pitch).rounded() * pitch
+    }
+
+    /// The nearest lattice line at or below `value`.
+    public static func floor(_ value: Double, origin: Double, pitch: Double) -> Double {
+        origin + ((value - origin) / pitch).rounded(.down) * pitch
     }
 }

@@ -45,9 +45,13 @@ struct BuiltInShapeTests {
     @Test(
         "a shape fades out before its edge",
         // `disc` and `hoop` join them: a drawn shape is measured by where it
-        // stops, so it has to reach the size it was asked for.
+        // stops, so it has to reach the size it was asked for. So does the
+        // flat vocabulary, exempted as a group by name — chevron, arrow,
+        // triangle, stripe, node and cross are paint, hard by design, and
+        // `FlatShapeTests` holds them to a hard edge and a margin instead.
         arguments: BuiltInTextures.Shape.allCases.filter {
             $0 != .square && $0 != .fill && $0 != .disc && $0 != .hoop
+                && !BuiltInTextures.Shape.flat.contains($0)
         },
     )
     func shapesFadeAtTheirEdge(shape: BuiltInTextures.Shape) throws {

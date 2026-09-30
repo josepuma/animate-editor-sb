@@ -216,7 +216,67 @@ public final class EditorShellModel {
     }
 
     public var selectedKeyframe: KeyframeSelection? {
-        didSet { if selectedKeyframe != nil { selectedFilterKeyframe = nil } }
+        didSet {
+            if selectedKeyframe != nil {
+                selectedFilterKeyframe = nil
+                selectedCameraKeyframe = nil
+            }
+        }
+    }
+
+    /// A selected key on the storyboard camera.
+    ///
+    /// Its own shape because the camera belongs to no clip: it names a
+    /// `CameraProperty`, and its keys are in song time.
+    public struct CameraKeyframeSelection: Equatable, Sendable {
+        public let property: CameraProperty
+        public let keyframeID: Keyframe.ID
+
+        public init(property: CameraProperty, keyframeID: Keyframe.ID) {
+            self.property = property
+            self.keyframeID = keyframeID
+        }
+    }
+
+    /// One selection with three shapes: picking any releases the others, so
+    /// the inspector never describes one key while another sits highlighted.
+    public var selectedCameraKeyframe: CameraKeyframeSelection? {
+        didSet {
+            if selectedCameraKeyframe != nil {
+                selectedKeyframe = nil
+                selectedFilterKeyframe = nil
+            }
+        }
+    }
+
+    /// The selected camera key itself, when there is one.
+    public var selectedCameraKeyframeValue: Keyframe? {
+        guard let selection = selectedCameraKeyframe else { return nil }
+        return camera[selection.property].keyframes.first { $0.id == selection.keyframeID }
+    }
+
+    /// Whether the timeline is showing the camera's keys.
+    ///
+    /// A mode like a clip's keyframe editor, and exclusive with it: both own
+    /// the whole timeline. The camera's keys are in song time, so the ruler
+    /// keeps spanning the song rather than narrowing to one clip.
+    public var isEditingCamera = false {
+        didSet {
+            guard isEditingCamera != oldValue else { return }
+            if isEditingCamera {
+                keyframeNodeID = nil
+            } else {
+                selectedCameraKeyframe = nil
+                // The view belongs to the mode: coming back later starts on
+                // the world, which is what the mode is for.
+                isViewingThroughCamera = false
+            }
+            // The canvas switches between the world and the finished picture.
+            // Nothing in the document changed, so no clip re-runs and nothing
+            // is marked unsaved — the pass re-reads the cache.
+            if !hasPendingClipEdit { onlyCameraMoved = true }
+            reevaluate()
+        }
     }
 
     /// A selected key on one of a clip's filters.
@@ -236,7 +296,12 @@ public final class EditorShellModel {
         // The two are one selection wearing two shapes, so picking either has
         // to release the other — otherwise the inspector would show a
         // transform key while a filter's diamond sits highlighted.
-        didSet { if selectedFilterKeyframe != nil { selectedKeyframe = nil } }
+        didSet {
+            if selectedFilterKeyframe != nil {
+                selectedKeyframe = nil
+                selectedCameraKeyframe = nil
+            }
+        }
     }
 
     /// The selected key itself, when there is one.
@@ -303,6 +368,7 @@ public final class EditorShellModel {
             // would otherwise leave the inspector showing a key from a row that
             // is no longer on screen.
             if keyframeNodeID != oldValue { selectedKeyframe = nil }
+            if keyframeNodeID != nil { isEditingCamera = false }
         }
     }
 
@@ -511,8 +577,37 @@ public final class EditorShellModel {
     /// ``awaitEvaluation()`` first; one that wants something to draw takes what
     /// is here, because the last good frame is exactly right for a canvas.
     public func evaluateEffects() -> [StoryboardSprite] {
-        evaluated
+        canvasSprites
     }
+
+    /// What the canvas draws: the finished picture, or — while the camera is
+    /// being edited — the world before the camera, so its frame can be drawn
+    /// over what it will see.
+    ///
+    /// Only ever the canvas's. The export and `settledSprites()` read
+    /// `evaluated`, which always carries the camera: the file is what the game
+    /// shows, whatever mode the editor happens to be in.
+    private var canvasSprites: [StoryboardSprite] {
+        (isEditingCamera && !isViewingThroughCamera ? world : nil) ?? evaluated
+    }
+
+    /// Whether the canvas shows the finished picture while the camera is being
+    /// edited, instead of the world with the frame over it.
+    ///
+    /// The frame says what will be in shot; this says what that shot looks
+    /// like. Zooming in shrinks the frame — correct, since the camera sees
+    /// less — and without a way to look through it the zoom cannot be judged
+    /// without leaving the mode. Both pictures are already in hand, so
+    /// switching pushes one or the other and evaluates nothing.
+    public var isViewingThroughCamera = false {
+        didSet {
+            guard isViewingThroughCamera != oldValue else { return }
+            onSpritesChanged?(canvasSprites)
+        }
+    }
+
+    /// The last pass's sprites before the camera, kept only in camera mode.
+    private var world: [StoryboardSprite]?
 
     /// Called whenever a new pass lands, so the canvas can take the sprites
     /// rather than asking for them.
@@ -573,7 +668,7 @@ public final class EditorShellModel {
         // run. The panel groups them by `effectType`, so a new effect's presets
         // appear under it without any UI work.
         (TextEffect.presets + ShapeEffect.presets + AudioBarsEffect.presets + AudioWavesEffect.presets
-            + EmitterEffect.presets + EmitterEffect.compoundPresets)
+            + EmitterEffect.presets + EmitterEffect.compoundPresets + TileWipeEffect.presets)
             .filter { library.descriptor(for: $0.effectType) != nil }
     }
 
@@ -1680,6 +1775,18 @@ public final class EditorShellModel {
             return
         }
 
+        // The camera's keys, which belong to no clip — and the third kind of
+        // key this method has had to be told about.
+        if let selection = selectedCameraKeyframe {
+            removeCameraKeyframe(selection.keyframeID, from: selection.property)
+            return
+        }
+
+        // Editing the camera, nothing on the timeline is a clip or a lane:
+        // Delete with no camera key selected is not aimed at whatever was
+        // selected before the mode opened.
+        guard !isEditingCamera else { return }
+
         // In keyframe mode the clip is selected only because its keys are being
         // edited. Deleting it from under that is never what the key was aimed
         // at, so it takes leaving the mode first.
@@ -2178,6 +2285,155 @@ public final class EditorShellModel {
         effectsChanged()
     }
 
+    // ─── Camera ──────────────────────────────────────────────────────────────
+
+    /// The storyboard camera. Keyed in song time, one for the whole scene.
+    public var camera: StoryboardCamera { effects.camera }
+
+    /// Sets where the camera rests — what editing a field does while the
+    /// property is not animated.
+    public func setCameraValue(_ value: Double, for property: CameraProperty) {
+        effects.camera[value: property] = min(max(value, property.range.lowerBound), property.range.upperBound)
+        cameraChanged()
+    }
+
+    /// Plants a camera key at a song time, replacing any already there.
+    public func setCameraKeyframe(
+        _ value: Double,
+        for property: CameraProperty,
+        at time: Double,
+        easing: Easing = .linear,
+    ) {
+        var track = effects.camera[property]
+        track.set(min(max(value, property.range.lowerBound), property.range.upperBound), at: max(0, time), easing: easing)
+        // Putting a key down is asking for animation; leaving the track off
+        // would make the click look like it did nothing.
+        track.isEnabled = true
+        effects.camera[property] = track
+        cameraChanged()
+    }
+
+    public func removeCameraKeyframe(_ keyframeID: Keyframe.ID, from property: CameraProperty) {
+        // A deleted key cannot stay selected: the inspector would go on
+        // describing something that no longer exists.
+        if selectedCameraKeyframe?.keyframeID == keyframeID { selectedCameraKeyframe = nil }
+        var track = effects.camera[property]
+        track.remove(keyframeID)
+        effects.camera[property] = track
+        cameraChanged()
+    }
+
+    public func moveCameraKeyframe(_ keyframeID: Keyframe.ID, in property: CameraProperty, to time: Double) {
+        var track = effects.camera[property]
+        track.move(keyframeID, to: time)
+        effects.camera[property] = track
+        cameraChanged()
+    }
+
+    public func setCameraKeyframeValue(_ value: Double, for keyframeID: Keyframe.ID, in property: CameraProperty) {
+        var track = effects.camera[property]
+        track.setValue(min(max(value, property.range.lowerBound), property.range.upperBound), for: keyframeID)
+        effects.camera[property] = track
+        cameraChanged()
+    }
+
+    public func setCameraKeyframeEasing(_ easing: Easing, for keyframeID: Keyframe.ID, in property: CameraProperty) {
+        var track = effects.camera[property]
+        track.setEasing(easing, for: keyframeID)
+        effects.camera[property] = track
+        cameraChanged()
+    }
+
+    /// Starts animating a camera property, holding what it showed at `time`
+    /// so switching animation on changes nothing on screen.
+    public func beginAnimatingCamera(_ property: CameraProperty, at time: Double) {
+        setCameraKeyframe(camera.value(property, at: time), for: property, at: time)
+    }
+
+    /// Switches a camera property's animation on or off, keeping its keys —
+    /// and, switching off, keeping where the camera was at `time` so the
+    /// picture does not jump.
+    public func setCameraAnimationEnabled(_ isEnabled: Bool, for property: CameraProperty, keeping time: Double) {
+        var track = effects.camera[property]
+        if !isEnabled, track.isActive {
+            effects.camera[value: property] = track.value(at: time)
+        }
+        track.isEnabled = isEnabled
+        effects.camera[property] = track
+        cameraChanged()
+    }
+
+    /// Deletes a camera property's keys, keeping its value at `time`.
+    public func clearCameraKeyframes(for property: CameraProperty, keeping time: Double) {
+        if selectedCameraKeyframe?.property == property { selectedCameraKeyframe = nil }
+        let held = camera.value(property, at: time)
+        effects.camera[property] = KeyframeTrack()
+        effects.camera[value: property] = held
+        cameraChanged()
+    }
+
+    /// Applies a drag of the camera's frame on the canvas, in one edit.
+    ///
+    /// Auto-key, the way After Effects does it: a property with its stopwatch
+    /// on gets a key at `time`, one without has its resting value moved. Only
+    /// what the drag actually changed is written — a pan must not put down a
+    /// zoom key nobody asked for, which would pin the zoom there for good.
+    ///
+    /// One edit for all three, so a drag is one undo step and one evaluation.
+    public func applyCameraFrame(x: Double, y: Double, zoom: Double, rotation: Double? = nil, at time: Double) {
+        var camera = effects.camera
+        var changes: [(CameraProperty, Double)] = [(.x, x), (.y, y), (.zoom, zoom)]
+        if let rotation { changes.append((.rotation, rotation)) }
+        for (property, raw) in changes {
+            let value = min(max(raw, property.range.lowerBound), property.range.upperBound)
+            guard abs(value - camera.value(property, at: time)) > 1e-9 else { continue }
+
+            var track = camera[property]
+            if track.isActive {
+                // The curve of a key already there is kept: `set` replaces the
+                // key, and a drag is about where, not about how it travels.
+                let easing = track.keyframes.first { abs($0.time - time) < 0.5 }?.easing ?? .linear
+                track.set(value, at: max(0, time), easing: easing)
+                camera[property] = track
+            } else {
+                camera[value: property] = value
+            }
+        }
+        guard camera != effects.camera else { return }
+        effects.camera = camera
+        cameraChanged()
+    }
+
+    /// Moves the camera's position keys at one moment — dragging a point of
+    /// its path on the canvas. The keys keep their times; only where the
+    /// camera stands at that moment changes.
+    public func moveCameraPathPoint(at time: Double, x: Double, y: Double) {
+        var camera = effects.camera
+        for (property, raw) in [(CameraProperty.x, x), (.y, y)] {
+            var track = camera[property]
+            guard let key = track.keyframes.first(where: { abs($0.time - time) < 0.5 }) else { continue }
+            track.setValue(min(max(raw, property.range.lowerBound), property.range.upperBound), for: key.id)
+            camera[property] = track
+        }
+        guard camera != effects.camera else { return }
+        effects.camera = camera
+        cameraChanged()
+    }
+
+    /// How far behind the focal plane a lane sits.
+    public func setDepth(_ z: Double, on trackID: EffectTrack.ID) {
+        guard let index = effects.tracks.firstIndex(where: { $0.id == trackID }) else { return }
+        effects.tracks[index].z = min(max(z, CameraProperty.z.range.lowerBound), CameraProperty.z.range.upperBound)
+        cameraChanged()
+    }
+
+    /// Whether a lane follows the camera or stays fixed on screen.
+    public func setFollowsCamera(_ follows: Bool, on trackID: EffectTrack.ID) {
+        guard let index = effects.tracks.firstIndex(where: { $0.id == trackID }) else { return }
+        effects.tracks[index].followsCamera = follows
+        cameraChanged()
+    }
+
     // ─── Editing tracks ──────────────────────────────────────────────────────
 
     /// - Parameter index: where it lands in document order, or `nil` to put it
@@ -2331,6 +2587,13 @@ public final class EditorShellModel {
     ///
     /// Open by default, because it is what the mode is for.
     public var isTransformGroupExpanded = true
+
+    /// Whether the camera's rows are open in its keyframe mode.
+    ///
+    /// On the model rather than the view for the reason the transform's is:
+    /// the timeline is sized from its row count, and a height that cannot see
+    /// what is folded is a height that disagrees with what is drawn.
+    public var isCameraGroupExpanded = true
 
     // ─── Animating a filter's parameters ─────────────────────────────────────
     //
@@ -2711,6 +2974,8 @@ public final class EditorShellModel {
         // The same bug this file already documents for `spriteCount`, made
         // again a level along: what is expensive here is not the caching, it is
         // deciding that everything is stale when one thing is.
+        // The camera moves sprites, never adds or removes them.
+        guard !onlyCameraMoved else { return }
         guard let edited = lastEditedNode else {
             spriteCounts.removeAll(keepingCapacity: true)
             return
@@ -2852,8 +3117,34 @@ public final class EditorShellModel {
         effectsRevision &+= 1
         hasUnsavedChanges = true
         lastEditedNode = node
+        onlyCameraMoved = false
+        hasPendingClipEdit = true
         reevaluate()
     }
+
+    /// Records an edit to the camera or to a lane's depth.
+    ///
+    /// Its own path because what it moves is only the last step of the
+    /// pipeline: every clip's cached sprites are still right, so no entry is
+    /// dropped and no tail is measured — the pass re-reads the cache and runs
+    /// the camera over it. Sent through `effectsChanged()` instead, a nudged
+    /// camera key would re-run every script in the project.
+    private func cameraChanged() {
+        effectsRevision &+= 1
+        hasUnsavedChanges = true
+        // Unless a clip edit is still waiting for the same pass: during a
+        // gesture evaluation waits for the hand to settle, and a camera edit
+        // landing in that pause must not wave through the clip edit before it
+        // without its entry being dropped.
+        if !hasPendingClipEdit { onlyCameraMoved = true }
+        reevaluate()
+    }
+
+    /// Whether the edit waiting to be evaluated touched only the camera.
+    @ObservationIgnored private var onlyCameraMoved = false
+
+    /// Whether an edit that names clips is waiting for the next pass.
+    @ObservationIgnored private var hasPendingClipEdit = false
 
     /// Rebuilds the sprites off the main thread.
     ///
@@ -2898,6 +3189,8 @@ public final class EditorShellModel {
         // it decides which clips keep drawing the wave they had before the song
         // had loaded.
         lastEditedNode = nil
+        onlyCameraMoved = false
+        hasPendingClipEdit = true
         reevaluate()
     }
 
@@ -2966,8 +3259,15 @@ public final class EditorShellModel {
         // And only the clip that was edited, not every clip in the project.
         // Marking all of them puts a spinner on twenty blocks when one changed
         // — which is both a lie and twenty rows rebuilt to tell it.
-        let pending = lastEditedNode.map { Set([$0]) } ?? Set(document.nodes.map(\.id))
+        // A camera edit re-runs no clip, so no clip is catching up.
+        let cameraOnly = onlyCameraMoved
+        hasPendingClipEdit = false
+        let showsWorld = isEditingCamera
+        let pending = cameraOnly ? [] : lastEditedNode.map { Set([$0]) } ?? Set(document.nodes.map(\.id))
         if evaluatingNodes != pending { evaluatingNodes = pending }
+        // A camera pass re-runs no clip, so no clip shows a spinner — the
+        // camera carries its own, or nothing says the picture is catching up.
+        if isApplyingCamera != cameraOnly { isApplyingCamera = cameraOnly }
 
         // Detached from the outset, not a main-actor task that hands work off.
         //
@@ -2993,19 +3293,27 @@ public final class EditorShellModel {
         // make, arrived at for the same reason. An edit that names no node —
         // adding, deleting, pasting, importing — can move any of them, so it
         // measures the lot.
-        let toMeasure = lastEditedNode.flatMap { id in
+        // Nothing to measure after a camera edit: a tail is a clip's own, and
+        // the camera changes where things are, not how long they last.
+        let toMeasure = cameraOnly ? [] : lastEditedNode.flatMap { id in
             document.nodes.first { $0.id == id }.map { [$0] }
         } ?? document.nodes
 
         // Dropped here, where what moved is still known, and pruned against the
         // document while it is settled — a pass can be cancelled halfway and
         // must not conclude anything about clips it never reached.
-        cache.invalidate(node: lastEditedNode)
+        if !cameraOnly { cache.invalidate(node: lastEditedNode) }
         cache.prune(keeping: Set(document.nodes.map(\.id)))
         let cache = cache
 
         evaluationTask = Task.detached(priority: .userInitiated) { [weak self] in
             let sprites = cache.sprites(for: document, using: evaluator)
+            // The world as well, while the camera is being edited: every clip
+            // is already cached by the line above, so this is the lanes
+            // gathered again without the camera — no clip runs twice.
+            let world = showsWorld
+                ? cache.sprites(for: document, using: evaluator, applyingCamera: false)
+                : nil
 
             guard !Task.isCancelled else { return }
 
@@ -3070,9 +3378,11 @@ public final class EditorShellModel {
                     .filter { living.contains($0.key) && measured[$0.key] == nil }
                     .merging(seamed, uniquingKeysWith: { _, fresh in fresh })
                 self.evaluated = sprites
+                self.world = world
                 if !self.evaluatingNodes.isEmpty { self.evaluatingNodes = [] }
+                if self.isApplyingCamera { self.isApplyingCamera = false }
                 self.adoptScriptDeclarations()
-                self.onSpritesChanged?(sprites)
+                self.onSpritesChanged?(self.canvasSprites)
             }
         }
     }
@@ -3086,6 +3396,9 @@ public final class EditorShellModel {
     /// top says the app is busy, which is not the question — what someone wants
     /// to know is whether the thing they just edited has caught up.
     public private(set) var evaluatingNodes: Set<EffectNode.ID> = []
+
+    /// Whether a camera edit is still being baked into the picture.
+    public private(set) var isApplyingCamera = false
 
     @ObservationIgnored private var evaluationTask: Task<Void, Never>?
 

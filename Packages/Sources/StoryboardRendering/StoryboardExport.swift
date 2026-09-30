@@ -77,7 +77,14 @@ public enum StoryboardExport {
             prepared[index].filePath = path
         }
 
-        return Result(storyboard: OsbWriter.write(prepared), images: images)
+        // Normalised here, after the paths are settled and before the text is
+        // written: every sprite the export ships passes through this one point,
+        // whichever effect, filter or script produced it, so the file and the
+        // canvas cannot disagree about a sprite that only one source touched.
+        return Result(
+            storyboard: OsbWriter.write(OsbExportNormalization.normalize(prepared)),
+            images: images,
+        )
     }
 
     /// Resolves the images the app itself provides.

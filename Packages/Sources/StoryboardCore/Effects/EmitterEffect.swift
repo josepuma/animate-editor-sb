@@ -1024,7 +1024,15 @@ public struct EmitterEffect: Effect {
             // The built-in shapes are drawn pointing up, so "aligned" means the
             // sprite's up axis follows the velocity — a quarter turn off the
             // travel angle itself.
-            let alignment = alignToMotion ? angle - .pi / 2 : 0
+            //
+            // Plus a quarter turn, not minus. Up is (0, −1) and the shader turns
+            // it with the standard matrix in a Y-down space, landing on
+            // (sin r, −cos r); asking that to equal the velocity (cos a, sin a)
+            // gives r = a + π/2. The opposite sign points the sprite *against*
+            // its travel — invisible on a streak, which is symmetric, and a
+            // chevron marching backwards. `Placement.rotation` has the same
+            // derivation.
+            let alignment = alignToMotion ? angle + .pi / 2 : 0
             let startAngle = alignment + particle.symmetric(rotationRandom) * .pi / 180
 
             var commands: [Command] = []

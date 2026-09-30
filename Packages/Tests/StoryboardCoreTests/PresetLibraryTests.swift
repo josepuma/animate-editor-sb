@@ -73,12 +73,15 @@ struct PresetLibraryTests {
     static let flatIDs = [
         "pop-dots", "ring-pulse", "pixel-dissolve", "speed-lines", "dot-rain",
         "falling-leaves", "data-rain", "ray-burst", "bubble-pop", "orbit-dots",
+        "chevron-march", "hazard-stripes", "vector-nodes", "arrow-burst", "cross-field",
+        "triangle-shards",
     ]
 
     /// Hard-edged, drawn shapes. A soft dot or a glow is a light, and the
     /// point of this family is storyboards made of shapes.
     private static func hardEdged(_ path: String) -> Bool {
-        [BuiltInSprite.disc, BuiltInSprite.fill, BuiltInSprite.square].contains(path)
+        ([BuiltInSprite.disc, BuiltInSprite.fill, BuiltInSprite.square]
+            + BuiltInSprite.flatShapes).contains(path)
             || path.hasPrefix("__builtin__/hoop")
     }
 
@@ -416,5 +419,244 @@ struct PresetLibraryTests {
         let preset = try preset("beat-dots")
         #expect(!toggle(preset, EmitterEffect.Param.additive))
         #expect(Self.hardEdged(text(preset, EmitterEffect.Param.sprite)))
+    }
+    // ─── Flat: the poster vocabulary ─────────────────────────────────────────
+    //
+    // Chevrons, block arrows, hazard stripes, vector nodes and plus marks. What
+    // these check is measured from the sprites that come out: the direction a
+    // chevron faces is a property of its rotation command, not of any number
+    // in the preset.
+
+    /// Where a sprite travels, as a unit vector, from its first movement to its
+    /// last. `nil` for one that never moves.
+    private func heading(_ sprite: StoryboardSprite) -> (x: Double, y: Double)? {
+        guard let p = path(sprite) else { return nil }
+        let dx = p.end.x - p.start.x, dy = p.end.y - p.start.y
+        let length = hypot(dx, dy)
+        guard length > 0.001 else { return nil }
+        return (dx / length, dy / length)
+    }
+
+    /// Where the sprite's own "up" points once its rotation is applied.
+    ///
+    /// Up is (0, −1) and the shader turns it with the standard matrix in a
+    /// Y-down space, which lands it on (sin r, −cos r). This is what makes a
+    /// chevron lead: `Align to Motion` is only correct if this equals the
+    /// heading.
+    private func facing(_ sprite: StoryboardSprite) -> (x: Double, y: Double) {
+        var angle = 0.0
+        for command in sprite.commands {
+            if case let .rotate(start, _) = command.payload {
+                angle = start
+                break
+            }
+        }
+        return (sin(angle), -cos(angle))
+    }
+
+    private func birthTimes(_ sprites: [StoryboardSprite]) -> [Double] {
+        sprites
+            .compactMap { sprite in sprite.commands.map(\.timing.startTime).min() }
+            .sorted()
+    }
+
+    /// The failure this pins is a sign. `Align to Motion` rotated a sprite by
+    /// the travel angle minus a quarter turn, which turns "up" to point
+    /// **against** the velocity: invisible on a streak, which is symmetric, and
+    /// a chevron marching backwards.
+    @Test("chevrons march point-first, evenly spaced, along one line")
+    func chevronMarch() throws {
+        let preset = try preset("chevron-march")
+        #expect(text(preset, EmitterEffect.Param.sprite) == "__builtin__/chevron.png")
+
+        let all = sprites(preset)
+        #expect(all.count > 10)
+        for sprite in all {
+            let heading = try #require(heading(sprite))
+            #expect(heading.x > 0.999, "a chevron veers: \(heading)")
+
+            let face = facing(sprite)
+            let along = face.x * heading.x + face.y * heading.y
+            #expect(along > 0.999, "a chevron faces \(face) while going \(heading)")
+        }
+
+        // One line: a march is a rhythm along a track, not a scatter.
+        let rows = Set(all.compactMap(path).map { Int($0.start.y.rounded()) })
+        #expect(rows.count == 1, "born on \(rows.count) lines")
+
+        // Evenly spaced in time, and with constant speed that is even in space.
+        let births = birthTimes(all)
+        let gaps = zip(births.dropFirst(), births).map { $0 - $1 }
+        let mean = gaps.reduce(0, +) / Double(gaps.count)
+        #expect(gaps.allSatisfy { abs($0 - mean) < 0.5 }, "gaps: \(gaps)")
+    }
+
+    @Test("a hazard stripe band slides sideways as a row of equal bars")
+    func hazardStripes() throws {
+        let preset = try preset("hazard-stripes")
+        #expect(text(preset, EmitterEffect.Param.sprite) == "__builtin__/stripe.png")
+
+        let all = sprites(preset)
+        #expect(all.count > 10)
+        // Sliding, and level: a stripe that drifts up or down is a fall.
+        for sprite in all {
+            let p = try #require(path(sprite))
+            #expect(p.end.x > p.start.x)
+            #expect(abs(p.end.y - p.start.y) < 0.01)
+            // Never turned: the slant is the drawing, and a rotated stripe is
+            // a different angle of hazard.
+            #expect(!sprite.commands.contains { if case .rotate = $0.payload { true } else { false } })
+        }
+
+        // Caught mid-slide, the bars stand in an even row.
+        let prepared = StoryboardResolver.prepare(all)
+        var states: [SpriteRenderState] = []
+        StoryboardResolver.resolve(prepared, at: preset.duration * 0.5, into: &states)
+        let xs = states.filter { $0.visible && $0.opacity > 0.5 }.map { Double($0.x) }.sorted()
+        #expect(xs.count >= 8, "only \(xs.count) bars in the band")
+        let gaps = zip(xs.dropFirst(), xs).map { $0 - $1 }
+        let mean = gaps.reduce(0, +) / Double(gaps.count)
+        #expect(gaps.allSatisfy { abs($0 - mean) < 1.5 }, "pitch: \(gaps)")
+    }
+
+    /// Anchor handles: they appear where they appear and stay there. Nothing
+    /// about a vector node travels.
+    @Test("vector nodes pop in at scattered points and hold still")
+    func vectorNodes() throws {
+        let preset = try preset("vector-nodes")
+        #expect(text(preset, EmitterEffect.Param.sprite) == "__builtin__/node.png")
+        #expect(!toggle(preset, EmitterEffect.Param.additive))
+
+        let all = sprites(preset)
+        #expect(all.count > 10)
+
+        let paths = all.compactMap(path)
+        #expect(paths.allSatisfy { hypot($0.end.x - $0.start.x, $0.end.y - $0.start.y) < 0.01 },
+                "a node drifts")
+        let xs = paths.map(\.start.x), ys = paths.map(\.start.y)
+        #expect((xs.max() ?? 0) - (xs.min() ?? 0) > 300, "nodes are clumped horizontally")
+        #expect((ys.max() ?? 0) - (ys.min() ?? 0) > 150, "nodes are clumped vertically")
+
+        // Neither grows nor shrinks: a snap, not a swell.
+        for sprite in all {
+            for command in sprite.commands {
+                if case let .scale(start, end) = command.payload {
+                    #expect(start == end, "a node changes size")
+                }
+            }
+        }
+
+        // Held: nearly everything on screen at a moment is at full opacity.
+        let prepared = StoryboardResolver.prepare(all)
+        var states: [SpriteRenderState] = []
+        StoryboardResolver.resolve(prepared, at: preset.duration * 0.5, into: &states)
+        let live = states.filter { $0.visible && $0.opacity > 0.02 }
+        #expect(live.count > 3)
+        let solid = live.filter { $0.opacity > 0.95 }.count
+        #expect(Double(solid) > Double(live.count) * 0.7, "\(solid) of \(live.count) at full opacity")
+    }
+
+    @Test("arrows radiate from one point, each one pointing where it goes")
+    func arrowBurst() throws {
+        let preset = try preset("arrow-burst")
+        #expect(text(preset, EmitterEffect.Param.sprite) == "__builtin__/arrow.png")
+
+        let all = sprites(preset)
+        #expect(all.count >= 12)
+        let paths = all.compactMap(path)
+        #expect(Set(paths.map { "\(Int($0.start.x)),\(Int($0.start.y))" }).count == 1)
+
+        var quadrants = [0, 0, 0, 0]
+        for sprite in all {
+            let heading = try #require(heading(sprite))
+            let face = facing(sprite)
+            #expect(face.x * heading.x + face.y * heading.y > 0.999,
+                    "an arrow faces \(face) while going \(heading)")
+
+            let angle = atan2(heading.y, heading.x)
+            quadrants[Int(((angle + .pi) / (.pi / 2)).rounded(.down)) % 4] += 1
+        }
+        // All the way round: a burst that clusters on one side is a jet.
+        #expect(quadrants.allSatisfy { $0 >= 3 }, "directions by quadrant: \(quadrants)")
+    }
+
+    /// A lattice of marks, made by the Grid filter the preset brings — an
+    /// emitter alone scatters, and a scatter is what vector nodes already is.
+    @Test("cross field is a lattice of plus marks that land in sequence")
+    func crossField() throws {
+        let preset = try preset("cross-field")
+        #expect(text(preset, EmitterEffect.Param.sprite) == "__builtin__/cross.png")
+        #expect(!preset.filters.isEmpty, "no filters")
+
+        var node = EffectNode(
+            id: preset.id, type: preset.effectType, name: preset.name,
+            startTime: 0, duration: preset.duration, seed: 12, values: preset.values,
+        )
+        node.filters = preset.filterNodes(using: .standard) { "\(preset.id)-f\($0)" }
+        let all = evaluator.evaluate(node)
+
+        let paths = all.compactMap(path)
+        #expect(all.count == paths.count)
+        #expect(all.count >= 30, "\(all.count) marks")
+        #expect(all.allSatisfy { $0.filePath == "__builtin__/cross.png" })
+
+        // A lattice: few distinct columns and rows, every cell used.
+        let columns = Set(paths.map { Int($0.start.x.rounded()) })
+        let rows = Set(paths.map { Int($0.start.y.rounded()) })
+        #expect(columns.count >= 6 && rows.count >= 4, "\(columns.count) x \(rows.count)")
+        #expect(columns.count * rows.count == all.count, "cells are not one mark each")
+
+        // Landing in sequence, not all at once.
+        let births = Set(birthTimes(all).map { Int($0.rounded()) })
+        #expect(births.count >= 8, "\(births.count) distinct landing times")
+    }
+
+    @Test("triangle shards scatter in every direction, turning as they go")
+    func triangleShards() throws {
+        let preset = try preset("triangle-shards")
+        #expect(text(preset, EmitterEffect.Param.sprite) == "__builtin__/triangle.png")
+        #expect(!toggle(preset, EmitterEffect.Param.additive))
+
+        let all = sprites(preset)
+        #expect(all.count >= 12)
+
+        // Turning: every shard has a rotation that actually changes.
+        let turning = all.filter { sprite in
+            sprite.commands.contains { command in
+                if case let .rotate(start, end) = command.payload { return start != end }
+                return false
+            }
+        }.count
+        #expect(turning == all.count, "\(turning) of \(all.count) turn")
+
+        // Scattering: shards leave in different directions.
+        let headings = all.compactMap(heading)
+        #expect(headings.contains { $0.x > 0.5 } && headings.contains { $0.x < -0.5 })
+        #expect(headings.contains { $0.y > 0.5 } && headings.contains { $0.y < -0.5 })
+    }
+
+    /// Three different marks in one clip, each doing its own thing: a band
+    /// sliding along the bottom, chevrons marching across, nodes appearing over
+    /// the top. A compound whose layers repeat one sprite is a preset with
+    /// extra steps.
+    @Test("hud sweep layers stripes, chevrons and nodes, none of them lit")
+    func hudSweep() throws {
+        let preset = try preset("hud-sweep")
+        #expect(preset.pack == "Flat")
+
+        let all = [preset.values] + preset.layers.map(\.values)
+        let paths = all.compactMap { values -> String? in
+            if case let .text(path) = values[EmitterEffect.Param.sprite] { return path }
+            return nil
+        }
+        #expect(Set(paths) == [
+            BuiltInSprite.stripe, BuiltInSprite.chevron, BuiltInSprite.node,
+        ], "sprites: \(paths)")
+        #expect(all.allSatisfy { $0[EmitterEffect.Param.additive] != .toggle(true) })
+
+        // The parent is the group's anchor: its transform moves every layer,
+        // so it sits at the stage centre and leaves the layers where they are.
+        #expect(number(preset, EmitterEffect.Param.x) == 320)
+        #expect(number(preset, EmitterEffect.Param.y) == 240)
     }
 }

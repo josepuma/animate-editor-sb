@@ -61,6 +61,33 @@ public enum BuiltInTextures {
         /// fixed shapes: see ``hoopPath(thickness:)``.
         case hoop
 
+        // ── Flat vocabulary ─────────────────────────────────────────────────
+        //
+        // Hard-edged outlines and solids for storyboards that are drawn rather
+        // than lit. Every one is drawn at 512 with a margin, and the two that
+        // have a direction point UP — (0, −1), the axis `Align to Motion`
+        // turns toward a velocity.
+
+        /// A thick upward chevron, `^`.
+        case chevron
+        /// A block arrow: triangular head over a rectangular shaft.
+        case arrow
+        /// A solid triangle, pointing up.
+        case triangle
+        /// A slanted parallelogram — one bar of a hazard stripe.
+        case stripe
+        /// A hollow square: the anchor handle of a vector editor.
+        case node
+        /// A plus sign.
+        case cross
+
+        /// The shapes of the Flat vocabulary, drawn large and hard-edged.
+        ///
+        /// Named as a group because they share every rule that the soft
+        /// particles do not: no fade before the edge, 512 texels, no tint of
+        /// their own.
+        public static let flat: [Shape] = [.chevron, .arrow, .triangle, .stripe, .node, .cross]
+
         /// The path an effect stores for this shape.
         public var path: String { "\(prefix)\(rawValue).png" }
 
@@ -77,6 +104,12 @@ public enum BuiltInTextures {
             case .fill: "Fill"
             case .disc: "Disc"
             case .hoop: "Hoop"
+            case .chevron: "Chevron"
+            case .arrow: "Arrow"
+            case .triangle: "Triangle"
+            case .stripe: "Stripe"
+            case .node: "Node"
+            case .cross: "Cross"
             }
         }
 
@@ -274,6 +307,12 @@ public enum BuiltInTextures {
         // `fill` stays small on purpose: it is a flat rectangle, and there is
         // nothing in it that magnification can spoil.
         case .disc, .hoop: 512
+        // The flat vocabulary is drawn at 512 for the disc's reason and one
+        // more: its diagonals. A straight edge survives magnification and a
+        // slant does not — at 64 a hazard stripe stair-steps as soon as it is
+        // drawn a few hundred pixels tall. At 512 a `Scale` of 1 is 512px, so
+        // a 24px chevron is 0.047, not the 0.375 a 64px shape would need.
+        case .chevron, .arrow, .triangle, .stripe, .node, .cross: 512
         default: 64
         }
     }
@@ -312,6 +351,12 @@ public enum BuiltInTextures {
         case .fill: drawFill(in: context, extent: extent)
         case .disc: drawDisc(in: context, extent: extent)
         case .hoop: drawHoop(in: context, extent: extent, thickness: thickness)
+        case .chevron: drawChevron(in: context, extent: extent)
+        case .arrow: drawArrow(in: context, extent: extent)
+        case .triangle: drawTriangle(in: context, extent: extent)
+        case .stripe: drawStripe(in: context, extent: extent)
+        case .node: drawNode(in: context, extent: extent)
+        case .cross: drawCross(in: context, extent: extent)
         }
 
         return context.makeImage()
@@ -656,6 +701,90 @@ public enum BuiltInTextures {
             x: inset, y: inset,
             width: extent - inset * 2, height: extent - inset * 2,
         ))
+    }
+
+    // ─── Flat vocabulary ─────────────────────────────────────────────────────
+    //
+    // Designed on a 512 grid. Core Graphics is y-up, so "up" is the high end of
+    // `y` here and lands at the top row of the picture. Every polygon keeps an
+    // 8-texel margin, which is what the antialiased pixel needs: a fill that
+    // touches the canvas edge comes out flat where the edge clips it.
+
+    /// Fills a closed polygon in solid white.
+    private static func fillPolygon(_ context: CGContext, _ points: [CGPoint]) {
+        guard let first = points.first else { return }
+        context.setFillColor(white(1))
+        context.beginPath()
+        context.move(to: first)
+        for point in points.dropFirst() { context.addLine(to: point) }
+        context.closePath()
+        context.fillPath()
+    }
+
+    /// `^`: two arms meeting at an apex, each 150 texels thick measured
+    /// vertically. Centred on its own bounding box so a spinning one turns
+    /// about the middle of what is drawn.
+    private static func drawChevron(in context: CGContext, extent: CGFloat) {
+        fillPolygon(context, [
+            CGPoint(x: 256, y: 455),
+            CGPoint(x: 504, y: 207),
+            CGPoint(x: 504, y: 57),
+            CGPoint(x: 256, y: 305),
+            CGPoint(x: 8, y: 57),
+            CGPoint(x: 8, y: 207),
+        ])
+    }
+
+    private static func drawArrow(in context: CGContext, extent: CGFloat) {
+        fillPolygon(context, [
+            CGPoint(x: 256, y: 504),
+            CGPoint(x: 496, y: 264),
+            CGPoint(x: 336, y: 264),
+            CGPoint(x: 336, y: 8),
+            CGPoint(x: 176, y: 8),
+            CGPoint(x: 176, y: 264),
+            CGPoint(x: 16, y: 264),
+        ])
+    }
+
+    /// Pointing up, and placed so its **centroid** — a third of the way up
+    /// from the base — sits on the middle of the canvas. A triangle spun about
+    /// the middle of its bounding box wobbles; about its centroid it turns.
+    private static func drawTriangle(in context: CGContext, extent: CGFloat) {
+        fillPolygon(context, [
+            CGPoint(x: 256, y: 496),
+            CGPoint(x: 476, y: 136),
+            CGPoint(x: 36, y: 136),
+        ])
+    }
+
+    /// One bar of a hazard stripe: about 30° off vertical, so a row of them
+    /// reads as `///` rather than as a picket fence.
+    private static func drawStripe(in context: CGContext, extent: CGFloat) {
+        fillPolygon(context, [
+            CGPoint(x: 20, y: 8),
+            CGPoint(x: 190, y: 8),
+            CGPoint(x: 490, y: 504),
+            CGPoint(x: 320, y: 504),
+        ])
+    }
+
+    /// The outline of a square, a 64-texel frame around a hollow middle. Cut
+    /// with the even-odd rule rather than stroked, so both edges are exact
+    /// rectangles instead of a stroke's centred half-widths.
+    private static func drawNode(in context: CGContext, extent: CGFloat) {
+        context.setFillColor(white(1))
+        context.beginPath()
+        context.addRect(CGRect(x: 8, y: 8, width: extent - 16, height: extent - 16))
+        context.addRect(CGRect(x: 72, y: 72, width: extent - 144, height: extent - 144))
+        context.fillPath(using: .evenOdd)
+    }
+
+    private static func drawCross(in context: CGContext, extent: CGFloat) {
+        context.setFillColor(white(1))
+        let arm: CGFloat = 128
+        context.fill(CGRect(x: 8, y: (extent - arm) / 2, width: extent - 16, height: arm))
+        context.fill(CGRect(x: (extent - arm) / 2, y: 8, width: arm, height: extent - 16))
     }
 
     private static func drawSquare(in context: CGContext, extent: CGFloat) {

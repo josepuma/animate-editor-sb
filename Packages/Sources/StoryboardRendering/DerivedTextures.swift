@@ -20,13 +20,133 @@ public enum DerivedTextures {
         guard let derived = DerivedSprite.parse(path) else { return nil }
 
         return cached(path) {
-            guard let original = source(derived.source) else { return nil }
-
             switch derived.kind {
+            case let .dotPanel(columns, rows, pitch, dotPercent, shape):
+                // No source: a panel is only a lattice.
+                return dotPanel(
+                    columns: columns, rows: rows, pitch: pitch,
+                    dotSize: Double(dotPercent) / 100, shape: shape,
+                )
             case let .blur(radius):
+                guard let original = source(derived.source) else { return nil }
                 return blur(original, radius: radius)
+            case let .dotMatrix(pitch, dotPercent, shape, thresholdPercent):
+                guard let original = source(derived.source) else { return nil }
+                return dotMatrix(
+                    original, pitch: pitch, dotSize: Double(dotPercent) / 100,
+                    shape: shape, threshold: Double(thresholdPercent) / 100,
+                )
             }
         }
+    }
+
+    // ─── Dot matrix ──────────────────────────────────────────────────────────
+
+    /// The source re-drawn as one hard-edged white dot per lit cell.
+    ///
+    /// The canvas is an even number of whole cells each way and the source sits
+    /// in the middle of it — see ``DerivedSprite/cells(covering:pitch:)`` for
+    /// why even, and why that is what lets the LED filter line dots up across
+    /// separately rasterised glyphs without knowing any image's size.
+    ///
+    /// A cell lights when the source covers at least `threshold` of it, judged
+    /// by mean alpha. The dot is drawn white with full alpha: colour comes from
+    /// `_C` on the sprite, and a dot that fades with coverage would soften the
+    /// very edge the look depends on.
+    private static func dotMatrix(
+        _ data: Data, pitch: Int, dotSize: Double,
+        shape: DerivedSprite.DotShape, threshold: Double,
+    ) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else { return nil }
+
+        let columns = DerivedSprite.cells(covering: Double(image.width), pitch: pitch)
+        let rows = DerivedSprite.cells(covering: Double(image.height), pitch: pitch)
+        let width = columns * pitch
+        let height = rows * pitch
+
+        // The source on a canvas of its own, to read coverage from. Centred with
+        // whole pixels, so ink is never nudged by more than half of one.
+        guard let reading = bitmap(width: width, height: height) else { return nil }
+        reading.draw(image, in: CGRect(
+            x: (width - image.width) / 2, y: (height - image.height) / 2,
+            width: image.width, height: image.height,
+        ))
+        guard let pixels = reading.data?.assumingMemoryBound(to: UInt8.self) else { return nil }
+        let rowBytes = reading.bytesPerRow
+
+        var lit: [(column: Int, row: Int)] = []
+        for row in 0..<rows {
+            for column in 0..<columns {
+                var covered = 0
+                // Memory row 0 is the top of the picture.
+                for y in (row * pitch)..<((row + 1) * pitch) {
+                    for x in (column * pitch)..<((column + 1) * pitch) {
+                        covered += Int(pixels[y * rowBytes + x * 4 + 3])
+                    }
+                }
+                let coverage = Double(covered) / Double(pitch * pitch * 255)
+                if coverage >= threshold { lit.append((column, row)) }
+            }
+        }
+
+        return drawDots(
+            lit, width: width, height: height, pitch: pitch, dotSize: dotSize, shape: shape,
+        )
+    }
+
+    /// Every cell of a `columns × rows` lattice lit: the unlit dots of a panel.
+    private static func dotPanel(
+        columns: Int, rows: Int, pitch: Int, dotSize: Double, shape: DerivedSprite.DotShape,
+    ) -> Data? {
+        let lit = (0..<rows).flatMap { row in (0..<columns).map { (column: $0, row: row) } }
+        return drawDots(
+            lit, width: columns * pitch, height: rows * pitch,
+            pitch: pitch, dotSize: dotSize, shape: shape,
+        )
+    }
+
+    private static func drawDots(
+        _ cells: [(column: Int, row: Int)],
+        width: Int, height: Int, pitch: Int, dotSize: Double,
+        shape: DerivedSprite.DotShape,
+    ) -> Data? {
+        guard width > 0, height > 0, let context = bitmap(width: width, height: height)
+        else { return nil }
+
+        context.setAllowsAntialiasing(true)
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+
+        let diameter = Double(pitch) * dotSize
+        for cell in cells {
+            // CG's y grows upward and rows count from the top, so the row is
+            // measured down from the canvas's height. Dots are symmetric, so
+            // the flip cannot show — but the cell still has to be the right one.
+            let rect = CGRect(
+                x: (Double(cell.column) + 0.5) * Double(pitch) - diameter / 2,
+                y: Double(height) - (Double(cell.row) + 0.5) * Double(pitch) - diameter / 2,
+                width: diameter, height: diameter,
+            )
+            switch shape {
+            case .round: context.fillEllipse(in: rect)
+            case .square: context.fill(rect)
+            }
+        }
+
+        guard let image = context.makeImage() else { return nil }
+        return encode(image)
+    }
+
+    /// A premultiplied RGBA canvas, matching everything else that reaches the
+    /// atlas.
+    private static func bitmap(width: Int, height: Int) -> CGContext? {
+        CGContext(
+            data: nil, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: width * 4,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
+        )
     }
 
     // ─── Blur ────────────────────────────────────────────────────────────────

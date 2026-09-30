@@ -505,9 +505,16 @@ struct KeyframeRow: View {
 
                 // A hairline joining the keys, so a property with two of them
                 // reads as a span rather than as two unrelated dots.
+                //
+                // Cut to the lane. Sized from the first key to the last, it
+                // grew with the zoom — measured, 180,000 points wide against a
+                // 600-point lane — and a `.frame` widens layout where an
+                // `.offset` does not: the row outgrew the panel, the column
+                // with it, and the ruler above was centred on the column and
+                // slid off to the right.
                 if let first = track.first, let last = track.last, track.isAnimated {
-                    let from = x(of: first.time)
-                    let to = x(of: last.time)
+                    let from = min(max(x(of: first.time), 0), scale.width)
+                    let to = min(max(x(of: last.time), 0), scale.width)
                     Rectangle()
                         .fill(Theme.Fill.subtle)
                         .frame(width: max(0, to - from), height: Theme.Size.hairline)

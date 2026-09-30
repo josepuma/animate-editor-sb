@@ -13,7 +13,10 @@ public struct EffectTrack: Identifiable, Sendable, Equatable, Codable {
     // ─── Decoding ────────────────────────────────────────────────────────────
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, layer, nodes, isVisible, isLocked, colour
+        case id, name, layer, nodes, isVisible, isLocked, colour, z, followsCamera
+        /// A parallax factor, written by a build that had no perspective.
+        /// Read once and translated; never written.
+        case depth
         /// Filters used to live on the track. They belong to a clip now, but a
         /// project written before that move still has them here, and a decoder
         /// that simply failed would open a real project as an empty one.
@@ -31,6 +34,25 @@ public struct EffectTrack: Identifiable, Sendable, Equatable, Codable {
         // showed until now, so an old project opens looking as it did.
         colour = try container.decodeIfPresent(TrackColour.self, forKey: .colour)
         isLocked = try container.decode(Bool.self, forKey: .isLocked)
+        // Absent in files written before the camera: Z 0, following it, is
+        // what every track was.
+        z = try container.decodeIfPresent(Double.self, forKey: .z) ?? 0
+        followsCamera = try container.decodeIfPresent(Bool.self, forKey: .followsCamera) ?? true
+
+        // A parallax factor from before the perspective camera. 0 meant fixed
+        // to the screen; any other factor becomes the Z that pans the same —
+        // a lane at Z pans by focal ÷ (focal + Z), so the factor d is
+        // focal · (1/d − 1). The size now follows the distance too, which is
+        // the point of the change, so a far lane also draws smaller.
+        if let legacy = try container.decodeIfPresent(Double.self, forKey: .depth),
+           !container.contains(.z)
+        {
+            if legacy <= 0 {
+                followsCamera = false
+            } else {
+                z = CameraProperty.focal.defaultValue * (1 / legacy - 1)
+            }
+        }
 
         var decodedNodes = try container.decode([EffectNode].self, forKey: .nodes)
 
@@ -60,6 +82,10 @@ public struct EffectTrack: Identifiable, Sendable, Equatable, Codable {
         try container.encode(isVisible, forKey: .isVisible)
         try container.encodeIfPresent(colour, forKey: .colour)
         try container.encode(isLocked, forKey: .isLocked)
+        // Left out at their defaults so a project that never touched them
+        // saves to the same bytes it did before they existed.
+        if z != 0 { try container.encode(z, forKey: .z) }
+        if !followsCamera { try container.encode(followsCamera, forKey: .followsCamera) }
     }
 
     public let id: String
@@ -77,6 +103,22 @@ public struct EffectTrack: Identifiable, Sendable, Equatable, Codable {
     public var colour: TrackColour?
     public var isLocked: Bool
 
+    /// How far behind the focal plane the lane sits, in storyboard units.
+    ///
+    /// 0 is drawn as it always was; one focal length back (1000 by default)
+    /// is half the size and pans half as far; negative is closer than the
+    /// focal plane and rushes past. Size and parallax come from the one
+    /// distance, which is what makes a far lane read as far rather than slow.
+    ///
+    /// On the lane rather than each clip because the lane is already the unit
+    /// of layer and draw order, and "this row is far away" is the same kind of
+    /// statement.
+    public var z: Double
+
+    /// Whether the camera applies to this lane at all. Off for lyrics or a
+    /// HUD, which stay on screen wherever the camera goes.
+    public var followsCamera: Bool
+
     public init(
         id: String,
         name: String,
@@ -85,6 +127,8 @@ public struct EffectTrack: Identifiable, Sendable, Equatable, Codable {
         isVisible: Bool = true,
         colour: TrackColour? = nil,
         isLocked: Bool = false,
+        z: Double = 0,
+        followsCamera: Bool = true,
     ) {
         self.id = id
         self.name = name
@@ -93,6 +137,8 @@ public struct EffectTrack: Identifiable, Sendable, Equatable, Codable {
         self.isVisible = isVisible
         self.colour = colour
         self.isLocked = isLocked
+        self.z = z
+        self.followsCamera = followsCamera
     }
 
     /// The span from the earliest effect to the latest, or `nil` when empty.
@@ -112,8 +158,29 @@ public struct EffectTrack: Identifiable, Sendable, Equatable, Codable {
 public struct EffectDocument: Sendable, Codable {
     public var tracks: [EffectTrack]
 
-    public init(tracks: [EffectTrack] = []) {
+    /// The storyboard's camera, seen through by every track at its own depth.
+    public var camera: StoryboardCamera
+
+    public init(tracks: [EffectTrack] = [], camera: StoryboardCamera = StoryboardCamera()) {
         self.tracks = tracks
+        self.camera = camera
+    }
+
+    private enum CodingKeys: String, CodingKey { case tracks, camera }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tracks = try container.decode([EffectTrack].self, forKey: .tracks)
+        // Absent in every file written before the camera existed.
+        camera = try container.decodeIfPresent(StoryboardCamera.self, forKey: .camera) ?? StoryboardCamera()
+    }
+
+    /// Written without a camera nobody touched, so an unchanged project saves
+    /// to the same bytes it did before the camera existed.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(tracks, forKey: .tracks)
+        if camera != StoryboardCamera() { try container.encode(camera, forKey: .camera) }
     }
 
     // ─── Reading ─────────────────────────────────────────────────────────────

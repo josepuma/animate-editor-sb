@@ -460,6 +460,6 @@ public struct FilterLibrary: Sendable {
         EchoFilter(), WiggleFilter(), LoopFilter(),
         TimeFilter(), EaseFilter(), RadialFilter(),
         MirrorFilter(), ChromaticFilter(), PathFilter(), PulseFilter(), AudioDriveFilter(), GridFilter(),
-        FadeFilter(),
+        FadeFilter(), LEDFilter(),
     ])
 }

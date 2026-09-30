@@ -9,7 +9,54 @@ import Foundation
 struct CommandTrack: Sendable {
     var commands: [Command] = []
 
+    /// `maxEnd[i]` is the highest `endTime` among `commands[0...i]`.
+    ///
+    /// Non-decreasing by construction, which is what makes "is anything at or
+    /// below `i` still active at `time`?" a single comparison. Empty until
+    /// ``buildPrefixIndex()`` runs; `resolve` falls back to the plain scan
+    /// while the two arrays don't cover `commands`.
+    private(set) var maxEnd: [Double] = []
+
+    /// `heldIndex[i]` is the command a track holds at a time when NONE of
+    /// `commands[0...i]` is active: the latest `endTime`, then the higher
+    /// `startTime`, then the higher index.
+    ///
+    /// The old backward scan met higher indices first and replaced its
+    /// candidate only on a strict improvement, so a full tie went to the
+    /// higher index. Walking forward, index `i` therefore wins a tie against
+    /// the running best — that is the `>=` below, and it is the one place a
+    /// careless rewrite changes behaviour.
+    private(set) var heldIndex: [Int] = []
+
     var isEmpty: Bool { commands.isEmpty }
+
+    /// Fills the prefix arrays. Call once, after `commands` is sorted.
+    ///
+    /// Not a `didSet` on `commands`: `CommandTracks.init` appends command by
+    /// command, and rebuilding on each append would be quadratic.
+    mutating func buildPrefixIndex() {
+        var ends: [Double] = []
+        var held: [Int] = []
+        ends.reserveCapacity(commands.count)
+        held.reserveCapacity(commands.count)
+
+        for (index, command) in commands.enumerated() {
+            guard index > 0 else {
+                ends.append(command.endTime)
+                held.append(0)
+                continue
+            }
+            ends.append(Swift.max(ends[index - 1], command.endTime))
+
+            let best = commands[held[index - 1]]
+            let beatsBest = command.endTime > best.endTime
+                || (command.endTime == best.endTime && command.startTime >= best.startTime)
+            held.append(beatsBest ? index : held[index - 1])
+        }
+
+        maxEnd = ends
+        heldIndex = held
+    }
 
     /// Index of the rightmost command whose `startTime` is at or before `time`,
     /// or `nil` when every command starts later.
@@ -40,31 +87,58 @@ struct CommandTrack: Sendable {
     /// - With none active, the value of the command with the latest `endTime`
     ///   is held.
     func resolve(at time: Double) -> Command? {
+        guard let index = resolvedIndex(at: time) else { return nil }
+        return commands[index]
+    }
+
+    /// Index of the command ``resolve(at:)`` returns. `steps`, when given,
+    /// counts every command inspected — test-only instrumentation; with `nil`
+    /// (the only production call) the optimiser drops the counting.
+    @inline(__always)
+    func resolvedIndex(at time: Double, steps: UnsafeMutablePointer<Int>? = nil) -> Int? {
         guard !commands.isEmpty else { return nil }
         guard let ub = upperBound(at: time) else {
             // Everything starts later — hold the first command's start value.
-            return commands[0]
+            return 0
         }
 
-        var bestEnded: Command?
+        let indexed = maxEnd.count == commands.count
 
-        // Scanning backwards, the first still-active command is the one with
-        // the highest startTime, so it wins immediately.
+        // The gap case. A hopping sprite sits between commands most frames, and
+        // the plain backward scan then walks to index 0 finding nothing: O(n)
+        // in the track's length. `maxEnd[ub] < time` says no command at or
+        // below `ub` reaches `time`, so the answer is precomputed.
+        if indexed, maxEnd[ub] < time {
+            return heldIndex[ub]
+        }
+
+        // Some command is active (or the track isn't indexed). Scanning
+        // backwards, the first active one has the highest startTime, so it
+        // wins. With an index a hit is guaranteed, and the scan stops at it;
+        // the cost is the run of already-ended commands sitting above the
+        // winner, which for a sprite's own commands is short — the winner is
+        // almost always the latest or second latest.
+        var held: Int?
         for index in stride(from: ub, through: 0, by: -1) {
+            steps?.pointee += 1
             let command = commands[index]
             if time <= command.endTime {
-                return command
+                return index
             }
-            if bestEnded == nil
-                || command.endTime > bestEnded!.endTime
-                || (command.endTime == bestEnded!.endTime
-                    && command.startTime > bestEnded!.startTime)
-            {
-                bestEnded = command
+            if !indexed {
+                if let current = held {
+                    let best = commands[current]
+                    if command.endTime > best.endTime
+                        || (command.endTime == best.endTime && command.startTime > best.startTime)
+                    {
+                        held = index
+                    }
+                } else {
+                    held = index
+                }
             }
         }
-
-        return bestEnded ?? commands[0]
+        return held ?? 0
     }
 }
 
@@ -106,6 +180,16 @@ struct CommandTracks: Sendable {
         rotate.commands.stableSortByStartTime()
         color.commands.stableSortByStartTime()
         parameter.commands.stableSortByStartTime()
+
+        fade.buildPrefixIndex()
+        move.buildPrefixIndex()
+        moveX.buildPrefixIndex()
+        moveY.buildPrefixIndex()
+        scale.buildPrefixIndex()
+        vectorScale.buildPrefixIndex()
+        rotate.buildPrefixIndex()
+        color.buildPrefixIndex()
+        parameter.buildPrefixIndex()
     }
 }
 

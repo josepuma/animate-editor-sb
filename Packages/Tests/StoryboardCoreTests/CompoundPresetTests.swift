@@ -419,8 +419,10 @@ struct CompoundPresetTests {
         )] + preset.layers {
             guard case let .text(path) = layer.values[EmitterEffect.Param.sprite] else { continue }
 
-            // The shapes the app draws are 64px; the files it ships are 512.
-            let texture: Double = BuiltInSprite.shapes.contains(path) ? 64 : 512
+            // The shapes the app draws are 64px; the files it ships are 512,
+            // and so is the flat vocabulary.
+            let texture: Double = BuiltInSprite.shapes.contains(path)
+                && !BuiltInSprite.flatShapes.contains(path) ? 64 : 512
 
             let node = EffectNode(
                 id: "sized", type: layer.effectType, name: layer.name,

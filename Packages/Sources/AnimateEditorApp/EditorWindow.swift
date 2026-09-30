@@ -66,6 +66,26 @@ struct EditorWindow: View {
             editablePath: { shell.editablePath },
             isDrawingPath: { shell.isDrawingPath },
             onPathChange: { shell.setEditablePath($0) },
+            // The camera tool: the frame is drawn only while the camera's
+            // keys are open on the timeline, when the canvas is showing the
+            // world rather than the finished picture.
+            // No frame while looking through the camera: the canvas shows the
+            // finished picture then, and a frame over it would mark a region
+            // of a picture that is already the shot.
+            editableCamera: {
+                shell.isEditingCamera && !shell.isViewingThroughCamera ? shell.camera : nil
+            },
+            onCameraFrame: { x, y, zoom, rotation in
+                shell.applyCameraFrame(x: x, y: y, zoom: zoom, rotation: rotation, at: playback.currentTime)
+            },
+            onCameraPathPoint: { time, x, y in
+                shell.moveCameraPathPoint(at: time, x: x, y: y)
+            },
+            cameraView: CameraViewSwitch(
+                isAvailable: { shell.isEditingCamera },
+                isOn: { shell.isViewingThroughCamera },
+                toggle: { shell.isViewingThroughCamera.toggle() },
+            ),
         )
         // Read here, in the body itself.
         //

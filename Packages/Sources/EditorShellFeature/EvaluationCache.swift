@@ -106,13 +106,23 @@ final class EvaluationCache: @unchecked Sendable {
     /// inside each clip, not the walk. Tracks are honoured exactly as
     /// `EffectEvaluator.evaluate(_ document:)` honours them, because a lane's
     /// visibility and layer belong to the lane and not to what is cached.
+    ///
+    /// - Parameter applyingCamera: `false` for the world as it is before the
+    ///   storyboard camera sees it — what the canvas shows while the camera is
+    ///   being edited, with the camera's frame drawn over it.
     func sprites(
         for document: EffectDocument,
         using evaluator: EffectEvaluator,
+        applyingCamera: Bool = true,
     ) -> [StoryboardSprite] {
         var produced: [StoryboardSprite] = []
 
         for track in document.tracks {
+            var lane: [StoryboardSprite] = []
+            // The camera is applied to the lane after its clips come out of
+            // the cache, never stored in an entry: what a clip produces is the
+            // same whatever the camera does, so moving a camera key re-runs no
+            // effect — only this cheap pass over what was already there.
             for node in track.nodes {
                 let sprites = self.sprites(for: node, using: evaluator)
 
@@ -124,12 +134,15 @@ final class EvaluationCache: @unchecked Sendable {
                 // The lane owns the layer, so everything on it takes that
                 // layer — the same stamp `evaluate(_ track:)` applies, and the
                 // reason entries are stored before it.
-                produced += sprites.map { sprite in
+                lane += sprites.map { sprite in
                     var placed = sprite
                     placed.layer = track.layer
                     return placed
                 }
             }
+            produced += applyingCamera
+                ? CameraTransform.apply(document.camera, to: lane, z: track.z, followsCamera: track.followsCamera)
+                : lane
         }
 
         return produced

@@ -11,7 +11,7 @@ public extension TextEffect {
     static let presets: [EffectPreset] = [
         typewriter, fadeUp, drop, popIn, sweep, scatter,
         shockwave, unfold, cascade, wave, glitch, revealCentre,
-        driftApart, burst,
+        driftApart, burst, ledSign,
     ]
 
     private static func preset(

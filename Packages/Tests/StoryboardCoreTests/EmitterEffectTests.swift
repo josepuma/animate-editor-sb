@@ -421,10 +421,17 @@ struct EmitterEffectTests {
                 return
             }
 
-            // The built-in shapes point up, so aligned means a quarter turn off
-            // the travel angle.
-            let expected = (direction - 90) * .pi / 180
-            #expect(abs(start - expected) < 1e-9)
+            // The built-in shapes point up, (0, −1), and the shader turns that
+            // with the standard matrix in a Y-down space: it lands on
+            // (sin r, −cos r). Aligned means that equals the velocity.
+            //
+            // Asserted as the vector rather than as an angle because the angle
+            // is where the bug hid: the emitter used a quarter turn *minus* the
+            // travel angle, which points a sprite against its travel — and no
+            // test noticed, because every shape aligned so far was symmetric.
+            let travel = direction * .pi / 180
+            #expect(abs(sin(start) - cos(travel)) < 1e-9, "x at \(direction)°")
+            #expect(abs(-cos(start) - sin(travel)) < 1e-9, "y at \(direction)°")
         }
     }
 

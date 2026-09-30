@@ -18,6 +18,9 @@ struct CanvasOverlayControls: View {
 
     @Bindable var model: PlaybackModel
 
+    /// The "view through camera" switch, when the shell offers one.
+    var cameraView: CameraViewSwitch?
+
     var body: some View {
         HStack(spacing: Theme.Spacing.compact) {
             aspectRatio
@@ -161,6 +164,26 @@ struct CanvasOverlayControls: View {
 
     private var tools: some View {
         HStack(spacing: Theme.Spacing.compact) {
+            // Only while the camera is being edited: anywhere else the canvas
+            // already shows the finished picture, and a switch that does
+            // nothing is a control that lies.
+            if let cameraView, cameraView.isAvailable() {
+                let isOn = cameraView.isOn()
+                IconButton(
+                    systemImage: isOn ? "video.fill" : "video",
+                    size: Theme.Size.controlSmall,
+                    isActive: isOn,
+                    help: isOn
+                        ? "Back to the world with the camera frame (⇧⌘C)"
+                        : "View through the camera (⇧⌘C)",
+                    action: cameraView.toggle,
+                )
+                // ⇧⌘ rather than a bare key: a bare letter is claimed window
+                // wide and would be swallowed out of every field being typed
+                // in — the trap the space bar already needed a guard for.
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+            }
+
             IconButton(
                 systemImage: model.showsGuides ? "grid" : "square.grid.2x2",
                 size: Theme.Size.controlSmall,
@@ -369,5 +392,22 @@ struct CanvasVolumeControl: View {
             )
         }
         .frame(width: Self.trackLength, height: Theme.Size.controlTiny)
+    }
+}
+
+/// The seam for switching the canvas between the world and the camera's view.
+///
+/// Three closures rather than values, like every seam into the shell on this
+/// canvas: read as values up the tree, they would rebuild the window on every
+/// change.
+public struct CameraViewSwitch {
+    public let isAvailable: () -> Bool
+    public let isOn: () -> Bool
+    public let toggle: () -> Void
+
+    public init(isAvailable: @escaping () -> Bool, isOn: @escaping () -> Bool, toggle: @escaping () -> Void) {
+        self.isAvailable = isAvailable
+        self.isOn = isOn
+        self.toggle = toggle
     }
 }

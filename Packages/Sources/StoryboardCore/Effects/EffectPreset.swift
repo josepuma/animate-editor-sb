@@ -160,6 +160,28 @@ public enum BuiltInSprite {
     public static let fill = "__builtin__/fill.png"
     /// A hard-edged disc, for drawn shapes rather than particles.
     public static let disc = "__builtin__/disc.png"
+
+    // ── Flat vocabulary ─────────────────────────────────────────────────────
+    //
+    // Hard-edged and drawn at 512, like the disc and the hoop. Chevron and
+    // arrow point up, the axis `Align to Motion` turns toward a velocity.
+
+    /// A thick upward chevron, `^`.
+    public static let chevron = "__builtin__/chevron.png"
+    /// A block arrow pointing up.
+    public static let arrow = "__builtin__/arrow.png"
+    /// A solid triangle pointing up.
+    public static let triangle = "__builtin__/triangle.png"
+    /// A slanted parallelogram: one bar of a hazard stripe.
+    public static let stripe = "__builtin__/stripe.png"
+    /// A hollow square, the anchor handle of a vector editor.
+    public static let node = "__builtin__/node.png"
+    /// A plus sign.
+    public static let cross = "__builtin__/cross.png"
+
+    /// The Flat vocabulary, all of it 512px and hard-edged.
+    public static let flatShapes = [chevron, arrow, triangle, stripe, node, cross]
+
     /// A hard-edged outline.
     /// A hoop of a given thickness, as a fraction of its diameter.
     ///
@@ -333,6 +355,7 @@ public enum BuiltInSprite {
     }
 
     public static let shapes = [soft, glow, smoke, star, square, streak, ring, fill, disc]
+        + flatShapes
 
     /// Textures shipped as files, for the shapes code cannot draw — a branching
     /// bolt, a flame with a real silhouette, a directional flash.

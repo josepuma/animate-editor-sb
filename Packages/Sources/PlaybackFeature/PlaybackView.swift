@@ -44,6 +44,13 @@ public struct PlaybackView: View {
     private let isDrawingPath: (() -> Bool)?
     private let onPathChange: ((MotionPath) -> Void)?
 
+    /// The storyboard camera while it is being edited, `nil` otherwise — asked
+    /// for on demand for the reason every seam here is.
+    private let editableCamera: (() -> StoryboardCamera?)?
+    private let onCameraFrame: ((Double, Double, Double, Double) -> Void)?
+    private let onCameraPathPoint: ((Double, Double, Double) -> Void)?
+    private let cameraView: CameraViewSwitch?
+
     public init(
         model: PlaybackModel,
         timeline: TimelineModel,
@@ -55,6 +62,10 @@ public struct PlaybackView: View {
         editablePath: (() -> MotionPath?)? = nil,
         isDrawingPath: (() -> Bool)? = nil,
         onPathChange: ((MotionPath) -> Void)? = nil,
+        editableCamera: (() -> StoryboardCamera?)? = nil,
+        onCameraFrame: ((Double, Double, Double, Double) -> Void)? = nil,
+        onCameraPathPoint: ((Double, Double, Double) -> Void)? = nil,
+        cameraView: CameraViewSwitch? = nil,
     ) {
         _model = Bindable(model)
         _timeline = Bindable(timeline)
@@ -66,6 +77,10 @@ public struct PlaybackView: View {
         self.editablePath = editablePath
         self.isDrawingPath = isDrawingPath
         self.onPathChange = onPathChange
+        self.editableCamera = editableCamera
+        self.onCameraFrame = onCameraFrame
+        self.onCameraPathPoint = onCameraPathPoint
+        self.cameraView = cameraView
     }
 
     public var body: some View {
@@ -93,6 +108,10 @@ public struct PlaybackView: View {
             editablePath: editablePath,
             isDrawingPath: isDrawingPath,
             onPathChange: onPathChange,
+            editableCamera: editableCamera,
+            onCameraFrame: onCameraFrame,
+            onCameraPathPoint: onCameraPathPoint,
+            cameraView: cameraView,
         )
     }
 }
@@ -120,6 +139,10 @@ public struct PlaybackCanvas: View {
     var editablePath: (() -> MotionPath?)?
     var isDrawingPath: (() -> Bool)?
     var onPathChange: ((MotionPath) -> Void)?
+    var editableCamera: (() -> StoryboardCamera?)?
+    var onCameraFrame: ((Double, Double, Double, Double) -> Void)?
+    var onCameraPathPoint: ((Double, Double, Double) -> Void)?
+    var cameraView: CameraViewSwitch?
 
     public var body: some View {
         GeometryReader { proxy in
@@ -235,6 +258,21 @@ public struct PlaybackCanvas: View {
                     .id("path-editor")
                 }
 
+                // The camera tool, above everything: while the camera is being
+                // edited, the frame is what every drag on the canvas is aimed
+                // at. It draws nothing when the camera is not being edited.
+                if let editableCamera, let onCameraFrame, let onCameraPathPoint {
+                    CameraFrameEditor(
+                        model: model,
+                        camera: editableCamera,
+                        viewSize: size,
+                        onFrame: onCameraFrame,
+                        onPathPoint: onCameraPathPoint,
+                    )
+                    .frame(width: size.width, height: size.height)
+                    .id("camera-frame")
+                }
+
 
 
             }
@@ -260,7 +298,7 @@ public struct PlaybackCanvas: View {
     /// The gap below the stage was already there; this fills it.
     private func controlBar(canvasSize: CGSize) -> some View {
         HStack(alignment: .center, spacing: Theme.Spacing.compact) {
-            CanvasOverlayControls(model: model)
+            CanvasOverlayControls(model: model, cameraView: cameraView)
 
             Spacer(minLength: Theme.Spacing.regular)
 
