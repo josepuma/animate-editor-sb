@@ -59,18 +59,10 @@ final class ScrollCatchingView: NSView {
 
     override func scrollWheel(with event: NSEvent) {
 
-        // Horizontal where the device has one, vertical otherwise: a trackpad
-        // and a Magic Mouse report sideways scrolling directly, while an
-        // ordinary wheel has none — and a timeline is a horizontal thing, so
-        // its one wheel should move it along.
-        let dx = event.scrollingDeltaX
-        let dy = event.scrollingDeltaY
-        let delta = abs(dx) >= abs(dy) ? dx : dy
-
         // Horizontal is this view's business; vertical belongs to whatever
-        // scrolls the lanes, so it is passed along untouched.
-        // The hit test already established this is a sideways scroll.
-        _ = dy
+        // scrolls the lanes, so it is passed along untouched. The hit test
+        // already established this is a sideways scroll.
+        let dx = event.scrollingDeltaX
         guard let onPan else { return }
         onPan(dx)
     }

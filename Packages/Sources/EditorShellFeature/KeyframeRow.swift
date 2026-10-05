@@ -459,7 +459,11 @@ struct KeyframeRow: View {
                             // playhead, exactly as the inspector's field does —
                             // one edit must not mean two different things in
                             // two places.
-                            set: setValue,
+                            //
+                            // A closure rather than the stored function: one
+                            // written here is main-actor isolated, so it can
+                            // be the `@Sendable` setter a `Binding` asks for.
+                            set: { setValue($0) },
                         ),
                         unit: unit,
                         step: step,
