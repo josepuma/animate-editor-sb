@@ -31,9 +31,38 @@ struct InspectorView: View {
     private var playheadTime: Double { shell.playheadTime }
 
 
+    /// The clip the tabs are for, when the panel is showing one.
+    ///
+    /// Not in camera mode — the timeline is showing the camera then, and the
+    /// panel describes that instead.
+    private var clip: (node: EffectNode, descriptor: EffectDescriptor)? {
+        guard !shell.isEditingCamera,
+              let node = shell.selectedEffect,
+              let descriptor = shell.selectedDescriptor
+        else { return nil }
+        return (node, descriptor)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
+
+            // Outside the scroll view, so the tabs stay put while their
+            // content scrolls under them — a tab row that scrolls away is a
+            // tab row that has to be scrolled back to.
+            if clip != nil {
+                ToolTabs(
+                    items: InspectorTab.allCases,
+                    selection: Binding(
+                        get: { shell.inspectorTab },
+                        set: { shell.inspectorTab = $0 },
+                    ),
+                    icon: \.systemImage,
+                    label: \.title,
+                )
+                .padding(.horizontal, Theme.Spacing.snug)
+                .padding(.bottom, Theme.Spacing.tight)
+            }
 
             ScrollView {
                 // Lazy, so a panel is built as far as it is seen.
@@ -71,8 +100,8 @@ struct InspectorView: View {
                         // disagreeing about the selection is the bug this
                         // panel already had once, with keyframe mode.
                         cameraSections
-                    } else if let node = shell.selectedEffect, let descriptor = shell.selectedDescriptor {
-                        effectParameters(descriptor: descriptor, node: node)
+                    } else if let clip {
+                        clipTabs(descriptor: clip.descriptor, node: clip.node)
                     } else if let track = shell.selectedTrack {
                         trackParameters(track)
                     } else {
@@ -83,18 +112,6 @@ struct InspectorView: View {
                         )
                     }
 
-                    // Filters belong to the lane, so they show whenever there
-                    // is one — with or without a clip selected. Tucked inside
-                    // the track branch, they vanished the moment a clip was
-                    // picked, which is exactly when someone reaches for them.
-                    // Only when there is something to show: an empty "Filters"
-                    // group is a heading and a button standing in for nothing,
-                    // and the library tab is where filters are found anyway.
-                    // A clip's filters, under whatever it is. They belong to
-                    // the clip now, so they show wherever it does.
-                    if !shell.isEditingCamera, let node = shell.selectedEffect, !node.filters.isEmpty {
-                        filterSection(node)
-                    }
                 }
                 // One grid for every row in the panel, animatable or not, so
                 // labels and fields line up down the whole column whichever
@@ -257,14 +274,40 @@ struct InspectorView: View {
         return repeated?.key.lowercased()
     }
 
-    /// The selected effect's declared parameters, grouped as it declared them.
+    /// A selected clip, split into the tab the panel is on.
     @ViewBuilder
-    private func effectParameters(descriptor: EffectDescriptor, node: EffectNode) -> some View {
-        timingRow(node: node)
+    private func clipTabs(descriptor: EffectDescriptor, node: EffectNode) -> some View {
+        // Above whichever tab is open, not inside one: a selected key is what
+        // someone is working on right now, and picking a diamond on the
+        // timeline must not leave them hunting for its fields behind a tab.
         selectedKeyframeSection(node)
         selectedFilterKeyframeSection(node)
-        transformSection(node)
 
+        switch shell.inspectorTab {
+        case .effect:
+            effectParameters(descriptor: descriptor, node: node)
+        case .clip:
+            timingRow(node: node)
+            transformSection(node)
+        case .filters:
+            if node.filters.isEmpty {
+                // Said rather than left blank: an empty tab reads as broken,
+                // and this one has an obvious next step.
+                ComingSoon(
+                    title: "No filters",
+                    detail: "Drag a filter from the library onto this clip.",
+                    systemImage: InspectorTab.filters.systemImage,
+                )
+            } else {
+                filterSection(node)
+            }
+        }
+    }
+
+    /// The selected effect's declared parameters, grouped as it declared them,
+    /// and a compound's layers.
+    @ViewBuilder
+    private func effectParameters(descriptor: EffectDescriptor, node: EffectNode) -> some View {
         // A group whose parameters are all conditioned out drops with them.
         //
         // Filtering only the controls left the heading behind — an empty
@@ -947,16 +990,52 @@ struct InspectorView: View {
     // ─── Sections ────────────────────────────────────────────────────────────
 
 
+    /// What the panel is about: the clip, when there is one.
+    ///
+    /// It used to read "Script Settings" over every effect — an emitter, a
+    /// line of text, a shape — which named a feature rather than the thing
+    /// selected. With tabs below, the heading is what tells you which clip the
+    /// tabs belong to.
+    @ViewBuilder
     private var header: some View {
-        SectionHeader("Script Settings")
-        .padding(.horizontal, Theme.Spacing.compact)
-        .padding(.vertical, Theme.Spacing.snug)
+        if let clip {
+            HStack(spacing: Theme.Spacing.snug) {
+                GlyphTile(
+                    systemImage: clip.descriptor.systemImage,
+                    tint: shell.selectedTrack?.tint,
+                    size: Theme.Size.controlSmall,
+                )
+
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(clip.node.name)
+                        .font(Theme.Typography.cardTitle)
+                        .foregroundStyle(Theme.Palette.primary)
+                        .lineLimit(1)
+
+                    Text(clip.descriptor.name)
+                        .font(Theme.Typography.micro)
+                        .foregroundStyle(Theme.Palette.tertiary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Theme.Spacing.compact)
+            .padding(.top, Theme.Spacing.compact)
+            .padding(.bottom, Theme.Spacing.snug)
+        } else {
+            SectionHeader(shell.isEditingCamera ? "Camera" : "Inspector")
+                .padding(.horizontal, Theme.Spacing.compact)
+                .padding(.vertical, Theme.Spacing.snug)
+        }
     }
 
     /// What the selected track is, above the parameters that shape it.
     @ViewBuilder
     private var trackSummary: some View {
-        if !shell.isEditingCamera, let track = shell.selectedTrack {
+        // Only for a lane on its own: with a clip selected the header already
+        // names it, and a second title above the tabs says it twice.
+        if !shell.isEditingCamera, clip == nil, let track = shell.selectedTrack {
             HStack(spacing: Theme.Spacing.snug) {
                 Circle()
                     .fill(track.tint)

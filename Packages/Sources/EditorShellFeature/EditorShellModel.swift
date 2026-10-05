@@ -133,6 +133,14 @@ public final class EditorShellModel {
     public var sidePanel: SidePanel = .layers
     public var isSidePanelVisible = true
     public var isInspectorVisible = true
+    /// Which of a clip's tabs the inspector shows.
+    ///
+    /// On the model rather than in the panel's `@State`: the inspector is
+    /// rebuilt whenever the selection changes, and a tab that snapped back to
+    /// the first every time a different clip was picked would make comparing
+    /// two clips' filters two clicks per glance. Kept across clips, the way
+    /// After Effects keeps its panel where you left it.
+    public var inspectorTab: InspectorTab = .effect
     public var assetFilter: AssetItem.Kind = .all
 
     public private(set) var assets: [AssetItem] = []
