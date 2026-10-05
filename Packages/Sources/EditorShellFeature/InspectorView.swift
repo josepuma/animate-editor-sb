@@ -934,13 +934,7 @@ struct InspectorView: View {
 
 
     private var header: some View {
-        SectionHeader("Script Settings") {
-            IconButton(
-                systemImage: "ellipsis",
-                size: Theme.Size.controlTiny,
-                help: "Script actions",
-            ) {}
-        }
+        SectionHeader("Script Settings")
         .padding(.horizontal, Theme.Spacing.compact)
         .padding(.vertical, Theme.Spacing.snug)
     }

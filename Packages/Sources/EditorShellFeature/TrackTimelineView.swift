@@ -510,19 +510,15 @@ struct TrackTimelineView: View {
                 BarDivider()
             }
 
-            IconButton(
-                systemImage: "plus",
-                size: Theme.Size.controlTiny,
-                help: isEditingKeyframes ? "Add keyframe at playhead" : "New track",
-            ) {
-                if !isEditingKeyframes { shell.addTrack() }
+            if !isEditingKeyframes {
+                IconButton(
+                    systemImage: "plus",
+                    size: Theme.Size.controlTiny,
+                    help: "New track",
+                ) {
+                    shell.addTrack()
+                }
             }
-
-            IconButton(
-                systemImage: "scissors",
-                size: Theme.Size.controlTiny,
-                help: "Split at playhead",
-            ) {}
 
             // Editing tools on one side, view controls on the other: zoom
             // changes what is looked at rather than what is there, and the rule

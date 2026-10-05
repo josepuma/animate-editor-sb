@@ -67,7 +67,6 @@ struct SidePanelView: View {
             case .filters: filtersPanel
             case .layers: layers
             case .lyrics: LyricsPanel(shell: shell)
-            case .timing: timing
             }
         }
         .padding(Theme.Spacing.compact)
@@ -524,15 +523,6 @@ struct SidePanelView: View {
         }
     }
 
-    // ─── Timing ──────────────────────────────────────────────────────────────
-
-    private var timing: some View {
-        ComingSoon(
-            title: "Timing points",
-            detail: "Edit BPM and offset. Not implemented yet.",
-            systemImage: "metronome",
-        )
-    }
 }
 
 // ─── Effect rows ─────────────────────────────────────────────────────────────

@@ -9,7 +9,6 @@ public enum SidePanel: String, CaseIterable, Identifiable, Sendable {
     case filters
     case layers
     case lyrics
-    case timing
 
     public var id: String { rawValue }
 
@@ -20,7 +19,6 @@ public enum SidePanel: String, CaseIterable, Identifiable, Sendable {
         case .filters: "wand.and.stars"
         case .layers: "square.3.layers.3d"
         case .lyrics: "text.bubble"
-        case .timing: "metronome"
         }
     }
 
@@ -31,7 +29,6 @@ public enum SidePanel: String, CaseIterable, Identifiable, Sendable {
         case .filters: "Filters"
         case .layers: "Layers"
         case .lyrics: "Lyrics"
-        case .timing: "Timing"
         }
     }
 }
