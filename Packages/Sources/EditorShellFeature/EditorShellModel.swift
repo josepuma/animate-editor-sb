@@ -734,6 +734,7 @@ public final class EditorShellModel {
         return placed
     }
 
+    @discardableResult
     public func addEffect(
         _ descriptor: EffectDescriptor,
         at startTime: Double,
@@ -1625,7 +1626,7 @@ public final class EditorShellModel {
         videoProgress = 0
         videoError = nil
 
-        Task { @MainActor in
+        Task { @MainActor [self] in
             do {
                 try await videoExportHandler(url) { [weak self] fraction in
                     Task { @MainActor in self?.videoProgress = fraction }

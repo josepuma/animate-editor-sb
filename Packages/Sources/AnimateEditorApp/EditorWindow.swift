@@ -186,7 +186,7 @@ struct EditorWindow: View {
         // Read here, `currentTime` made the window rebuild sixty times a second
         // — and with it the shell, the timeline and everything under them. The
         // fps matched the rebuild rate almost exactly.
-        .onAppear {
+        .onAppear { [shell, playback] in
             playback.onTimeChanged = { [weak shell] time in
                 shell?.playheadTime = time
             }
