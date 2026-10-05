@@ -11,6 +11,11 @@ import Foundation
 /// That is the difference between waving a lit sparkler and sliding a
 /// photograph of one.
 ///
+/// `Follow` is the other reading, for things that travel far: each sprite runs
+/// the curve itself over its own life. Emit Along on Chevron March loses the
+/// path the instant a chevron is out — it flies 800px to the right on its own
+/// velocity — and a march along a curve is exactly what the effect is for.
+///
 /// Filed under Motion rather than Stylise because it is not a look: Glow and
 /// Chromatic change how something appears, this changes where it happens.
 public struct PathFilter: SpriteFilter {
@@ -21,6 +26,15 @@ public struct PathFilter: SpriteFilter {
         public static let ease = "ease"
         public static let alignToPath = "alignToPath"
         public static let loops = "loops"
+        public static let mode = "mode"
+    }
+
+    /// What the path moves: where each sprite is born, or the sprite itself.
+    public enum Mode: String, CaseIterable, Sendable {
+        /// The source travels; what it emits keeps its own motion.
+        case emitAlong = "Emit Along"
+        /// Every sprite travels the whole curve over its own life.
+        case follow = "Follow"
     }
 
     public static let descriptor = FilterDescriptor(
@@ -34,6 +48,15 @@ public struct PathFilter: SpriteFilter {
                 name: "Path",
                 group: "Path",
                 defaultValue: .path(MotionPath()),
+            ),
+            // Emit Along by default: filters land in finished projects, and a
+            // default that changed the output would rewrite approved work.
+            EffectParameter(
+                id: Param.mode,
+                name: "Mode",
+                group: "Path",
+                defaultValue: .choice(Mode.emitAlong.rawValue),
+                options: Mode.allCases.map(\.rawValue),
             ),
             // How the source paces itself along the curve.
             //
@@ -96,6 +119,10 @@ public struct PathFilter: SpriteFilter {
         let aligns = context.toggle(Param.alignToPath)
         let laps = max(0.1, context.number(Param.loops))
 
+        if Mode(rawValue: context.choice(Param.mode)) == .follow {
+            return follow(sprites, along: path, pacing: pacing, aligns: aligns, laps: laps, prefix: context.idPrefix)
+        }
+
         // The clip's own span, so every sprite is placed against the same
         // journey. Measured from the sprites rather than taken from the clip
         // because a filter is handed output, not the node that made it.
@@ -152,17 +179,169 @@ public struct PathFilter: SpriteFilter {
             }
 
             if aligns {
-                let heading = path.heading(at: t) * .pi / 180
+                let facing = Self.facing(path, at: t)
                 moved.commands.append(Command(
                     easing: .linear,
                     startTime: birth,
                     endTime: birth,
-                    payload: .rotate(start: heading, end: heading),
+                    payload: .rotate(start: facing, end: facing),
                 ))
             }
 
             return moved
         }
+    }
+
+    // ─── Follow ──────────────────────────────────────────────────────────────
+
+    /// Moves per lap. `_M` is a straight line, so a curve is a row of chords;
+    /// measured on an arch, twelve keep a sprite within a pixel of the curve,
+    /// and a path of many points gets more so every segment keeps its bend.
+    private static func segmentsPerLap(_ path: MotionPath) -> Int {
+        min(48, max(16, 8 * (path.points.count - 1)))
+    }
+
+    /// Every sprite runs the curve over its own life.
+    ///
+    /// The sprite's own movement is replaced, not added to: two `_M` commands
+    /// over the same time fight rather than sum, and a chevron's 420px/s to the
+    /// right is exactly what pulled it off the path. What it keeps is where it
+    /// was born relative to the effect's origin, so an emitter with an area —
+    /// a ring, a bar — carries its shape along the curve instead of collapsing
+    /// onto a line.
+    private func follow(
+        _ sprites: [StoryboardSprite],
+        along path: MotionPath,
+        pacing: Pacing,
+        aligns: Bool,
+        laps: Double,
+        prefix: String,
+    ) -> [StoryboardSprite] {
+        let births = sprites.map(Self.birthPosition)
+        let originX = births.map(\.x).reduce(0, +) / Double(max(1, births.count))
+        let originY = births.map(\.y).reduce(0, +) / Double(max(1, births.count))
+        let steps = Self.segmentsPerLap(path) * Int(laps.rounded(.up))
+
+        return sprites.enumerated().map { index, sprite in
+            let birth = sprite.commands.map(\.startTime).min()
+            let death = sprite.commands.map(\.endTime).max()
+            guard let birth, let death, death > birth else { return sprite }
+
+            let dx = births[index].x - originX
+            let dy = births[index].y - originY
+            let place = { (at: Double) -> (x: Double, y: Double) in
+                let point = Self.position(path, at: at)
+                return (point.x + dx, point.y + dy)
+            }
+            let time = { (fraction: Double) in birth + (death - birth) * fraction }
+
+            // How far along the course, in laps, at a fraction of the life.
+            let course = { (fraction: Double) in pacing.progress(fraction) * laps }
+
+            var moved = sprite
+            moved.id = "\(prefix)/p\(index)"
+            let start = place(0)
+            moved.defaultX = start.x
+            moved.defaultY = start.y
+            moved.commands = sprite.commands.filter { command in
+                switch command.payload {
+                case .move, .moveX, .moveY: false
+                case .rotate: !aligns
+                default: true
+                }
+            }
+
+            var facing = aligns ? Self.facing(path, at: 0) : 0
+
+            for step in 0 ..< steps {
+                let from = Double(step) / Double(steps)
+                let to = Double(step + 1) / Double(steps)
+                let a = course(from)
+                let b = course(to)
+                let lapA = floor(a)
+                // An end landing exactly on a whole lap belongs to the lap
+                // that just finished, so its position is the path's end.
+                let lapB = max(lapA, ceil(b) - 1)
+
+                // A lap turning over inside this step: finish at the path's
+                // end, jump back to its start, carry on. Interpolating straight
+                // across would sweep the sprite back over the whole path.
+                var pieces: [(from: Double, to: Double, a: Double, b: Double)] = []
+                if lapB > lapA, b > a {
+                    let turn = from + (to - from) * (lapB - a) / (b - a)
+                    pieces = [(from, turn, a - lapA, 1), (turn, to, 0, b - lapB)]
+                } else {
+                    pieces = [(from, to, a - lapA, b - lapA)]
+                }
+
+                for piece in pieces {
+                    let p0 = place(piece.a)
+                    let p1 = place(piece.b)
+                    moved.commands.append(Command(
+                        easing: .linear,
+                        startTime: time(piece.from),
+                        endTime: time(piece.to),
+                        payload: .move(startX: p0.x, startY: p0.y, endX: p1.x, endY: p1.y),
+                    ))
+
+                    guard aligns else { continue }
+                    let start = Self.nearest(Self.facing(path, at: piece.a), to: facing)
+                    let end = Self.nearest(Self.facing(path, at: piece.b), to: start)
+                    facing = end
+                    moved.commands.append(Command(
+                        easing: .linear,
+                        startTime: time(piece.from),
+                        endTime: time(piece.to),
+                        payload: .rotate(start: start, end: end),
+                    ))
+                }
+            }
+
+            return moved
+        }
+    }
+
+    /// Where a sprite was the moment it came out.
+    private static func birthPosition(_ sprite: StoryboardSprite) -> (x: Double, y: Double) {
+        var x = sprite.defaultX
+        var y = sprite.defaultY
+        var xAt = Double.infinity
+        var yAt = Double.infinity
+        for command in sprite.commands {
+            switch command.payload {
+            case let .move(startX, startY, _, _):
+                if command.startTime < xAt { x = startX; xAt = command.startTime }
+                if command.startTime < yAt { y = startY; yAt = command.startTime }
+            case let .moveX(start, _):
+                if command.startTime < xAt { x = start; xAt = command.startTime }
+            case let .moveY(start, _):
+                if command.startTime < yAt { y = start; yAt = command.startTime }
+            default:
+                break
+            }
+        }
+        return (x, y)
+    }
+
+    private static func position(_ path: MotionPath, at t: Double) -> (x: Double, y: Double) {
+        path.position(at: t) ?? (0, 0)
+    }
+
+    /// The rotation that turns a sprite's up toward where the path is heading.
+    ///
+    /// Up is (0, −1), and the shader turns it to (sin r, −cos r) in a y-down
+    /// space; asking that to equal the heading (cos a, sin a) gives r = a + π/2.
+    /// Writing the heading alone — what this filter used to do — laid every
+    /// up-pointing sprite across the curve instead of along it. The same
+    /// derivation `Align to Motion` already had to be corrected to.
+    static func facing(_ path: MotionPath, at t: Double) -> Double {
+        path.heading(at: t) * .pi / 180 + .pi / 2
+    }
+
+    /// `angle` moved by whole turns to sit nearest `reference`, so a rotation
+    /// crossing ±π turns the short way instead of spinning round.
+    private static func nearest(_ angle: Double, to reference: Double) -> Double {
+        angle - (2 * .pi) * ((angle - reference) / (2 * .pi)).rounded()
     }
 
     private func shift(_ command: Command, dx: Double, dy: Double) -> Command {
