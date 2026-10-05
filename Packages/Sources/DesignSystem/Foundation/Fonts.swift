@@ -41,19 +41,24 @@ public extension Theme {
     /// Process scope: the faces exist for this app only, never installed on the
     /// user's machine.
     static func registerFonts() {
-        guard !fontsRegistered else { return }
-        fontsRegistered = true
+        _ = fontRegistration
+    }
 
+    /// The registration itself, run exactly once.
+    ///
+    /// A lazy `static let` rather than a flag: Swift initialises one exactly
+    /// once and makes every other caller **wait** until it has finished. The
+    /// flag this replaced was set before the work began, so a second caller —
+    /// two tests running in parallel — saw it set, returned at once, and
+    /// looked up a face that was still being registered. Some faces were
+    /// found and some were not, from one run to the next.
+    private static let fontRegistration: Void = {
         let urls = Bundle.module.urls(forResourcesWithExtension: "ttf", subdirectory: nil) ?? []
         for url in urls {
-            // An error here is a face already registered (a second call, or a
-            // test after the app) — the only failure that is not a missing
-            // file, and the test that looks each face up catches that one.
+            // An error here is a face already registered (a test after the
+            // app, say) — the only failure that is not a missing file, and the
+            // test that looks each face up catches that one.
             CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
         }
-    }
+    }()
 }
-
-/// Whether registration already ran. `nonisolated(unsafe)` because it is set
-/// once at launch, before any concurrency exists to race it.
-nonisolated(unsafe) private var fontsRegistered = false
