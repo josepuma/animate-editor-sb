@@ -213,24 +213,36 @@ struct SidePanelView: View {
             packFilter
 
             ScrollView {
-                // Rows with a fixed glyph, not live previews. Rendering a
-                // preview per entry cost ~30ms of main thread each — a fixed
-                // 4096² atlas page per render — and the panel opened stalled.
-                // The summary carries what the picture did: "Snow" and "Rain"
-                // are obvious, "Magic" and "Starfield" are not.
-                LazyVStack(alignment: .leading, spacing: Theme.Spacing.hair) {
+                // Cards, not rows: the preview *is* the entry. It plays inside
+                // the card under the pointer — the floating popover that used
+                // to show it is gone, since a preview that opens beside the
+                // thing it describes covers the next one down the list.
+                //
+                // Lazy, so a card is only built — and only asks for its
+                // preview — once it scrolls into view.
+                LazyVGrid(columns: Self.presetColumns, alignment: .leading, spacing: Theme.Spacing.snug) {
                     ForEach(visiblePresets, id: \.id) { preset in
-                        PresetRow(name: preset.name, summary: preset.summary) {
-                            shell.addPreset(preset, at: playheadNow())
-                        }
+                        EffectPreviewCard(
+                            title: preset.name,
+                            systemImage: shell.library.descriptor(for: preset.effectType)?.systemImage
+                                ?? "sparkles",
+                            tint: Theme.Palette.tertiary,
+                            frames: shell.presetPreviews[preset.id] ?? [],
+                            action: { shell.addPreset(preset, at: playheadNow()) },
+                        )
+                        // The summary is what makes a grid of names browsable:
+                        // "Snow" and "Rain" are obvious, "Magic" and
+                        // "Starfield" are not.
+                        .help("\(preset.summary)\nClick to add at the playhead")
+                        .onAppear { shell.requestPreview(for: preset) }
                     }
+                }
 
-                    if visiblePresets.isEmpty {
-                        Text("Nothing matches")
-                            .font(Theme.Typography.micro)
-                            .foregroundStyle(Theme.Palette.tertiary)
-                            .padding(.top, Theme.Spacing.compact)
-                    }
+                if visiblePresets.isEmpty {
+                    Text("Nothing matches")
+                        .font(Theme.Typography.micro)
+                        .foregroundStyle(Theme.Palette.tertiary)
+                        .padding(.top, Theme.Spacing.compact)
                 }
             }
             // A new scroll view per filter, rather than scrolling the old one
@@ -241,7 +253,7 @@ struct SidePanelView: View {
             // parked past the end of the new one, showing nothing until it was
             // dragged back by hand.
             //
-            // `scrollTo` cannot fix it: the anchor lives in a `LazyVStack`,
+            // `scrollTo` cannot fix it: the anchor lives in a lazy container,
             // which does not build what is off screen — scrolled to the bottom
             // there is no top view to scroll to. Changing the identity throws
             // the offset away with the view, and a fresh one starts at the top
@@ -276,6 +288,9 @@ struct SidePanelView: View {
                     help: "Add \(descriptor.name)",
                 ) {
                     shell.addEffect(descriptor, at: playheadNow())
+                }
+                .previewOnHover(title: descriptor.name) {
+                    shell.previewImage?(.effect(descriptor)) ?? []
                 }
             }
         }
@@ -353,6 +368,13 @@ struct SidePanelView: View {
             collapsed.insert(category)
         }
     }
+
+    /// Two columns: at the panel's width a card is still wide enough to read
+    /// a preview, and three would shrink each to a thumbnail of a thumbnail.
+    private static let presetColumns = [
+        GridItem(.flexible(), spacing: Theme.Spacing.snug),
+        GridItem(.flexible(), spacing: Theme.Spacing.snug),
+    ]
 
     /// The presets on show: everything, or one pack, narrowed by the search.
     private var visiblePresets: [EffectPreset] {
@@ -466,6 +488,9 @@ struct SidePanelView: View {
                                         shell.addFilter(descriptor, to: node.id)
                                     },
                                 )
+                                .previewOnHover(title: descriptor.name) {
+                                    shell.previewImage?(.filter(descriptor)) ?? []
+                                }
                             }
                             }
                         }
@@ -632,6 +657,149 @@ private struct PackGroup: View {
             }
         }
         .animation(Theme.Motion.quick, value: isExpanded)
+    }
+}
+
+/// A picture of what something does, shown on hover.
+///
+/// A library of names alone is one you have to place things out of to find out
+/// what they are. The image answers "what is this?" in the time it takes to
+/// look, which is the question someone browsing has — and it is rendered by the
+/// same engine that draws the canvas, so it cannot drift from what the thing
+/// actually produces.
+private struct PreviewPopover: View {
+    let title: String
+    let summary: String?
+    let frames: [CGImage]
+
+    /// Which frame is showing.
+    @State private var index = 0
+
+    /// Twelve frames over a second and a half, looping.
+    ///
+    /// A still could not tell two text presets apart: the difference between a
+    /// typewriter and a fade is **when** each letter arrives, and every frame
+    /// after the entrance shows the same settled word. Motion is the answer to
+    /// a question a picture cannot be asked.
+    private let interval = 0.125
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
+            if !frames.isEmpty {
+                Image(decorative: frames[min(index, frames.count - 1)], scale: 1)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 240, height: 135)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                    .task {
+                        // Driven while the popover is up and cancelled with it,
+                        // so a closed preview costs nothing.
+                        while !Task.isCancelled {
+                            try? await Task.sleep(for: .seconds(interval))
+                            index = (index + 1) % frames.count
+                        }
+                    }
+            }
+
+            Text(title)
+                .font(Theme.Typography.label)
+                .foregroundStyle(Theme.Palette.primary)
+
+            if let summary, !summary.isEmpty {
+                Text(summary)
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.tertiary)
+                    .frame(width: 240, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(Theme.Spacing.compact)
+    }
+}
+
+/// Shows a preview beside a row after the pointer has settled on it.
+///
+/// Delayed, because a preview that appears the instant the pointer crosses a
+/// row flashes open and shut all the way down a list — the same reason a
+/// tooltip waits. Long enough to mean "I stopped here", short enough not to
+/// feel like waiting.
+private struct PreviewOnHover: ViewModifier {
+    let title: String
+    let summary: String?
+    let frames: () -> [CGImage]
+
+    @State private var isShowing = false
+    @State private var task: Task<Void, Never>?
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { inside in
+                task?.cancel()
+                guard inside else {
+                    isShowing = false
+                    return
+                }
+                task = Task {
+                    try? await Task.sleep(for: .milliseconds(450))
+                    guard !Task.isCancelled else { return }
+                    isShowing = true
+                }
+            }
+            // Dismissed on the way down, before the click lands.
+            //
+            // A popover takes every click over its own area and opens across
+            // the row that summoned it, so the button underneath stopped
+            // answering the moment a preview appeared — adding an effect took
+            // several tries. Closing it as the mouse goes down hands the click
+            // straight back to the row.
+            //
+            // An overlay would sidestep the problem and bring a worse one: the
+            // panel clips its contents, so a preview wide enough to be useful
+            // would be cut off at the edge.
+            // Shown only while the pointer is still, and gone the moment it
+            // moves again.
+            //
+            // A popover takes every click over its own area and opens across
+            // the row that summoned it, so the button underneath stopped
+            // answering as soon as a preview appeared — adding an effect took
+            // several tries. Dismissing on the click was the obvious patch and
+            // the wrong one: it costs a click to close and another to act.
+            //
+            // Tying it to stillness fixes the cause instead. Nobody clicks
+            // without moving to what they are clicking, so by the time the
+            // press lands the preview is already out of the way — and a preview
+            // that answers "what is this?" is wanted while looking, not while
+            // reaching.
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    guard !isShowing else { break }
+                    task?.cancel()
+                    task = Task {
+                        try? await Task.sleep(for: .milliseconds(500))
+                        guard !Task.isCancelled else { return }
+                        isShowing = true
+                    }
+                case .ended:
+                    task?.cancel()
+                    isShowing = false
+                @unknown default:
+                    break
+                }
+            }
+            .popover(isPresented: $isShowing, arrowEdge: .trailing) {
+                PreviewPopover(title: title, summary: summary, frames: frames())
+            }
+    }
+}
+
+private extension View {
+    func previewOnHover(
+        title: String,
+        summary: String? = nil,
+        frames: @escaping () -> [CGImage],
+    ) -> some View {
+        modifier(PreviewOnHover(title: title, summary: summary, frames: frames))
     }
 }
 

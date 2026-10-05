@@ -1384,6 +1384,48 @@ public final class EditorShellModel {
     /// the work a keystroke does on a long track.
     private static let barSearchWindow: Double = 8000
 
+    public var previewImage: ((PreviewSubject) -> [CGImage])?
+
+    // ─── Preset previews ─────────────────────────────────────────────────────
+
+    /// The previews the library's cards have been given, by preset id.
+    ///
+    /// Observed, so a card redraws when its frames land; written only by the
+    /// queue below, never during a view's body.
+    public private(set) var presetPreviews: [String: [CGImage]] = [:]
+
+    /// Presets waiting for a preview, in the order their cards appeared.
+    @ObservationIgnored private var pendingPreviews: [EffectPreset] = []
+    @ObservationIgnored private var previewQueue: Task<Void, Never>?
+
+    /// Asks for a preset's preview, rendered when its turn comes.
+    ///
+    /// Called as a card appears, so only what is on screen is ever rendered.
+    /// One preview per main-actor turn with a yield between them: a preview
+    /// sets up the renderer on the main thread, and fifty of them back to back
+    /// would hold the window for seconds — the panel would open frozen. Spread
+    /// out, the cards fill in one after another while the panel stays live.
+    public func requestPreview(for preset: EffectPreset) {
+        guard presetPreviews[preset.id] == nil,
+              !pendingPreviews.contains(where: { $0.id == preset.id }),
+              previewImage != nil
+        else { return }
+
+        pendingPreviews.append(preset)
+        guard previewQueue == nil else { return }
+
+        previewQueue = Task { [weak self] in
+            while let self, !self.pendingPreviews.isEmpty {
+                await Task.yield()
+                let preset = self.pendingPreviews.removeFirst()
+                // An empty result is kept too: a preset that draws nothing at
+                // preview size must not be asked for again on every scroll.
+                self.presetPreviews[preset.id] = self.previewImage?(.preset(preset)) ?? []
+            }
+            self?.previewQueue = nil
+        }
+    }
+
     public var exportHandler: ((_ sprites: [StoryboardSprite], _ folder: URL) throws -> URL)?
 
     /// Writes the editor's type declarations into a project folder.
@@ -3535,5 +3577,15 @@ enum TrackRanges {
         merged.append(current)
         return merged
     }
+}
+
+/// What a library preview is wanted for.
+///
+/// Outside the model because `@Observable` cannot carry a nested enum — its
+/// macro tries to give every member an accessor.
+public enum PreviewSubject: Sendable {
+    case effect(EffectDescriptor)
+    case filter(FilterDescriptor)
+    case preset(EffectPreset)
 }
 

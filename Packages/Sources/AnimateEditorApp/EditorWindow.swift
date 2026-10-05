@@ -401,9 +401,17 @@ struct EditorWindow: View {
                 ] as CFDictionary)
             }
 
+            shell.previewImage = { subject in
+                switch subject {
+                case let .effect(descriptor): EffectThumbnails.frames(for: descriptor)
+                case let .filter(descriptor): EffectThumbnails.frames(for: descriptor)
+                case let .preset(preset): EffectThumbnails.frames(for: preset)
+                }
+            }
+
             // The clock lives in the playback feature and features do not
             // import each other, so the window joins them — the same seam that
-            // already carries export and the selection bounds.
+            // already carries export, thumbnails and the selection bounds.
             shell.seekHandler = { playback.seek(to: $0) }
 
             // Type declarations for whatever editor the author opens the
