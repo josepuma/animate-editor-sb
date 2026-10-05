@@ -3238,6 +3238,13 @@ public final class EditorShellModel {
 
     private func evaluateNow() {
         evaluationTask?.cancel()
+        // Stills drawn from the pass this one replaces would be drawn from
+        // sprites the document no longer has. Cancelled here, at the edit, and
+        // not when the new pass lands: an edit arrives while a batch is
+        // between clips, and a batch left running would draw the edited clip
+        // from its old sprites and mark it fresh — the new pass would then
+        // find nothing stale to redraw.
+        stillTask?.cancel()
 
         // Resolved here, on the snapshot, before the work leaves this actor.
         //
@@ -3259,6 +3266,7 @@ public final class EditorShellModel {
         // — which is both a lie and twenty rows rebuilt to tell it.
         // A camera edit re-runs no clip, so no clip is catching up.
         let cameraOnly = onlyCameraMoved
+        let hadClipEdit = hasPendingClipEdit
         hasPendingClipEdit = false
         let showsWorld = isEditingCamera
         let pending = cameraOnly ? [] : lastEditedNode.map { Set([$0]) } ?? Set(document.nodes.map(\.id))
@@ -3302,6 +3310,18 @@ public final class EditorShellModel {
         // must not conclude anything about clips it never reached.
         if !cameraOnly { cache.invalidate(node: lastEditedNode) }
         cache.prune(keeping: Set(document.nodes.map(\.id)))
+
+        // Marked stale now and drawn when a pass lands, so a pass cancelled by
+        // the next edit cannot lose the mark: two quick edits to two clips run
+        // one pass, and both clips still need their stills. Not after a camera
+        // edit — see `clipStill(of:)`.
+        // Only for an edit that has not been marked yet: `endGesture` runs a
+        // pass whether or not anything moved, and `lastEditedNode` still names
+        // whatever was touched last — focusing a field and leaving it would
+        // redraw that clip's still for nothing.
+        if !cameraOnly, hadClipEdit {
+            if let edited = lastEditedNode { staleStills.insert(edited) } else { allStillsStale = true }
+        }
         let cache = cache
 
         evaluationTask = Task.detached(priority: .userInitiated) { [weak self] in
@@ -3381,6 +3401,7 @@ public final class EditorShellModel {
                 if self.isApplyingCamera { self.isApplyingCamera = false }
                 self.adoptScriptDeclarations()
                 self.onSpritesChanged?(self.canvasSprites)
+                self.regenerateStills(from: sprites, nodes: document.nodes)
             }
         }
     }
@@ -3421,6 +3442,156 @@ public final class EditorShellModel {
     /// there.
     public func awaitEvaluation() async {
         await evaluationTask?.value
+    }
+
+    // ─── Clip stills ─────────────────────────────────────────────────────────
+
+    /// Width over height of the slot a clip's still sits in on the timeline.
+    ///
+    /// One number for both ends: the view sizes the slot with it and the app
+    /// crops the still to it, so a still never arrives in a shape the slot
+    /// has to squash.
+    public static let clipStillAspect: Double = 1.5
+
+    /// Where in a clip its still is taken, as a fraction of the clip.
+    ///
+    /// Not the start: at the first instant almost nothing has entered — an
+    /// emitter has emitted nothing, a text line has no letters yet — so a
+    /// still taken there is an empty stage. A little before the middle, an
+    /// emitter is already dense and an entrance has landed. The same reasoning
+    /// as the library's poster frame (`FrameSequence.posterIndex`).
+    public static let clipStillPosterRatio: Double = 0.42
+
+    /// Sets up a renderer for a batch of clips and returns what draws each one.
+    ///
+    /// A seam, like `previewImage`: drawing needs the renderer, and this
+    /// feature cannot import it. A factory rather than a per-clip call because
+    /// the set-up — building the atlas, uploading every image — is nearly all
+    /// the cost, and a batch of forty clips should pay it once, not forty
+    /// times. `nil` from either level means "no picture"; the clip keeps its
+    /// stand-in.
+    ///
+    /// Takes the batch's sprites **already prepared**: preparing sorts and
+    /// indexes every command, and that runs off the main thread here rather
+    /// than inside the factory, which the main actor calls.
+    @ObservationIgnored public var clipStillRenderer: (
+        (_ sprites: [PreparedSprite]) -> ((_ clipID: EffectNode.ID, _ time: Double) -> CGImage?)?
+    )?
+
+    /// The last still drawn for a clip, or `nil` while there is none.
+    ///
+    /// Reads the observed revision so a block redraws when its still lands —
+    /// and only then: the images themselves are not observed, the revision
+    /// moves once per finished still, and nothing here reads the clock.
+    ///
+    /// **Camera edits do not redraw stills.** The still is cropped to the
+    /// clip's own box, which takes a pan out of the picture entirely, and
+    /// redrawing every clip on every nudge of a camera key would be a batch
+    /// per drag step for a picture that barely changes. A zoom or a roll shows
+    /// on the next edit to the clip.
+    public func clipStill(of nodeID: EffectNode.ID) -> CGImage? {
+        _ = clipStillsRevision
+        return clipStills[nodeID]
+    }
+
+    /// Moves once per still that lands, which is what the timeline observes.
+    public private(set) var clipStillsRevision = 0
+
+    /// Not observed: written from a task between clips, and observed state is
+    /// what a view subscribes to — the revision says when to look.
+    @ObservationIgnored private var clipStills: [EffectNode.ID: CGImage] = [:]
+
+    /// Clips whose still is out of date.
+    ///
+    /// A clip leaves only once its new still is written, so a batch cancelled
+    /// halfway leaves the rest marked for the next one.
+    @ObservationIgnored private var staleStills: Set<EffectNode.ID> = []
+
+    /// Whether an edit that named no clip is waiting: every still is stale.
+    ///
+    /// A flag rather than filling the set, because which clips "every" means
+    /// is only known once the pass lands with the document it evaluated.
+    @ObservationIgnored private var allStillsStale = false
+
+    @ObservationIgnored private var stillTask: Task<Void, Never>?
+
+    /// Waits for any pending evaluation and the stills that follow it.
+    ///
+    /// For tests: a gesture's deferred pass, then the pass, then its stills.
+    public func awaitClipStills() async {
+        await pendingEvaluation?.value
+        await evaluationTask?.value
+        await stillTask?.value
+    }
+
+    /// Redraws the stills a landed pass made stale.
+    ///
+    /// From the pass's own sprites — nothing is evaluated for a still, ever.
+    /// The poster instant of a clip is a time in the song, and those sprites
+    /// are already in song time.
+    private func regenerateStills(from sprites: [StoryboardSprite], nodes: [EffectNode]) {
+        let living = Set(nodes.map(\.id))
+        if allStillsStale {
+            staleStills = living
+            allStillsStale = false
+        }
+        // Pruned in the same step as the rest: a deleted clip's still is
+        // memory nobody will look at, and kept stale it would be drawn for a
+        // clip that no longer exists.
+        staleStills.formIntersection(living)
+        let pruned = clipStills.filter { living.contains($0.key) }
+        if pruned.count != clipStills.count {
+            clipStills = pruned
+            clipStillsRevision &+= 1
+        }
+
+        // Not while a hand is on something. A slider dragged across its range
+        // lands a pass every 90ms of stillness, and a batch per pass is GPU
+        // work thrown away by the next step. The marks stay, and the pass
+        // `endGesture` runs draws them.
+        guard !isGestureActive, !staleStills.isEmpty, let makeRenderer = clipStillRenderer else { return }
+
+        let requests = nodes
+            .filter { staleStills.contains($0.id) }
+            .map { (id: $0.id, time: $0.startTime + $0.duration * Self.clipStillPosterRatio) }
+        let targets = Set(requests.map(\.id))
+
+        stillTask = Task { [weak self] in
+            // Only the batch's own sprites, and prepared off the main thread:
+            // after an edit to one clip that is one clip's sprites, not the
+            // project's.
+            let prepared = await Task.detached(priority: .utility) {
+                StoryboardResolver.prepare(sprites.filter { Self.owner(of: $0.id, isIn: targets) })
+            }.value
+            guard !Task.isCancelled, let self else { return }
+
+            // An empty batch — every stale clip drawing nothing — still has
+            // its stills to clear, so it goes through the loop with no renderer.
+            let render = prepared.isEmpty ? nil : makeRenderer(prepared)
+            for request in requests {
+                guard !Task.isCancelled else { return }
+                let image = render?(request.id, request.time)
+                if image != nil || self.clipStills[request.id] != nil {
+                    self.clipStills[request.id] = image
+                    self.clipStillsRevision &+= 1
+                }
+                self.staleStills.remove(request.id)
+                // One clip per turn of the main actor, so a project of
+                // dozens never holds the window for the whole batch.
+                await Task.yield()
+            }
+        }
+    }
+
+    /// Whether a sprite belongs to one of a set of clips.
+    ///
+    /// `ClipBounds.sprite(_:belongsTo:)`'s rule — a clip prefixes every sprite
+    /// it makes with its id and a separator — read as a set lookup: asking it
+    /// per clip would be every sprite against every clip after an edit that
+    /// names none. Clip ids never carry the separator (`type-xxxxxxxx`).
+    nonisolated private static func owner(of spriteID: String, isIn clips: Set<EffectNode.ID>) -> Bool {
+        let head = spriteID.firstIndex(of: "/").map { spriteID[..<$0] } ?? spriteID[...]
+        return clips.contains(String(head))
     }
 
     /// Sprite count of the storyboard the current tracks were built from.

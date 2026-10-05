@@ -245,7 +245,9 @@ public enum EffectThumbnails {
     /// BGRA on this platform and `getBytes` copies bytes without reordering
     /// them, so a picture built as RGBA comes out with its reds and blues
     /// swapped — the same trap the video export hit, where fire exported blue.
-    private static func image(from texture: MTLTexture) -> CGImage? {
+    ///
+    /// Shared with `ClipStills`, which reads its frames back the same way.
+    static func image(from texture: MTLTexture) -> CGImage? {
         let width = texture.width
         let height = texture.height
         let bytesPerRow = width * 4

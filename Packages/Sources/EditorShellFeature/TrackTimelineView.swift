@@ -1683,7 +1683,16 @@ struct TrackRowView: View {
                 cornerRadius: Theme.Radius.clip,
             ) {
                 if width > 56 {
-                    SpanThumbnail(tint: track.tint, height: height - 16)
+                    // The clip's own picture once one has been drawn; the
+                    // stand-in until then, or when the clip draws nothing at
+                    // its poster instant. Read from the model, never made here:
+                    // drawing one is a renderer set-up, and a body runs on
+                    // every rebuild.
+                    if let still = shell.clipStill(of: node.id) {
+                        ClipStill(image: still, height: height - 16)
+                    } else {
+                        SpanThumbnail(tint: track.tint, height: height - 16)
+                    }
                 }
             } badge: {
                 // Catching up, said on the clip itself.
@@ -2592,30 +2601,44 @@ struct TrackActions {
 
 // ─── Span thumbnail ──────────────────────────────────────────────────────────
 
-/// Stands in for a clip's preview image.
+/// A clip's still: what it draws at its poster instant, cropped to itself.
 ///
-/// A span is thousands of sprites rather than one file, so there is no single
-/// frame to show; this keeps the shape of the reference's layout until sprite
-/// previews exist.
+/// Filled rather than fitted. The crop already has the slot's shape unless
+/// the clip covers the whole stage, and then trimming the sides reads better
+/// than bars inside a 36pt slot. The rounded corner comes from `TrackBlock`,
+/// which clips whatever thumbnail it carries to its nested radius.
+private struct ClipStill: View {
+    let image: CGImage
+    let height: CGFloat
+
+    var body: some View {
+        Image(decorative: image, scale: 1)
+            .resizable()
+            .interpolation(.high)
+            .scaledToFill()
+            .frame(width: height * EditorShellModel.clipStillAspect, height: height)
+            .clipped()
+    }
+}
+
+/// Stands in for a clip's still until one exists.
+///
+/// A still is drawn after the pass that produced the clip's sprites lands,
+/// so a clip just placed — or one that draws nothing at its poster instant —
+/// shows this in the same slot rather than an empty gap.
 private struct SpanThumbnail: View {
     let tint: Color
     let height: CGFloat
 
     var body: some View {
         RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [.black.opacity(0.45), tint.opacity(0.35)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing,
-                ),
-            )
+            .fill(.black.opacity(0.35))
             .overlay {
                 Image(systemName: "square.stack.3d.up.fill")
                     .font(Theme.Typography.micro)
                     .foregroundStyle(.white.opacity(0.5))
             }
-            .frame(width: height * 1.5, height: height)
+            .frame(width: height * EditorShellModel.clipStillAspect, height: height)
     }
 }
 

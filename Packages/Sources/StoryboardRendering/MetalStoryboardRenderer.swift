@@ -115,6 +115,15 @@ public final class MetalStoryboardRenderer {
     /// The box around `measuredClipID`'s sprites, as of the last frame drawn.
     public private(set) var measuredBounds: ClipBounds?
 
+    /// Draws only this clip's sprites when set; everything when `nil`.
+    ///
+    /// For the timeline's clip stills, which set the whole batch's sprites once
+    /// and then draw one clip at a time. Setting sprites per clip instead
+    /// would rebuild the atlas whenever two neighbouring clips use different
+    /// images — decoding and uploading every page again — when the batch's
+    /// atlas already holds all of them.
+    public var drawnClipID: String?
+
     // ─── Setup ───────────────────────────────────────────────────────────────
 
     public init(device: MTLDevice, pixelFormat: MTLPixelFormat) throws {
@@ -511,6 +520,7 @@ public final class MetalStoryboardRenderer {
         for (position, state) in scratchStates.enumerated() {
             let sprite = drawOrder[scratchIndices[position]]
 
+            if let drawnClipID, !ClipBounds.sprite(sprite.id, belongsTo: drawnClipID) { continue }
             guard state.visible, state.opacity > 0 else { continue }
 
             // Sprites whose image is missing fall back to a small quad, so a
