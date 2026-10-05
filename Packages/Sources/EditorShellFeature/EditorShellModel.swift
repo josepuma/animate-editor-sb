@@ -1384,8 +1384,6 @@ public final class EditorShellModel {
     /// the work a keystroke does on a long track.
     private static let barSearchWindow: Double = 8000
 
-    public var previewImage: ((PreviewSubject) -> [CGImage])?
-
     public var exportHandler: ((_ sprites: [StoryboardSprite], _ folder: URL) throws -> URL)?
 
     /// Writes the editor's type declarations into a project folder.
@@ -3537,15 +3535,5 @@ enum TrackRanges {
         merged.append(current)
         return merged
     }
-}
-
-/// What a library preview is wanted for.
-///
-/// Outside the model because `@Observable` cannot carry a nested enum — its
-/// macro tries to give every member an accessor.
-public enum PreviewSubject: Sendable {
-    case effect(EffectDescriptor)
-    case filter(FilterDescriptor)
-    case preset(EffectPreset)
 }
 
