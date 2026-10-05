@@ -56,7 +56,20 @@ struct PathEditor: View {
             points
         }
         .frame(width: viewSize.width, height: viewSize.height)
+        .coordinateSpace(name: Self.space)
     }
+
+    /// The one space every gesture here measures in: the editor's own frame,
+    /// which is the canvas.
+    ///
+    /// A `DragGesture` reports its location in the view it is attached to. The
+    /// points and handles carry theirs on the small square itself — they have
+    /// to, or the square answers the pointer over the whole canvas — so in
+    /// their local space a location is a few points from the square's corner.
+    /// Converted to stage units as if it were the canvas, every drag threw the
+    /// point or its handle towards the top-left and the curve looped back
+    /// through the corner. The same named space `SelectionBox` already uses.
+    private static let space = "path-editor"
 
     // ─── Drawing ─────────────────────────────────────────────────────────────
 
@@ -100,8 +113,11 @@ struct PathEditor: View {
                     Circle()
                         .fill(Theme.Palette.accent)
                         .frame(width: 7, height: 7)
-                        .position(tip)
+                        .contentShape(.circle.inset(by: -Self.hitSlop))
                         .gesture(handleDrag(index: index, outgoing: outgoing))
+                        // Last, after everything that answers the pointer — see
+                        // `points` for why the order is the whole fix.
+                        .position(tip)
                 }
             }
         }
@@ -114,7 +130,18 @@ struct PathEditor: View {
             RoundedRectangle(cornerRadius: 2, style: .continuous)
                 .fill(hovered == index ? Theme.Palette.primary : Theme.Palette.accent)
                 .frame(width: 9, height: 9)
-                .position(view(point.x, point.y))
+                // Gestures, hover and menu go on the square, and `.position`
+                // goes last.
+                //
+                // `.position` does not move a view, it wraps it in a container
+                // the size of the whole canvas. Everything chained after it
+                // answered the pointer over that whole area, and the points sit
+                // above the catcher, so from the second click on every press
+                // was "drag point 0" instead of "place a point". The first
+                // point went in, and then every click moved it to wherever
+                // the pointer was. The logs showed it: commits with no place
+                // event in front of them.
+                .contentShape(.rect.inset(by: -Self.hitSlop))
                 .onHover { inside in
                     hovered = inside ? index : (hovered == index ? nil : hovered)
                     // The one visible sign that ⌥ does something here.
@@ -138,8 +165,13 @@ struct PathEditor: View {
                         Button("Straighten") { straighten(index) }
                     }
                 }
+                .position(view(point.x, point.y))
         }
     }
+
+    /// How far past its drawn edge a point or handle still answers the pointer.
+    /// Nine points is a small target to hit on purpose.
+    private static let hitSlop: CGFloat = 4
 
     /// The surface that receives a click on empty canvas.
     ///
@@ -164,7 +196,7 @@ struct PathEditor: View {
     /// reads as the tool being slow. `minimumDistance: 0` lets a still click
     /// reach `onEnded` as a click.
     private var placeGesture: some Gesture {
-        DragGesture(minimumDistance: 0)
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
             .onChanged { value in
                 if case let .placing(index) = dragging {
                     curveWhilePlacing(index: index, to: value.location)
@@ -210,14 +242,14 @@ struct PathEditor: View {
     /// were only drawn once a point had a curve, so a straight point had
     /// nothing to grab and could never be curved after it was placed.
     private func pointDrag(index: Int) -> some Gesture {
-        DragGesture(minimumDistance: 1)
+        DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.space))
             .modifiers(.option)
             .onChanged { value in
                 pullCurve(index: index, to: value.location)
             }
             .onEnded { _ in commit() }
             .exclusively(
-                before: DragGesture(minimumDistance: 1)
+                before: DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.space))
                     .onChanged { value in
                         var working = draft ?? path
                         guard working.points.indices.contains(index) else { return }
@@ -254,7 +286,7 @@ struct PathEditor: View {
     }
 
     private func handleDrag(index: Int, outgoing: Bool) -> some Gesture {
-        DragGesture(minimumDistance: 1)
+        DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.space))
             .onChanged { value in
                 var working = draft ?? path
                 guard working.points.indices.contains(index) else { return }
