@@ -59,7 +59,11 @@ struct SidePanelView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.compact) {
-            SectionHeader(shell.sidePanel.title)
+            SectionHeader(shell.sidePanel.title) {
+                if shell.sidePanel == .scripts, shell.selectedScriptID == nil {
+                    newEffectMenu
+                }
+            }
 
             switch shell.sidePanel {
             case .assets: assets
@@ -205,10 +209,9 @@ struct SidePanelView: View {
         }
     }
 
-    /// The effect library: tools, search, filters and the presets.
+    /// The effect library: search, filters and the presets.
     private var library: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
-            tools
             search
             packFilter
 
@@ -220,21 +223,36 @@ struct SidePanelView: View {
                 //
                 // Lazy, so a card is only built — and only asks for its
                 // preview — once it scrolls into view.
-                LazyVGrid(columns: Self.presetColumns, alignment: .leading, spacing: Theme.Spacing.snug) {
+                LazyVGrid(columns: Self.cardColumns, alignment: .leading, spacing: Theme.Spacing.snug) {
+                    if let blank = blankEffect {
+                        // The blank effect, first among its own presets: with
+                        // a chip narrowing the grid to one effect, starting
+                        // from nothing is one click in the place it is looked
+                        // for — not a row of unlabelled glyphs kept on screen
+                        // for every effect at once.
+                        EffectPreviewCard(
+                            title: "New \(blank.name)",
+                            systemImage: "plus",
+                            tint: Theme.Palette.accent,
+                            action: { shell.addEffect(blank, at: playheadNow()) },
+                        )
+                        .help("Add a blank \(blank.name) at the playhead")
+                    }
+
                     ForEach(visiblePresets, id: \.id) { preset in
                         EffectPreviewCard(
                             title: preset.name,
                             systemImage: shell.library.descriptor(for: preset.effectType)?.systemImage
                                 ?? "sparkles",
                             tint: Theme.Palette.tertiary,
-                            frames: shell.presetPreviews[preset.id] ?? [],
+                            frames: shell.preview(of: .preset(preset)),
                             action: { shell.addPreset(preset, at: playheadNow()) },
                         )
                         // The summary is what makes a grid of names browsable:
                         // "Snow" and "Rain" are obvious, "Magic" and
                         // "Starfield" are not.
                         .help("\(preset.summary)\nClick to add at the playhead")
-                        .onAppear { shell.requestPreview(for: preset) }
+                        .onAppear { shell.requestPreview(for: .preset(preset)) }
                     }
                 }
 
@@ -262,42 +280,43 @@ struct SidePanelView: View {
         }
     }
 
-    /// What can be created, as a row of buttons.
+    /// Every effect that can be placed blank, behind one button.
     ///
-    /// Separated from the presets because they are different kinds of thing: a
-    /// tool is *what you can make*, a preset is *something already made*. In one
-    /// list they read as peers, and the list grows past reading — which is how
-    /// three levels of folding appeared for four packs holding one preset each.
-    ///
-    /// This is the split every editor makes between a toolbar and an asset
-    /// library, and the reason a toolbar is always visible while a library is
-    /// browsed.
-    private var tools: some View {
-        HStack(spacing: Theme.Spacing.tight) {
-            ForEach(shell.library.descriptors, id: \.type) { descriptor in
-                // `IconButton`, not a `Button` with a frame on its label.
-                //
-                // The hand-rolled version asked for a `control`-sized frame
-                // inside a `small` style, so the two fought: the glyph was
-                // drawn for 22pt in a box demanding 34. The primitive derives
-                // the glyph size **and** the corner radius from its own size,
-                // which is the rule this design system already states.
-                IconButton(
-                    systemImage: descriptor.systemImage,
-                    size: Theme.Size.controlSmall,
-                    help: "Add \(descriptor.name)",
-                ) {
-                    shell.addEffect(descriptor, at: playheadNow())
-                }
-                .previewOnHover(title: descriptor.name) {
-                    shell.previewImage?(.effect(descriptor)) ?? []
+    /// This used to be a row of nine glyphs kept above the library — Emitter,
+    /// Image, Script, Shape, Text, Tile Wipe, Audio Bars, Audio Waves, Signal
+    /// Loss — with no labels, repeating the chips right under it and crowding
+    /// the grid that is what the panel is for. A menu costs one click more and
+    /// gives every entry its name, grouped the way the filters are.
+    private var newEffectMenu: some View {
+        Menu {
+            ForEach(LibraryCategory.displayOrder, id: \.self) { category in
+                let inCategory = shell.library.descriptors.filter { $0.category == category }
+                if !inCategory.isEmpty {
+                    Section(category.rawValue) {
+                        ForEach(inCategory, id: \.type) { descriptor in
+                            Button(descriptor.name, systemImage: descriptor.systemImage) {
+                                shell.addEffect(descriptor, at: playheadNow())
+                            }
+                        }
+                    }
                 }
             }
+        } label: {
+            AddBadge(isHighlighted: true)
         }
-        // Centred, and only as wide as the tools themselves: a toolbar pinned
-        // to one edge of a panel this narrow reads as the first row of the list
-        // below it rather than as its own thing.
-        .frame(maxWidth: .infinity)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Add a blank effect at the playhead")
+    }
+
+    /// The effect a chip has narrowed the grid to, offered blank as its first
+    /// card — only while the search is empty, since a blank effect matches no
+    /// name anybody is typing.
+    private var blankEffect: EffectDescriptor? {
+        guard query.isEmpty, case let .effect(type) = selectedFilter else { return nil }
+        return shell.library.descriptor(for: type)
     }
 
     /// Which pack the list is showing, as a row of chips.
@@ -320,7 +339,7 @@ struct SidePanelView: View {
         // a text preset genuinely *is* a text preset, while "Basics" would mean
         // "the others" — a name for a gap rather than for a thing.
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: Theme.Spacing.hair) {
+            HStack(spacing: Theme.Spacing.tight) {
                 chip(nil, label: "All")
 
                 ForEach(shell.library.descriptors, id: \.type) { descriptor in
@@ -342,23 +361,9 @@ struct SidePanelView: View {
     }
 
     private func chip(_ filter: PresetFilter?, label: String) -> some View {
-        Button {
+        FilterChip(label, isSelected: selectedFilter == filter) {
             selectedFilter = filter
-        } label: {
-            Text(label)
-                .font(Theme.Typography.micro)
-                .padding(.horizontal, Theme.Spacing.compact)
-                .frame(height: Theme.Size.controlSmall)
-                .background {
-                    Capsule().fill(
-                        selectedFilter == filter ? Theme.Fill.selected : Theme.Fill.well,
-                    )
-                }
-                .foregroundStyle(
-                    selectedFilter == filter ? Theme.Palette.primary : Theme.Palette.secondary,
-                )
         }
-        .buttonStyle(.plain)
     }
 
     private func toggle(_ category: LibraryCategory) {
@@ -371,7 +376,7 @@ struct SidePanelView: View {
 
     /// Two columns: at the panel's width a card is still wide enough to read
     /// a preview, and three would shrink each to a thumbnail of a thumbnail.
-    private static let presetColumns = [
+    private static let cardColumns = [
         GridItem(.flexible(), spacing: Theme.Spacing.snug),
         GridItem(.flexible(), spacing: Theme.Spacing.snug),
     ]
@@ -477,27 +482,57 @@ struct SidePanelView: View {
                             }
 
                             if query.isEmpty ? !collapsed.contains(category) : true {
-                            ForEach(inCategory, id: \.type) { descriptor in
-                                FilterLibraryRow(
-                                    name: descriptor.name,
-                                    systemImage: descriptor.systemImage,
-                                    filterType: descriptor.type,
-                                    canApply: shell.selectedEffect != nil,
-                                    apply: {
-                                        guard let node = shell.selectedEffect else { return }
-                                        shell.addFilter(descriptor, to: node.id)
-                                    },
-                                )
-                                .previewOnHover(title: descriptor.name) {
-                                    shell.previewImage?(.filter(descriptor)) ?? []
+                                LazyVGrid(
+                                    columns: Self.cardColumns,
+                                    alignment: .leading,
+                                    spacing: Theme.Spacing.snug,
+                                ) {
+                                    ForEach(inCategory, id: \.type) { descriptor in
+                                        filterCard(descriptor)
+                                    }
                                 }
-                            }
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    /// One filter as a card, its preview drawn over the same fixed subject as
+    /// every other — Glow beside Blur over identical input is the comparison
+    /// someone choosing between them is making.
+    ///
+    /// Still a thing you **drag**: onto a clip on the timeline, the way a
+    /// library works in any editor. A click applies it to the selected clip
+    /// when there is one.
+    private func filterCard(_ descriptor: FilterDescriptor) -> some View {
+        let canApply = shell.selectedEffect != nil
+
+        return EffectPreviewCard(
+            title: descriptor.name,
+            systemImage: descriptor.systemImage,
+            // Filters share one colour everywhere — the library, a clip, the
+            // keyframe editor — so a filter reads as a filter.
+            tint: Theme.KeyframePalette.filter,
+            frames: shell.preview(of: .filter(descriptor)),
+            action: {
+                guard let node = shell.selectedEffect else { return }
+                shell.addFilter(descriptor, to: node.id)
+            },
+        )
+        // The type carried is the filter's own, so a drop can tell a filter
+        // from anything else that might be dragged over a lane.
+        .draggable(FilterTransfer(type: descriptor.type).payload) {
+            Label(descriptor.name, systemImage: descriptor.systemImage)
+                .font(Theme.Typography.label)
+                .padding(Theme.Spacing.snug)
+                .background(.thinMaterial, in: Capsule())
+        }
+        .help(canApply
+            ? "Drag onto a clip, or click to apply to the selected one"
+            : "Drag onto a clip")
+        .onAppear { shell.requestPreview(for: .filter(descriptor)) }
     }
 
     // ─── Layers ──────────────────────────────────────────────────────────────
@@ -657,149 +692,6 @@ private struct PackGroup: View {
             }
         }
         .animation(Theme.Motion.quick, value: isExpanded)
-    }
-}
-
-/// A picture of what something does, shown on hover.
-///
-/// A library of names alone is one you have to place things out of to find out
-/// what they are. The image answers "what is this?" in the time it takes to
-/// look, which is the question someone browsing has — and it is rendered by the
-/// same engine that draws the canvas, so it cannot drift from what the thing
-/// actually produces.
-private struct PreviewPopover: View {
-    let title: String
-    let summary: String?
-    let frames: [CGImage]
-
-    /// Which frame is showing.
-    @State private var index = 0
-
-    /// Twelve frames over a second and a half, looping.
-    ///
-    /// A still could not tell two text presets apart: the difference between a
-    /// typewriter and a fade is **when** each letter arrives, and every frame
-    /// after the entrance shows the same settled word. Motion is the answer to
-    /// a question a picture cannot be asked.
-    private let interval = 0.125
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
-            if !frames.isEmpty {
-                Image(decorative: frames[min(index, frames.count - 1)], scale: 1)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 240, height: 135)
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
-                    .task {
-                        // Driven while the popover is up and cancelled with it,
-                        // so a closed preview costs nothing.
-                        while !Task.isCancelled {
-                            try? await Task.sleep(for: .seconds(interval))
-                            index = (index + 1) % frames.count
-                        }
-                    }
-            }
-
-            Text(title)
-                .font(Theme.Typography.label)
-                .foregroundStyle(Theme.Palette.primary)
-
-            if let summary, !summary.isEmpty {
-                Text(summary)
-                    .font(Theme.Typography.micro)
-                    .foregroundStyle(Theme.Palette.tertiary)
-                    .frame(width: 240, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(Theme.Spacing.compact)
-    }
-}
-
-/// Shows a preview beside a row after the pointer has settled on it.
-///
-/// Delayed, because a preview that appears the instant the pointer crosses a
-/// row flashes open and shut all the way down a list — the same reason a
-/// tooltip waits. Long enough to mean "I stopped here", short enough not to
-/// feel like waiting.
-private struct PreviewOnHover: ViewModifier {
-    let title: String
-    let summary: String?
-    let frames: () -> [CGImage]
-
-    @State private var isShowing = false
-    @State private var task: Task<Void, Never>?
-
-    func body(content: Content) -> some View {
-        content
-            .onHover { inside in
-                task?.cancel()
-                guard inside else {
-                    isShowing = false
-                    return
-                }
-                task = Task {
-                    try? await Task.sleep(for: .milliseconds(450))
-                    guard !Task.isCancelled else { return }
-                    isShowing = true
-                }
-            }
-            // Dismissed on the way down, before the click lands.
-            //
-            // A popover takes every click over its own area and opens across
-            // the row that summoned it, so the button underneath stopped
-            // answering the moment a preview appeared — adding an effect took
-            // several tries. Closing it as the mouse goes down hands the click
-            // straight back to the row.
-            //
-            // An overlay would sidestep the problem and bring a worse one: the
-            // panel clips its contents, so a preview wide enough to be useful
-            // would be cut off at the edge.
-            // Shown only while the pointer is still, and gone the moment it
-            // moves again.
-            //
-            // A popover takes every click over its own area and opens across
-            // the row that summoned it, so the button underneath stopped
-            // answering as soon as a preview appeared — adding an effect took
-            // several tries. Dismissing on the click was the obvious patch and
-            // the wrong one: it costs a click to close and another to act.
-            //
-            // Tying it to stillness fixes the cause instead. Nobody clicks
-            // without moving to what they are clicking, so by the time the
-            // press lands the preview is already out of the way — and a preview
-            // that answers "what is this?" is wanted while looking, not while
-            // reaching.
-            .onContinuousHover { phase in
-                switch phase {
-                case .active:
-                    guard !isShowing else { break }
-                    task?.cancel()
-                    task = Task {
-                        try? await Task.sleep(for: .milliseconds(500))
-                        guard !Task.isCancelled else { return }
-                        isShowing = true
-                    }
-                case .ended:
-                    task?.cancel()
-                    isShowing = false
-                @unknown default:
-                    break
-                }
-            }
-            .popover(isPresented: $isShowing, arrowEdge: .trailing) {
-                PreviewPopover(title: title, summary: summary, frames: frames())
-            }
-    }
-}
-
-private extension View {
-    func previewOnHover(
-        title: String,
-        summary: String? = nil,
-        frames: @escaping () -> [CGImage],
-    ) -> some View {
-        modifier(PreviewOnHover(title: title, summary: summary, frames: frames))
     }
 }
 

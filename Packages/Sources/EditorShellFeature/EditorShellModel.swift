@@ -1386,41 +1386,50 @@ public final class EditorShellModel {
 
     public var previewImage: ((PreviewSubject) -> [CGImage])?
 
-    // ─── Preset previews ─────────────────────────────────────────────────────
+    // ─── Library previews ────────────────────────────────────────────────────
 
-    /// The previews the library's cards have been given, by preset id.
+    /// The previews the library's cards have been given, by `PreviewSubject.key`.
     ///
     /// Observed, so a card redraws when its frames land; written only by the
     /// queue below, never during a view's body.
-    public private(set) var presetPreviews: [String: [CGImage]] = [:]
+    public private(set) var previews: [String: [CGImage]] = [:]
 
-    /// Presets waiting for a preview, in the order their cards appeared.
-    @ObservationIgnored private var pendingPreviews: [EffectPreset] = []
+    /// The frames a card has been given, or none yet.
+    public func preview(of subject: PreviewSubject) -> [CGImage] {
+        previews[subject.key] ?? []
+    }
+
+    /// Subjects waiting for a preview, in the order their cards appeared.
+    @ObservationIgnored private var pendingPreviews: [PreviewSubject] = []
     @ObservationIgnored private var previewQueue: Task<Void, Never>?
 
-    /// Asks for a preset's preview, rendered when its turn comes.
+    /// Asks for a preview, rendered when its turn comes.
     ///
     /// Called as a card appears, so only what is on screen is ever rendered.
     /// One preview per main-actor turn with a yield between them: a preview
     /// sets up the renderer on the main thread, and fifty of them back to back
     /// would hold the window for seconds — the panel would open frozen. Spread
     /// out, the cards fill in one after another while the panel stays live.
-    public func requestPreview(for preset: EffectPreset) {
-        guard presetPreviews[preset.id] == nil,
-              !pendingPreviews.contains(where: { $0.id == preset.id }),
+    ///
+    /// One queue for presets and filters alike: they share the renderer, and
+    /// two queues would each yield to the other's work rather than to the UI.
+    public func requestPreview(for subject: PreviewSubject) {
+        let key = subject.key
+        guard previews[key] == nil,
+              !pendingPreviews.contains(where: { $0.key == key }),
               previewImage != nil
         else { return }
 
-        pendingPreviews.append(preset)
+        pendingPreviews.append(subject)
         guard previewQueue == nil else { return }
 
         previewQueue = Task { [weak self] in
             while let self, !self.pendingPreviews.isEmpty {
                 await Task.yield()
-                let preset = self.pendingPreviews.removeFirst()
-                // An empty result is kept too: a preset that draws nothing at
+                let subject = self.pendingPreviews.removeFirst()
+                // An empty result is kept too: something that draws nothing at
                 // preview size must not be asked for again on every scroll.
-                self.presetPreviews[preset.id] = self.previewImage?(.preset(preset)) ?? []
+                self.previews[subject.key] = self.previewImage?(subject) ?? []
             }
             self?.previewQueue = nil
         }
@@ -3587,5 +3596,18 @@ public enum PreviewSubject: Sendable {
     case effect(EffectDescriptor)
     case filter(FilterDescriptor)
     case preset(EffectPreset)
+}
+
+public extension PreviewSubject {
+    /// What a preview is cached under — distinct across the three kinds, so a
+    /// filter and an effect that happen to share a type name never share a
+    /// picture.
+    var key: String {
+        switch self {
+        case let .effect(descriptor): "effect:" + descriptor.type
+        case let .filter(descriptor): "filter:" + descriptor.type
+        case let .preset(preset): "preset:" + preset.id
+        }
+    }
 }
 
