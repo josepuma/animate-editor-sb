@@ -2,16 +2,28 @@ import DesignSystem
 import StoryboardCore
 import SwiftUI
 
-/// The stopwatch and diamond beside an animatable filter parameter.
+/// The stopwatch and keyframe navigation of an animatable filter parameter.
 ///
-/// Deliberately the same pair, in the same order, with the same glyphs as the
-/// transform's row: a stopwatch has to mean one thing wherever it appears, and
-/// somebody who has animated a clip's position already knows what these do.
+/// Deliberately the same controls, in the same places, with the same glyphs as
+/// the transform's row: a stopwatch has to mean one thing wherever it appears,
+/// and somebody who has animated a clip's position already knows what these
+/// do.
+///
+/// Two pieces rather than one view, because they live in two columns of the
+/// row — the stopwatch before the label, the navigation after the field — the
+/// way `TransformRow` lays them out. As one view after the field, a parameter
+/// row and a transform row put the same stopwatch in different places.
 ///
 /// Shown only where the *descriptor* says the parameter can be animated, so
-/// this view never asks which filter it is looking at — a filter that makes a
+/// this never asks which filter it is looking at — a filter that makes a
 /// parameter animatable needs no work here.
-struct FilterKeyframeControls: View {
+///
+/// `@MainActor` by hand: as a `View` it inherited the main actor from the
+/// protocol, and as a plain struct that builds views it has to say so — the
+/// views it makes are main-actor types, and Swift 6 will not let a nonisolated
+/// value hand them its closures.
+@MainActor
+struct FilterKeyframeControls {
     /// The keyframes on this parameter, if any.
     let track: StoryboardCore.KeyframeTrack?
     /// Where the playhead is inside the clip, already clamped to it.
@@ -51,75 +63,49 @@ struct FilterKeyframeControls: View {
         return isAnimating ? "Switch animation off" : "Switch animation back on"
     }
 
-    var body: some View {
-        HStack(spacing: Theme.Spacing.tight) {
-            IconButton(
-                systemImage: isAnimating ? "stopwatch.fill" : "stopwatch",
-                size: Theme.Size.controlTiny,
-                isActive: isAnimating,
-                help: stopwatchHelp,
-            ) {
-                if hasKeys {
-                    setEnabled(!isAnimating)
-                } else {
-                    beginAnimating()
-                }
-            }
-
-            // A key at the playhead, so the field is not the only way to plant
-            // one — with an arrow either side to reach the neighbouring keys.
-            // The same arrangement the timeline rows use, and After Effects
-            // before them: navigation sits either side of the thing it moves
-            // between.
-            //
-            // Hidden until animating, because before that there is nothing for
-            // them to add to or move between.
-            if isAnimating {
-                IconButton(
-                    systemImage: "arrowtriangle.left.fill",
-                    size: Theme.Size.controlTiny,
-                    help: previousKey == nil
-                        ? "No earlier keyframe"
-                        : "Go to previous keyframe",
-                ) {
-                    previousKey.map { goToTime($0.time) }
-                }
-                // Dimmed rather than hidden at the ends: a control that
-                // disappears shifts the diamond under the pointer, so the next
-                // click lands on something else.
-                .disabled(previousKey == nil)
-                .opacity(previousKey == nil ? 0.35 : 1)
-
-                IconButton(
-                    systemImage: isOnAKey ? "diamond.fill" : "diamond",
-                    size: Theme.Size.controlTiny,
-                    isActive: isOnAKey,
-                    help: isOnAKey ? "On a keyframe" : "Add a keyframe here",
-                    action: addKey,
-                )
-
-                IconButton(
-                    systemImage: "arrowtriangle.right.fill",
-                    size: Theme.Size.controlTiny,
-                    help: nextKey == nil ? "No later keyframe" : "Go to next keyframe",
-                ) {
-                    nextKey.map { goToTime($0.time) }
-                }
-                .disabled(nextKey == nil)
-                .opacity(nextKey == nil ? 0.35 : 1)
+    /// Before the label.
+    var stopwatch: some View {
+        IconButton(
+            systemImage: isAnimating ? "stopwatch.fill" : "stopwatch",
+            size: Theme.Size.controlTiny,
+            isActive: isAnimating,
+            tint: Theme.Palette.accent,
+            help: stopwatchHelp,
+        ) {
+            if hasKeys {
+                setEnabled(!isAnimating)
+            } else {
+                beginAnimating()
             }
         }
-        .contextMenu {
-            if hasKeys {
-                Button(isAnimating ? "Disable Animation" : "Enable Animation") {
-                    setEnabled(!isAnimating)
-                }
-                Divider()
-                // Its own menu item rather than a second meaning for the
-                // stopwatch: there is no undo to climb out of a delete with.
-                Button("Delete All Keyframes", systemImage: "trash", role: .destructive) {
-                    clear()
-                }
+        .contextMenu { menu }
+    }
+
+    /// After the field. Draws nothing until animating — before that there is
+    /// nothing to add to or move between — while the panel's grid keeps its
+    /// column. Previous and next key are on its menu.
+    var navigator: some View {
+        KeyframeDiamond(
+            isAnimating: isAnimating,
+            isOnKey: isOnAKey,
+            addKey: addKey,
+            previous: previousKey.map { key in { goToTime(key.time) } },
+            next: nextKey.map { key in { goToTime(key.time) } },
+        )
+        .contextMenu { menu }
+    }
+
+    @ViewBuilder
+    private var menu: some View {
+        if hasKeys {
+            Button(isAnimating ? "Disable Animation" : "Enable Animation") {
+                setEnabled(!isAnimating)
+            }
+            Divider()
+            // Its own menu item rather than a second meaning for the
+            // stopwatch: there is no undo to climb out of a delete with.
+            Button("Delete All Keyframes", systemImage: "trash", role: .destructive) {
+                clear()
             }
         }
     }

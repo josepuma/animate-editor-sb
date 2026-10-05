@@ -196,13 +196,14 @@ extension SurfaceRole {
         }
     }
 
-    /// The fill for an opaque role, layered over the app's dark chrome.
+    /// The fill for an opaque role: a solid step of ``Theme/Tone``, so a
+    /// surface reads the same wherever it is placed.
     var opaqueFill: Color {
         switch self {
-        case .panel: Theme.Fill.panel
-        case .raised: Theme.Fill.raised
-        case .inset: Theme.Fill.well
-        case .bar: Theme.Fill.panel
+        case .panel: Theme.Tone.panel
+        case .raised: Theme.Tone.raised
+        case .inset: Theme.Tone.well
+        case .bar: Theme.Tone.panel
         case .floating: .clear
         }
     }

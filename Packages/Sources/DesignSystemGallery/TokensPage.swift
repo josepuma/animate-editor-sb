@@ -36,6 +36,7 @@ struct TokensPage: View {
                 sample("label", Theme.Typography.label)
                 sample("micro", Theme.Typography.micro)
                 sample("readout", Theme.Typography.readout, text: "00:00.000")
+                sample("code", Theme.Typography.code, text: "sb/particle.png")
             }
         }
 
@@ -45,9 +46,20 @@ struct TokensPage: View {
                 ColorSwatch("secondary", Theme.Palette.secondary)
                 ColorSwatch("tertiary", Theme.Palette.tertiary)
                 ColorSwatch("accent", Theme.Palette.accent)
+                ColorSwatch("onAccent", Theme.Palette.onAccent)
+                ColorSwatch("selection", Theme.Palette.selection)
                 ColorSwatch("playhead", Theme.Palette.playhead)
                 ColorSwatch("warning", Theme.Palette.warning)
                 ColorSwatch("danger", Theme.Palette.danger)
+            }
+        }
+
+        Specimen("Tone", note: "Solid greys, darkest to lightest. Surfaces are told apart by a step in tone, not by a border — a window of hairlines is busy before it holds anything.") {
+            SpecimenRow {
+                ColorSwatch("base", Theme.Tone.base)
+                ColorSwatch("panel", Theme.Tone.panel)
+                ColorSwatch("raised", Theme.Tone.raised)
+                ColorSwatch("well", Theme.Tone.well)
             }
         }
 

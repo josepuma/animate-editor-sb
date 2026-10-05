@@ -34,8 +34,8 @@ public enum Theme {
     /// Corner radii, paired to the size of what they wrap. A radius that is too
     /// small on a large surface reads as a mistake rather than a style.
     public enum Radius {
-        /// 6 — chips and small badges.
-        public static let small: CGFloat = 6
+        /// 8 — chips and small badges.
+        public static let small: CGFloat = 8
         /// 12 — a clip on a timeline track.
         ///
         /// Its own step because a clip answers a question the others do not,
@@ -46,11 +46,15 @@ public enum Theme {
         public static let clip: CGFloat = 12
         /// 10 — buttons and inline controls.
         public static let control: CGFloat = 10
-        /// 14 — floating bars.
-        public static let bar: CGFloat = 14
-        /// 18 — cards and panels.
-        public static let panel: CGFloat = 18
-        /// 18 — the canvas and other full-bleed surfaces.
+        /// 16 — floating bars.
+        public static let bar: CGFloat = 16
+        /// 22 — cards and panels.
+        ///
+        /// Generous on purpose. Panels are told apart by tone rather than by a
+        /// border now, and a large soft corner is what makes a solid block read
+        /// as a surface rather than as a rectangle someone forgot to style.
+        public static let panel: CGFloat = 22
+        /// 22 — the canvas and other full-bleed surfaces.
         ///
         /// Matches `.panel` on purpose: the canvas sits beside the panels
         /// rather than on them, so a rounder corner on the one surface sharing
@@ -93,6 +97,14 @@ public enum Theme {
         /// 1.5 — a ring drawn around a control, thicker than a hairline so it
         /// reads as a deliberate outline rather than an edge.
         public static let ring: CGFloat = 1.5
+        /// 3 — thickness of the pill that marks the active tab or rail item.
+        public static let indicator: CGFloat = 3
+        /// 14 — length of that pill.
+        ///
+        /// Shorter than the item it marks on purpose: a bar the full width of
+        /// a tab reads as an underline under its label, a short pill reads as
+        /// a light switched on beneath it — the reference's language.
+        public static let indicatorLength: CGFloat = 14
         /// 64 — a script's output row, about four lines before it scrolls.
         ///
         /// Deliberately small. Output shares a row with the ⌘S hint rather
@@ -121,8 +133,30 @@ public enum Theme {
             public static let detail: CGFloat = 40
         }
 
-        /// 26 — height of an inspector field, tight enough to stack many.
-        public static let field: CGFloat = 26
+        /// 22 — the column before an inspector label, where a property's
+        /// stopwatch sits. Reserved on every row of a panel, animatable or
+        /// not, so the labels line up.
+        public static let keyframeGutter: CGFloat = controlTiny
+        /// 22 — the column after an inspector field: the key at the playhead.
+        /// Reserved whether or not the property animates, so a field does not
+        /// shrink the moment its diamond appears.
+        ///
+        /// One control wide, not three. Arrows either side of the diamond were
+        /// tried: in a 264-point inspector they left the field 50 points — too
+        /// narrow for "320 px" and its stepper. Moving between keys is on the
+        /// diamond's menu and on the keyframe timeline's own arrows.
+        public static let keyframeSlot: CGFloat = controlTiny
+
+        /// 96 — the artwork band at the head of a card, tall enough for a few
+        /// lines of a script to read as a picture.
+        public static let cardArtwork: CGFloat = 96
+
+        /// 28 — height of an inspector field.
+        ///
+        /// Two points more than it was: at 26 a column of fields read as a
+        /// spreadsheet, and the inspector is moving to tabs, so it no longer
+        /// has to fit every group on screen at once.
+        public static let field: CGFloat = 28
 
         /// 44 — height of a floating control cluster.
         ///
@@ -137,22 +171,44 @@ public enum Theme {
     /// Roles rather than sizes: `.readout` says what the text is for, so the
     /// same numbers stay consistent everywhere they appear.
     public enum Typography {
+        // Nunito, bundled (see `Fonts.swift`). Sized in points with
+        // `relativeTo:` so text still follows the system's accessibility
+        // scaling the way `.system(.caption)` did. Round terminals rather than
+        // a plain grotesk: Geist was tried first and read as too neutral —
+        // correct, and without character.
+
         /// Screen titles.
-        public static let title = Font.system(size: 30, weight: .semibold, design: .rounded)
+        public static let title = Font.custom(Theme.FontFace.semibold, size: 28, relativeTo: .largeTitle)
         /// Section headings.
-        public static let heading = Font.system(.subheadline, design: .rounded, weight: .semibold)
+        public static let heading = Font.custom(Theme.FontFace.semibold, size: 12, relativeTo: .subheadline)
         /// Card and row titles.
-        public static let cardTitle = Font.system(.body, design: .rounded, weight: .medium)
+        public static let cardTitle = Font.custom(Theme.FontFace.medium, size: 13, relativeTo: .body)
         /// Body copy.
-        public static let body = Font.callout
+        public static let body = Font.custom(Theme.FontFace.regular, size: 12, relativeTo: .callout)
         /// Labels inside bars and chips.
-        public static let label = Font.system(.caption, design: .rounded, weight: .medium)
-        /// The smallest readable text: ruler ticks, secondary settings.
-        public static let micro = Font.system(.caption2, design: .rounded, weight: .medium)
-        /// Numbers that change every frame — monospaced so they stop jittering.
-        public static let readout = Font.system(.caption, design: .monospaced)
+        public static let label = Font.custom(Theme.FontFace.medium, size: 11, relativeTo: .caption)
+        /// The smallest readable text: ruler ticks, secondary settings, the
+        /// label under a tab's icon.
+        public static let micro = Font.custom(Theme.FontFace.medium, size: 10, relativeTo: .caption2)
+        /// Numbers that change every frame.
+        ///
+        /// Tabular digits rather than a monospaced face: the digits stop
+        /// jittering, which is the only thing the monospace was for, and the
+        /// colons and units keep the same face as the text around them.
+        ///
+        /// Nunito has no `tnum` feature and does not need one: its ten digits
+        /// already share one advance (600 units, measured), so they are
+        /// tabular by default. `monospacedDigit()` stays so the token keeps its
+        /// promise if the face ever changes — `FontTests` checks the widths.
+        public static let readout = Font.custom(Theme.FontFace.regular, size: 11, relativeTo: .caption)
+            .monospacedDigit()
+        /// Code, file paths and anything else that has to line up by column.
+        public static let code = Font.custom(Theme.FontFace.mono, size: 11, relativeTo: .caption)
         /// Glyphs in icon buttons.
-        public static let controlIcon = Font.system(size: 15, weight: .semibold)
+        ///
+        /// The system font on purpose: these size SF Symbols, which are drawn
+        /// to match San Francisco's metrics, not text.
+        public static let controlIcon = Font.system(size: 15, weight: .regular)
         /// A large glyph standing in for empty state, such as a drop target.
         public static let emptyStateIcon = Font.system(size: 34, weight: .light)
     }
@@ -172,23 +228,35 @@ public enum Theme {
         public static let secondary = Color.secondary
         /// The least prominent text, such as paths under a title.
         public static let tertiary = Color.secondary.opacity(0.7)
-        /// Selection, the playhead and active controls.
-        public static let accent = Color(red: 0.55, green: 0.36, blue: 0.96)
+        /// The one colour that means *this one*: the active tab, the selected
+        /// clip, a focused field, the primary action.
+        ///
+        /// **One accent, used for everything that is chosen.** There used to be
+        /// three — a violet accent, an amber selection and an orange playhead —
+        /// and three colours all saying "look here" say nothing. Lime because it
+        /// is the hue furthest from every track tint and from the warm colours
+        /// that mean warning, so it stays legible on any lane.
+        public static let accent = Color(red: 0.76, green: 0.95, blue: 0.42)
+        /// Text and glyphs drawn on the accent.
+        ///
+        /// Dark, not white: lime is a light colour, and white on it fails
+        /// contrast the way white on yellow does.
+        public static let onAccent = Color(red: 0.05, green: 0.05, blue: 0.06)
         /// A softer accent for fills behind content.
-        public static let accentMuted = Color(red: 0.55, green: 0.36, blue: 0.96).opacity(0.22)
-        /// The playhead, in its own colour so it never reads as just another
-        /// accented control.
-        public static let playhead = Color(red: 0.98, green: 0.55, blue: 0.22)
+        public static let accentMuted = Color(red: 0.76, green: 0.95, blue: 0.42).opacity(0.16)
+        /// The playhead: a thin white line.
+        ///
+        /// White rather than the accent, so it never reads as one more chosen
+        /// thing — a playhead is where you are, not what you picked — and white
+        /// is the one colour no track or keyframe family uses.
+        public static let playhead = Color.white
         /// The frame around a selected clip on the timeline.
         ///
-        /// Its own name rather than `accent` or `playhead`, though it is warm
-        /// like the second: a selection frame sits in the same view as the
-        /// playhead, and two things sharing a colour there would say they are
-        /// the same kind of thing. Amber because it is the hue this app already
-        /// uses to mean *look at this*, and because it reads against every
-        /// track tint — a frame in the accent's violet disappears on a violet
-        /// lane, which is the one place it has to be legible.
-        public static let selection = TrackPalette.amber
+        /// The accent itself. It used to be amber because the violet accent
+        /// vanished on a violet lane; lime does not collide with any track tint,
+        /// so the reason for a second "selected" colour went away with violet.
+        /// Kept as its own name because it answers its own question.
+        public static let selection = accent
         /// Something needs attention but still works.
         public static let warning = Color(red: 0.98, green: 0.68, blue: 0.25)
         /// Something failed.
@@ -196,6 +264,28 @@ public enum Theme {
         /// Behind the storyboard canvas: osu! composites over black, and any
         /// other colour tints every partly transparent sprite.
         public static let stage = Color.black
+    }
+
+    /// Solid greys, darkest to lightest, that surfaces are built from.
+    ///
+    /// **Surfaces are told apart by tone, not by borders.** Translucent white
+    /// over the chrome gave every panel a hairline to say where it ended, and a
+    /// window of hairlines is busy before it holds anything. A step in tone does
+    /// the same job silently — each surface is a little lighter than what it
+    /// sits on.
+    ///
+    /// Solid rather than translucent so a surface looks the same wherever it is
+    /// placed. State overlays (hover, selected) stay in ``Fill``, because those
+    /// genuinely have to lighten whatever tone they land on.
+    public enum Tone {
+        /// The window itself, behind every panel.
+        public static let base = Color(red: 0.039, green: 0.039, blue: 0.043)
+        /// Anchored panels: side panel, inspector, timeline.
+        public static let panel = Color(red: 0.082, green: 0.082, blue: 0.090)
+        /// A block raised above a panel: popovers, cards, the selected row.
+        public static let raised = Color(red: 0.118, green: 0.118, blue: 0.129)
+        /// A control's well: fields, chips at rest, segment groups.
+        public static let well = Color(red: 0.145, green: 0.145, blue: 0.157)
     }
 
     /// Translucent white fills, layered over the app's dark chrome.
@@ -241,12 +331,13 @@ public enum Theme {
 
     /// Hairline borders, in the same layered white.
     public enum Border {
-        /// 0.06 — the edge of a field well.
-        public static let field = Color.white.opacity(0.06)
-        /// 0.08 — the edge of an anchored panel.
-        public static let panel = Color.white.opacity(0.08)
-        /// 0.14 — the edge of a raised panel, which needs to separate further.
-        public static let raised = Color.white.opacity(0.14)
+        /// 0.04 — the edge of a field well; the tone step does most of the work.
+        public static let field = Color.white.opacity(0.04)
+        /// 0.04 — the edge of an anchored panel. Almost nothing: the panel
+        /// already stands off the window by its tone.
+        public static let panel = Color.white.opacity(0.04)
+        /// 0.08 — the edge of a raised panel, which needs to separate further.
+        public static let raised = Color.white.opacity(0.08)
         /// 0.1 — a card at rest.
         public static let card = Color.white.opacity(0.1)
         /// 0.28 — a card under the pointer.
@@ -259,14 +350,19 @@ public enum Theme {
 
     /// Colours identifying content, chosen to stay distinct from each other
     /// and legible on a dark surface.
+    ///
+    /// A notch less saturated than they were, so the accent stays the loudest
+    /// thing on screen: a selection frame has to win against the lane under it.
+    /// Green leans cool (emerald) for the same reason — next to a lime accent,
+    /// a yellow-green lane would read as half-selected.
     public enum TrackPalette {
-        public static let blue = Color(red: 0.36, green: 0.60, blue: 0.98)
-        public static let violet = Color(red: 0.62, green: 0.42, blue: 0.98)
-        public static let pink = Color(red: 0.95, green: 0.42, blue: 0.72)
-        public static let teal = Color(red: 0.24, green: 0.78, blue: 0.76)
-        public static let amber = Color(red: 0.98, green: 0.68, blue: 0.25)
-        public static let green = Color(red: 0.38, green: 0.82, blue: 0.52)
-        public static let red = Color(red: 0.94, green: 0.42, blue: 0.42)
+        public static let blue = Color(red: 0.40, green: 0.60, blue: 0.92)
+        public static let violet = Color(red: 0.60, green: 0.46, blue: 0.92)
+        public static let pink = Color(red: 0.90, green: 0.46, blue: 0.70)
+        public static let teal = Color(red: 0.30, green: 0.74, blue: 0.74)
+        public static let amber = Color(red: 0.94, green: 0.68, blue: 0.32)
+        public static let green = Color(red: 0.30, green: 0.74, blue: 0.56)
+        public static let red = Color(red: 0.90, green: 0.44, blue: 0.44)
     }
 
     /// Colours for keyframe families, so nine rows of diamonds are not a wall.

@@ -96,6 +96,10 @@ struct InspectorView: View {
                         filterSection(node)
                     }
                 }
+                // One grid for every row in the panel, animatable or not, so
+                // labels and fields line up down the whole column whichever
+                // rows carry a stopwatch.
+                .propertyGrid(leading: Theme.Size.keyframeGutter, trailing: Theme.Size.keyframeSlot)
                 .padding(Theme.Spacing.compact)
             }
             .scrollBounceBehavior(.basedOnSize)
@@ -123,7 +127,7 @@ struct InspectorView: View {
         FieldGroup("Filters") {
             ForEach(node.filters) { filter in
                 if let descriptor = shell.filters.descriptor(for: filter.type) {
-                    FilterCard(
+                    FilterNodeCard(
                         descriptor: descriptor,
                         filter: filter,
                         toggle: { shell.toggleFilter(filter.id, in: node.id) },
@@ -513,14 +517,9 @@ struct InspectorView: View {
                     // them: a row of its own took a whole row's height to say
                     // something about its neighbours, and floated free of both.
                     // Overlaid on the second axis, it reads as joining the two.
-                    .overlay(alignment: .topTrailing) {
+                    .overlay(alignment: .topLeading) {
                         if property == .scaleY { scaleLink }
                     }
-                    // Room for the link to sit beside the column rather than
-                    // over the panel's edge.
-                    .padding(.trailing, property == .scaleX || property == .scaleY
-                        ? Theme.Size.controlTiny
-                        : 0)
                 }
             }
         }
@@ -528,9 +527,9 @@ struct InspectorView: View {
 
     /// Ties the two scale axes together.
     ///
-    /// Sits in the gutter beside the stopwatches, aligned with them, and spans
-    /// upward into the gap between the rows — the shape a chain link has in
-    /// every editor that pairs two fields.
+    /// Sits at the end of the label column and spans upward into the gap
+    /// between the rows — the shape a chain link has in every editor that
+    /// pairs two fields.
     private var scaleLink: some View {
         IconButton(
             systemImage: shell.scaleIsLinked ? "link" : "link.badge.plus",
@@ -542,12 +541,21 @@ struct InspectorView: View {
         ) {
             shell.scaleIsLinked.toggle()
         }
-        // Out past the stopwatches and up into the gap between the rows.
+        // At the trailing edge of the label column, centred on the gap between
+        // the two rows — between the names and the values, where After Effects
+        // puts its constrain-proportions link.
         //
-        // Sitting in their column it read as a third one, and its background
-        // touched the rows above and below — a control that joins two fields
-        // has to sit clear of both to look like it spans them.
-        .offset(x: Theme.Size.controlTiny, y: -Theme.Size.controlTiny / 2)
+        // It used to sit out past the panel's columns, which meant padding the
+        // two scale rows to make room: their fields came out 22 points
+        // narrower than every other field, a ragged edge in the one place the
+        // grid exists to keep straight. The label column has room to spare —
+        // "Scale X" fills about half of it — so the link costs no field any
+        // width.
+        .offset(
+            x: Theme.Size.keyframeGutter + Theme.Spacing.snug
+                + Theme.Size.propertyLabel - Theme.Size.controlTiny,
+            y: -(Theme.Spacing.compact + Theme.Size.controlTiny) / 2,
+        )
     }
 
     @ViewBuilder
@@ -557,7 +565,8 @@ struct InspectorView: View {
                     unit: property.unit,
                     step: property.step,
                     range: property.range,
-                    track: node.transform[property],
+                    keyTimes: node.transform[property].keyframes.map(\.time),
+                    isAnimating: node.transform[property].isActive,
                     current: node.transform.value(
                         property,
                         at: playheadTime - node.startTime,
@@ -592,6 +601,8 @@ struct InspectorView: View {
             clear: { time in
                 shell.clearKeyframes(for: property, on: node.id, keeping: time)
             },
+            // The seek takes song time; a key's is the clip's own.
+            goToTime: { shell.seekHandler?(node.startTime + $0) },
         )
     }
 
@@ -858,7 +869,8 @@ struct InspectorView: View {
                     unit: property.unit,
                     step: property.step,
                     range: property.range,
-                    track: camera[property],
+                    keyTimes: camera[property].keyframes.map(\.time),
+                    isAnimating: camera[property].isActive,
                     current: camera.value(property, at: playheadTime),
                     // Song time: the camera belongs to no clip.
                     localTime: playheadTime,
@@ -873,6 +885,8 @@ struct InspectorView: View {
                     beginAnimating: { shell.beginAnimatingCamera(property, at: $0) },
                     setEnabled: { shell.setCameraAnimationEnabled($0, for: property, keeping: $1) },
                     clear: { shell.clearCameraKeyframes(for: property, keeping: $0) },
+                    // Already song time, like the camera's keys.
+                    goToTime: { shell.seekHandler?($0) },
                 )
             }
 
@@ -964,141 +978,13 @@ struct InspectorView: View {
 
 }
 
-// ─── Transform row ───────────────────────────────────────────────────────────
-
-/// One animatable property: its value here and now, and a switch for animating.
-///
-/// The stopwatch is After Effects' idea and it is the right one — a property is
-/// a number until you say otherwise, and saying otherwise is one click. Before
-/// that there are no keys to manage and no row to read.
-private struct TransformRow: View {
-    /// What the row edits, as the four facts it needs about it.
-    ///
-    /// Not a `TransformProperty`, which is all it ever read one for: taking
-    /// the facts lets the camera's pan and zoom use the same row — one
-    /// stopwatch, one meaning, everywhere in the app.
-    let title: String
-    let unit: String?
-    let step: Double
-    let range: ClosedRange<Double>
-    // Qualified: SwiftUI ships a `KeyframeTrack` of its own for view
-    // animation, and this target imports both.
-    let track: StoryboardCore.KeyframeTrack
-    /// What the property is worth right now — its resting value, or its
-    /// animation sampled at the playhead.
-    let current: Double
-    /// Where the playhead is inside the clip.
-    let localTime: Double
-    let duration: Double
-    let setValue: (Double, Double) -> Void
-    let beginAnimating: (Double) -> Void
-    let setEnabled: (Bool, Double) -> Void
-    let clear: (Double) -> Void
-
-    private var hasKeys: Bool { !track.isEmpty }
-    private var isAnimating: Bool { track.isActive }
-
-    /// Where a new key would land, clamped into the clip.
-    private var keyTime: Double { max(0, min(localTime, duration)) }
-
-    /// Whether there is a key at the playhead right now.
-    private var isOnAKey: Bool {
-        track.keyframes.contains { abs($0.time - keyTime) < 1 }
-    }
-
-    var body: some View {
-        PropertyRow(title) {
-            HStack(spacing: Theme.Spacing.tight) {
-                NumberField(
-                    value: Binding(
-                        get: { current },
-                        // Typing while animating sets a key at the playhead —
-                        // the same move as dragging a property in any editor
-                        // with a timeline. Otherwise it sets the value.
-                        set: { setValue($0, keyTime) },
-                    ),
-                    unit: unit,
-                    step: step,
-                    range: range,
-                    format: step < 1 ? "%.2f" : "%.0f",
-                )
-
-                // The stopwatch: starts animating, and afterwards switches the
-                // animation on and off *without* discarding it. Deleting a
-                // stopwatch's worth of work on the same click that started it
-                // is a trap, and there is no undo to climb out of it with.
-                IconButton(
-                    systemImage: isAnimating ? "stopwatch.fill" : "stopwatch",
-                    size: Theme.Size.controlTiny,
-                    isActive: isAnimating,
-                    help: stopwatchHelp,
-                ) {
-                    if hasKeys {
-                        setEnabled(!isAnimating, keyTime)
-                    } else {
-                        beginAnimating(keyTime)
-                    }
-                }
-
-                // A key at the playhead, so the timeline is not the only place
-                // one can be added or removed.
-                if isAnimating {
-                    IconButton(
-                        systemImage: isOnAKey ? "diamond.fill" : "diamond",
-                        size: Theme.Size.controlTiny,
-                        isActive: isOnAKey,
-                        help: isOnAKey ? "On a keyframe" : "Add a keyframe here",
-                    ) {
-                        setValue(current, keyTime)
-                    }
-                }
-
-                keyCount
-            }
-        }
-        .contextMenu {
-            if hasKeys {
-                Button(isAnimating ? "Disable Animation" : "Enable Animation") {
-                    setEnabled(!isAnimating, keyTime)
-                }
-                Divider()
-                // Destructive, so it is a deliberate menu item rather than a
-                // side effect of the switch beside the field.
-                Button("Delete All Keyframes", systemImage: "trash", role: .destructive) {
-                    clear(keyTime)
-                }
-            }
-        }
-    }
-
-    /// How many keys the property holds, dimmed when they are switched off.
-    @ViewBuilder
-    private var keyCount: some View {
-        if hasKeys {
-            Text("\(track.keyframes.count)")
-                .font(Theme.Typography.micro)
-                .foregroundStyle(isAnimating ? Theme.Palette.secondary : Theme.Palette.tertiary)
-                .frame(width: Theme.Spacing.compact, alignment: .trailing)
-                .help(isAnimating
-                    ? "\(track.keyframes.count) keyframes"
-                    : "\(track.keyframes.count) keyframes, switched off")
-        } else {
-            Color.clear.frame(width: Theme.Spacing.compact)
-        }
-    }
-
-    private var stopwatchHelp: String {
-        if !hasKeys { return "Animate \(title)" }
-        return isAnimating
-            ? "Switch off \(title) animation (keys are kept)"
-            : "Switch \(title) animation back on"
-    }
-}
-
 // ─── Filter card ─────────────────────────────────────────────────────────────
 
-/// One filter on a track: its name, a switch, and its parameters.
-private struct FilterCard: View {
+/// One filter on a track, with its parameters generated from its descriptor.
+///
+/// The chrome — the name, the switch, the fold — is `FilterCard`; this owns
+/// what goes inside it, which needs the descriptor and the model's callbacks.
+private struct FilterNodeCard: View {
     let descriptor: FilterDescriptor
     let filter: FilterNode
     let toggle: () -> Void
@@ -1123,128 +1009,89 @@ private struct FilterCard: View {
     /// Moves the playhead to a clip-local moment, for the keyframe arrows.
     var goToTime: (Double) -> Void = { _ in }
 
-    @State private var isExpanded = true
-
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
-            HStack(spacing: Theme.Spacing.snug) {
-                Image(systemName: "chevron.right")
-                    .font(Theme.Typography.micro)
-                    .foregroundStyle(Theme.Palette.tertiary)
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-
-                Image(systemName: descriptor.systemImage)
-                    .font(Theme.Typography.micro)
-                    .foregroundStyle(Theme.Palette.secondary)
-
-                Text(descriptor.name)
-                    .font(Theme.Typography.label)
-                    // Dimmed rather than hidden when off: a filter switched off
-                    // is still part of the look someone is building.
-                    .foregroundStyle(filter.isEnabled ? Theme.Palette.primary : Theme.Palette.tertiary)
-
-                Spacer(minLength: Theme.Spacing.tight)
-
-                IconButton(
-                    systemImage: filter.isEnabled ? "eye" : "eye.slash",
-                    size: Theme.Size.controlTiny,
-                    help: filter.isEnabled ? "Disable" : "Enable",
-                    action: toggle,
-                )
-
-                IconButton(
-                    systemImage: "trash",
-                    size: Theme.Size.controlTiny,
-                    help: "Remove \(descriptor.name)",
-                    action: remove,
-                )
-            }
-            .contentShape(.rect)
-            .onTapGesture { isExpanded.toggle() }
-
-            if isExpanded {
-                ForEach(
-                    descriptor.parameters.filter { $0.shownWhen?.holds(in: filter.values) ?? true },
-                    id: \.id,
-                ) { parameter in
-                    // The keyframe controls go *under* the field, not beside it.
+        FilterCard(
+            name: descriptor.name,
+            systemImage: descriptor.systemImage,
+            isEnabled: filter.isEnabled,
+            toggle: toggle,
+            remove: remove,
+        ) {
+            ForEach(
+                descriptor.parameters.filter { $0.shownWhen?.holds(in: filter.values) ?? true },
+                id: \.id,
+            ) { parameter in
+                // The keyframe controls go *under* the field, not beside it.
+                //
+                // A `PropertyRow` is the width of one control, and three
+                // buttons alongside it squeezed a number field down to its
+                // own stepper — no room left to read or type the value.
+                // The same lesson `ColorField` already taught with three
+                // controls in one row, and the alignment buttons after it.
+                ParameterControl(
+                    parameter: parameter,
+                    // While animating, the field shows the value at the
+                    // playhead — so scrubbing moves the number, exactly
+                    // as a transform's does.
+                    value: animatedValue(parameter.id).map { EffectValue.number($0) }
+                        ?? filter.values[parameter.id] ?? parameter.defaultValue,
+                    onChange: { value in
+                        // Typing while animating plants a key here rather
+                        // than moving the resting value, which is what a
+                        // timeline editor means by editing an animated
+                        // property.
+                        if case let .number(number) = value,
+                           animation(parameter.id)?.isActive == true
+                        {
+                            addKeyframe(parameter.id, number)
+                        } else {
+                            onChange(parameter.id, value)
+                        }
+                    },
+                    onEditingChanged: onEditingChanged,
+                    isDrawingPath: isDrawingPath,
+                    onToggleDrawing: onToggleDrawing,
+                    // In the row's own columns, as in a transform row: the
+                    // stopwatch before the label, navigation after the field.
                     //
-                    // A `PropertyRow` is the width of one control, and three
-                    // buttons alongside it squeezed a number field down to its
-                    // own stepper — no room left to read or type the value.
-                    // The same lesson `ColorField` already taught with three
-                    // controls in one row, and the alignment buttons after it.
-                    ParameterControl(
-                        parameter: parameter,
-                        // While animating, the field shows the value at the
-                        // playhead — so scrubbing moves the number, exactly
-                        // as a transform's does.
-                        value: animatedValue(parameter.id).map { EffectValue.number($0) }
-                            ?? filter.values[parameter.id] ?? parameter.defaultValue,
-                        onChange: { value in
-                            // Typing while animating plants a key here rather
-                            // than moving the resting value, which is what a
-                            // timeline editor means by editing an animated
-                            // property.
-                            if case let .number(number) = value,
-                               animation(parameter.id)?.isActive == true
-                            {
-                                addKeyframe(parameter.id, number)
-                            } else {
-                                onChange(parameter.id, value)
-                            }
-                        },
-                        onEditingChanged: onEditingChanged,
-                        isDrawingPath: isDrawingPath,
-                        onToggleDrawing: onToggleDrawing,
-                        // In the row, after the field it belongs to.
-                        //
-                        // It used to sit on a line of its own, indented by the
-                        // usual spacing — which is 12 points against a label
-                        // column of 78, so it landed well left of the field it
-                        // refers to and five parameters read as ten rows of
-                        // alternating field and orphaned button.
-                        trailing: parameter.animation.isAnimatable
-                            ? AnyView(
-                                FilterKeyframeControls(
-                                    track: animation(parameter.id),
-                                    keyTime: keyTime,
-                                    current: animatedValue(parameter.id)
-                                        ?? number(of: parameter, in: filter),
-                                    costWarning: costWarning(for: parameter),
-                                    beginAnimating: { beginAnimating(parameter.id) },
-                                    setEnabled: { setAnimationEnabled(parameter.id, $0) },
-                                    addKey: {
-                                        addKeyframe(
-                                            parameter.id,
-                                            animatedValue(parameter.id)
-                                                ?? number(of: parameter, in: filter),
-                                        )
-                                    },
-                                    clear: { clearAnimation(parameter.id) },
-                                    goToTime: goToTime,
-                                ),
-                            )
-                            : nil,
-                    )
-                }
-                .disabled(!filter.isEnabled)
-                .opacity(filter.isEnabled ? 1 : 0.5)
+                    // It used to sit on a line of its own, and five parameters
+                    // read as ten rows of alternating field and orphaned
+                    // button; then all of it after the field, where its width
+                    // came and went with the animation and shrank the field.
+                    trailing: keyframeControls(for: parameter, in: filter).map { AnyView($0.navigator) },
+                    leading: keyframeControls(for: parameter, in: filter).map { AnyView($0.stopwatch) },
+                )
             }
+            .disabled(!filter.isEnabled)
+            .opacity(filter.isEnabled ? 1 : 0.5)
         }
-        .padding(Theme.Spacing.snug)
-        // This one keeps a surface, and the distinction is worth naming: a
-        // filter is a **row of a list** — collapsible, switchable, removable —
-        // not a section of a panel. Several of them stacked need to read as
-        // separate items, which spacing alone cannot say.
-        //
-        // `rowSelected`, not `well`: a well is the recess a *field* sits in,
-        // and at that opacity a column of these read as a stack of inputs.
-        .background {
-            RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                .fill(Theme.Fill.rowSelected)
-        }
-        .animation(Theme.Motion.quick, value: isExpanded)
+    }
+
+    /// The stopwatch and navigation for a parameter, or `nil` when its
+    /// descriptor says it cannot animate.
+    private func keyframeControls(
+        for parameter: EffectParameter,
+        in filter: FilterNode,
+    ) -> FilterKeyframeControls? {
+        guard parameter.animation.isAnimatable else { return nil }
+        return FilterKeyframeControls(
+            track: animation(parameter.id),
+            keyTime: keyTime,
+            current: animatedValue(parameter.id)
+                ?? number(of: parameter, in: filter),
+            costWarning: costWarning(for: parameter),
+            beginAnimating: { beginAnimating(parameter.id) },
+            setEnabled: { setAnimationEnabled(parameter.id, $0) },
+            addKey: {
+                addKeyframe(
+                    parameter.id,
+                    animatedValue(parameter.id)
+                        ?? number(of: parameter, in: filter),
+                )
+            },
+            clear: { clearAnimation(parameter.id) },
+            goToTime: goToTime,
+        )
     }
 
     /// A parameter's resting number, for the key a first click plants.
@@ -1295,9 +1142,13 @@ private struct ParameterControl: View {
     /// line of its own it aligned with nothing, and five parameters became ten
     /// rows of alternating field and orphaned button.
     var trailing: AnyView?
+    /// Drawn before the label — the stopwatch's column, as in a transform row.
+    var leading: AnyView?
 
     var body: some View {
-        PropertyRow(parameter.name, control: {
+        PropertyRow(parameter.name, leading: {
+            leading
+        }, control: {
             control
         }, trailing: {
             trailing

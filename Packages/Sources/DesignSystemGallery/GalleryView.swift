@@ -9,6 +9,9 @@ struct GalleryView: View {
         case buttons = "Buttons"
         case fields = "Fields"
         case chrome = "Chrome"
+        case composites = "Components"
+        case previews = "Previews"
+        case panels = "Panels"
 
         var id: Self { self }
 
@@ -19,6 +22,9 @@ struct GalleryView: View {
             case .buttons: "hand.tap"
             case .fields: "slider.horizontal.3"
             case .chrome: "sidebar.left"
+            case .composites: "square.grid.2x2"
+            case .previews: "photo.on.rectangle.angled"
+            case .panels: "list.bullet.rectangle"
             }
         }
 
@@ -29,6 +35,9 @@ struct GalleryView: View {
             case .buttons: "One recipe per intent."
             case .fields: "Inspector controls, sharing one well."
             case .chrome: "Navigation and structure."
+            case .composites: "Composed in the features, where the tokens meet the domain."
+            case .previews: "Tiles, glows and moving previews — the library's look."
+            case .panels: "The rows and cards of the editor's side panels and inspector."
             }
         }
     }
@@ -57,7 +66,7 @@ struct GalleryView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .background(Theme.Palette.stage)
+        .background(Theme.Tone.base)
         .preferredColorScheme(.dark)
         .surfaceGroup()
     }
@@ -70,6 +79,9 @@ struct GalleryView: View {
         case .buttons: ButtonsPage()
         case .fields: FieldsPage()
         case .chrome: ChromePage()
+        case .composites: CompositesPage()
+        case .previews: PreviewsPage()
+        case .panels: PanelsPage()
         }
     }
 }

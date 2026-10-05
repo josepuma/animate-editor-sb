@@ -4,9 +4,9 @@ import SwiftUI
 /// A clip on a timeline track: a rounded pill carrying a thumbnail, a label and
 /// an optional trailing badge.
 ///
-/// The gradient, bright inner edge and shadow are what make it read as a solid
-/// object; a flat fill on a dark surface looks like a gap in the background.
-struct TrackBlock<Thumbnail: View, Badge: View>: View {
+/// A flat fill with a hairline and a shadow: the shadow is what lifts it off
+/// the lane, and the hairline is what keeps two neighbouring clips apart.
+package struct TrackBlock<Thumbnail: View, Badge: View>: View {
     private let tint: Color
     private let label: String?
     private let isDimmed: Bool
@@ -15,7 +15,7 @@ struct TrackBlock<Thumbnail: View, Badge: View>: View {
     private let thumbnail: Thumbnail
     private let badge: Badge
 
-    init(
+    package init(
         tint: Color,
         label: String? = nil,
         isDimmed: Bool = false,
@@ -33,7 +33,7 @@ struct TrackBlock<Thumbnail: View, Badge: View>: View {
         self.badge = badge()
     }
 
-    var body: some View {
+    package var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
 
         HStack(spacing: Theme.Spacing.snug) {
@@ -61,32 +61,11 @@ struct TrackBlock<Thumbnail: View, Badge: View>: View {
         }
         .padding(Theme.Spacing.tight)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background {
-            shape.fill(
-                LinearGradient(
-                    colors: [
-                        tint.opacity(isDimmed ? 0.3 : 1),
-                        tint.opacity(isDimmed ? 0.2 : 0.78),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom,
-                ),
-            )
-        }
+        // Flat fill and a hairline. This used to be a gradient with a lit top
+        // edge, "a light source above" — decoration, and the app draws none.
+        .background { shape.fill(tint.opacity(isDimmed ? 0.3 : 0.9)) }
         .overlay {
-            // A brighter top edge suggests a light source above, the same cue
-            // that makes a physical button look raised.
-            shape.strokeBorder(
-                LinearGradient(
-                    colors: [
-                        .white.opacity(isDimmed ? 0.1 : 0.4),
-                        .white.opacity(0.06),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom,
-                ),
-                lineWidth: Theme.Size.hairline,
-            )
+            shape.strokeBorder(.white.opacity(isDimmed ? 0.06 : 0.14), lineWidth: Theme.Size.hairline)
         }
         .clipShape(shape)
         .overlay {
@@ -96,7 +75,9 @@ struct TrackBlock<Thumbnail: View, Badge: View>: View {
             // after the clip so the full stroke width shows — inside it, half
             // of the line is cut away by the block's own edge.
             if isSelected {
-                shape.strokeBorder(.white.opacity(0.9), lineWidth: Theme.Size.hairline * 2)
+                // The accent, like every chosen thing: white read as one more
+                // highlight on the block's own bright top edge.
+                shape.strokeBorder(Theme.Palette.selection, lineWidth: Theme.Size.hairline * 2)
             }
         }
         .elevated(isDimmed ? Theme.Elevation.low : Theme.Elevation.medium)
@@ -105,14 +86,14 @@ struct TrackBlock<Thumbnail: View, Badge: View>: View {
 
 /// A small rounded glyph at the trailing edge of a block, as used for a clip's
 /// type indicator.
-struct BlockBadge: View {
+package struct BlockBadge: View {
     private let systemImage: String
 
-    init(systemImage: String) {
+    package init(systemImage: String) {
         self.systemImage = systemImage
     }
 
-    var body: some View {
+    package var body: some View {
         Image(systemName: systemImage)
             .font(Theme.Typography.micro)
             .foregroundStyle(.white.opacity(0.9))

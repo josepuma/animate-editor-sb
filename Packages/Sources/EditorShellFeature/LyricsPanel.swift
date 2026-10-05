@@ -187,7 +187,11 @@ struct LyricsPanel: View {
                 VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
                     ForEach(shell.lyricLines) { line in
                         LyricLineRow(
-                            line: line,
+                            text: line.text,
+                            start: line.start,
+                            duration: line.duration,
+                            isOverlong: line.isOverlong,
+                            needsReview: (line.confidence ?? 1) < Self.lowConfidence,
                             isPlaced: shell.placedLyricLines.contains(line.id),
                             seek: { shell.seekHandler?(line.start) },
                             place: { shell.importLyricLine(line, preset: selectedPreset) },
@@ -293,86 +297,5 @@ struct LyricsPanel: View {
         // transcribes without a download.
         let ready = languages.first { $0.variants.contains(where: \.isInstalled) }
         selectLanguage((ready ?? first).name)
-    }
-}
-
-/// One transcribed line: when, how sure, how long, and what was heard.
-private struct LyricLineRow: View {
-    let line: LyricTranscription.Line
-    let isPlaced: Bool
-    let seek: () -> Void
-    let place: () -> Void
-
-    @State private var isHovered = false
-
-    private var needsReview: Bool {
-        (line.confidence ?? 1) < LyricsPanel.lowConfidence
-    }
-
-    var body: some View {
-        HStack(spacing: Theme.Spacing.snug) {
-            // Placed already, so a second pass over the list shows what is
-            // done — which is what makes placing one at a time workable.
-            Image(systemName: isPlaced ? "checkmark" : "circle.dotted")
-                .font(Theme.Typography.micro)
-                .foregroundStyle(isPlaced ? Theme.Palette.accent : Theme.Palette.tertiary)
-                .frame(width: 12)
-
-            Button(action: seek) {
-                HStack(spacing: Theme.Spacing.snug) {
-                    Text(timestamp)
-                        .font(Theme.Typography.readout)
-                        .foregroundStyle(Theme.Palette.secondary)
-
-                    Text(line.text)
-                        .font(Theme.Typography.label)
-                        .foregroundStyle(textColour)
-                        .lineLimit(1)
-
-                    Spacer(minLength: 0)
-
-                    // Said on the row rather than only in the header: this is
-                    // the line to split by hand, and it has to be findable.
-                    if line.isOverlong {
-                        Text("\(Int(line.duration / 100) / 10)s")
-                            .font(Theme.Typography.micro)
-                            .foregroundStyle(Theme.Palette.warning)
-                    }
-                }
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-
-            IconButton(
-                systemImage: "plus",
-                size: Theme.Size.controlTiny,
-                help: "Place this line with the movement above",
-                action: place,
-            )
-        }
-        .padding(.horizontal, Theme.Spacing.tight)
-        .frame(height: Theme.Size.controlTiny)
-        // `rowHover`, not `hover`: a row is several times the area of a list
-        // item, so the same opacity reads as a lit panel rather than a
-        // highlighted row — which is why the token exists separately.
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-                .fill(isHovered ? Theme.Fill.rowHover : .clear),
-        )
-        .onHover { isHovered = $0 }
-        .animation(Theme.Motion.quick, value: isHovered)
-    }
-
-    /// Amber for a line to check, which is what this project already uses to
-    /// mean "look at this".
-    private var textColour: Color {
-        if needsReview { return Theme.Palette.warning }
-        return isPlaced ? Theme.Palette.secondary : Theme.Palette.primary
-    }
-
-    /// `m:ss.mmm`, the shape the transport reads.
-    private var timestamp: String {
-        let total = Int(line.start.rounded())
-        return String(format: "%d:%02d.%03d", total / 60_000, (total / 1000) % 60, total % 1000)
     }
 }

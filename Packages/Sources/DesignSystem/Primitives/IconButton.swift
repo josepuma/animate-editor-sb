@@ -25,6 +25,7 @@ public struct IconButton: View {
     private let size: CGFloat
     private let prominence: Prominence
     private let isActive: Bool
+    private let tint: Color?
     private let help: String?
     private let action: () -> Void
 
@@ -33,11 +34,16 @@ public struct IconButton: View {
     /// - Parameter isActive: whether the state the button represents is on.
     ///   An inactive toggle dims its glyph rather than changing shape, so the
     ///   row keeps its rhythm.
+    /// - Parameter tint: the glyph's colour while active, for a toggle whose
+    ///   *on* means something live — a stopwatch that is animating, a key at
+    ///   the playhead. Lit in the accent, the state reads from across the
+    ///   panel; in grey it has to be looked for.
     public init(
         systemImage: String,
         size: CGFloat = Theme.Size.control,
         prominence: Prominence = .plain,
         isActive: Bool = true,
+        tint: Color? = nil,
         help: String? = nil,
         action: @escaping () -> Void,
     ) {
@@ -45,6 +51,7 @@ public struct IconButton: View {
         self.size = size
         self.prominence = prominence
         self.isActive = isActive
+        self.tint = tint
         self.help = help
         self.action = action
     }
@@ -102,9 +109,10 @@ public struct IconButton: View {
     private var foreground: Color {
         switch prominence {
         case .accented:
-            return Color.white
+            return Theme.Palette.onAccent
         case .plain, .filled, .surfaced:
             if !isActive { return Theme.Palette.tertiary }
+            if let tint { return tint }
             return isHovered ? Theme.Palette.primary : Theme.Palette.secondary
         }
     }

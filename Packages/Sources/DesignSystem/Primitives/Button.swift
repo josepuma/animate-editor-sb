@@ -142,7 +142,7 @@ public extension ButtonStyle where Self == ThemedButtonStyle {
 extension ButtonVariant {
     func foreground(isHovered: Bool) -> Color {
         switch self {
-        case .primary: .white
+        case .primary: Theme.Palette.onAccent
         case .destructive: Theme.Palette.danger
         case .secondary, .ghost: isHovered ? Theme.Palette.primary : Theme.Palette.secondary
         }

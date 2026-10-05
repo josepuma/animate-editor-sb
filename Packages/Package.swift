@@ -105,6 +105,9 @@ let package = Package(
 
         .target(
             name: "DesignSystem",
+            // Geist and its OFL licence; registered at launch by
+            // `Theme.registerFonts()`.
+            resources: [.process("Fonts")],
         ),
 
         // ── Features ────────────────────────────────────────────────────────
@@ -179,7 +182,17 @@ let package = Package(
         // one is only ever seen in its own corner of the app.
         .executableTarget(
             name: "DesignSystemGallery",
-            dependencies: ["DesignSystem"],
+            // The features too, for their composed components: a clip block or
+            // a poster card is where the tokens meet the domain, and judging the
+            // tokens without them is judging half the system. A leaf
+            // executable, like the app, so nothing depends back on it.
+            //
+            // And the renderer, for real previews: cards judged against frames
+            // the app never shows are cards judged against nothing.
+            dependencies: [
+                "DesignSystem", "EditorShellFeature", "ProjectBrowserFeature",
+                "StoryboardCore", "StoryboardRendering",
+            ],
         ),
     ],
 )

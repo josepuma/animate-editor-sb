@@ -1,4 +1,5 @@
 import AppKit
+import DesignSystem
 import SwiftUI
 
 /// A catalogue of the design system, as its own window.
@@ -6,6 +7,10 @@ import SwiftUI
 /// Two controls that disagree are invisible while each is only ever seen in its
 /// own corner of the app. Side by side, a stray radius or a font one step off
 /// is obvious at a glance.
+// Before the first view: an unregistered face falls back to the system font
+// silently, and the gallery would be judging the wrong typeface.
+Theme.registerFonts()
+
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
 

@@ -1,4 +1,5 @@
 import AppKit
+import DesignSystem
 import EditorShellFeature
 import StoryboardCore
 import StoryboardRendering
@@ -68,6 +69,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
 let application = NSApplication.shared
 application.appearance = NSAppearance(named: .darkAqua)
+
+// Before any view: an unregistered face falls back to the system font without
+// a word, which is a typeface bug nobody would notice was one.
+Theme.registerFonts()
 let delegate = AppDelegate()
 application.delegate = delegate
 application.setActivationPolicy(.regular)

@@ -6,7 +6,7 @@ import SwiftUI
 ///
 /// The gradient is what makes the text readable: artwork is arbitrary, and a
 /// caption laid straight over it disappears against a bright frame.
-struct PosterCard<Artwork: View, Footer: View>: View {
+package struct PosterCard<Artwork: View, Footer: View>: View {
     private let title: String
     private let subtitle: String?
     private let badge: String?
@@ -24,7 +24,7 @@ struct PosterCard<Artwork: View, Footer: View>: View {
     ///   - isBusy: shows a spinner over the artwork and stops responding to
     ///     taps. Work that takes a moment has to say so, or the card reads as
     ///     a click that did nothing.
-    init(
+    package init(
         title: String,
         subtitle: String? = nil,
         badge: String? = nil,
@@ -44,7 +44,7 @@ struct PosterCard<Artwork: View, Footer: View>: View {
         self.footer = footer()
     }
 
-    var body: some View {
+    package var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
                 poster
@@ -154,16 +154,16 @@ struct PosterCard<Artwork: View, Footer: View>: View {
 
 /// Loads a card's image from disk, showing a tinted placeholder until it
 /// arrives and in place of one that will not load.
-struct PosterArtwork: View {
+package struct PosterArtwork: View {
     private let url: URL?
     private let fallbackSymbol: String
 
-    init(url: URL?, fallbackSymbol: String = "music.note") {
+    package init(url: URL?, fallbackSymbol: String = "music.note") {
         self.url = url
         self.fallbackSymbol = fallbackSymbol
     }
 
-    var body: some View {
+    package var body: some View {
         if let url {
             AsyncImage(url: url) { phase in
                 switch phase {
@@ -181,19 +181,6 @@ struct PosterArtwork: View {
     }
 
     private var placeholder: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Theme.TrackPalette.violet.opacity(0.35),
-                    Theme.TrackPalette.blue.opacity(0.25),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing,
-            )
-
-            Image(systemName: fallbackSymbol)
-                .font(Theme.Typography.emptyStateIcon)
-                .foregroundStyle(.white.opacity(0.35))
-        }
+        ArtworkPlaceholder(systemImage: fallbackSymbol)
     }
 }

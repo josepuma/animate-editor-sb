@@ -36,13 +36,18 @@ public struct IconSegments<Item: Hashable & Identifiable>: View {
                     Image(systemName: icon(item))
                         .font(Theme.Typography.micro)
                         .foregroundStyle(
-                            item == selection ? Theme.Palette.primary : Theme.Palette.tertiary,
+                            item == selection ? Theme.Palette.accent : Theme.Palette.tertiary,
                         )
                         .frame(maxWidth: .infinity)
                         .frame(height: Theme.Size.controlSmall)
-                        .background {
+                        // Outlined, like every other chosen thing: the accent
+                        // ring rather than a lighter fill.
+                        .overlay {
                             RoundedRectangle(cornerRadius: itemRadius, style: .continuous)
-                                .fill(item == selection ? Theme.Fill.selected : .clear)
+                                .strokeBorder(
+                                    item == selection ? Theme.Palette.accent : .clear,
+                                    lineWidth: Theme.Size.ring,
+                                )
                         }
                         .contentShape(.rect)
                 }
@@ -53,7 +58,7 @@ public struct IconSegments<Item: Hashable & Identifiable>: View {
         .padding(Theme.Spacing.hair)
         .background {
             RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                .fill(Theme.Fill.well)
+                .fill(Theme.Tone.well)
         }
         .animation(Theme.Motion.quick, value: selection)
     }

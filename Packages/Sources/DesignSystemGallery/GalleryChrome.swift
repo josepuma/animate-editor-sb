@@ -37,7 +37,7 @@ struct Specimen<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background {
                     RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                        .fill(Theme.Fill.subtle)
+                        .fill(Theme.Tone.panel)
                 }
         }
     }
