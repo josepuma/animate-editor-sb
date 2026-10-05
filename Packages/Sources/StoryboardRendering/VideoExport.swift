@@ -301,7 +301,14 @@ public final class VideoExport {
 
 extension VideoExport {
     /// An audio input and the reader that will fill it.
-    struct Sound {
+    ///
+    /// `@unchecked` because the AVFoundation objects it holds are not
+    /// `Sendable`, and it does cross into the closure `feed` hands to
+    /// `requestMediaDataWhenReady`. It is safe by hand-off, not by luck: the
+    /// export only *configures* it (adds the input, starts the reader) before
+    /// `feed`, and from then on the one serial queue that callback runs on is
+    /// the only thing that touches it.
+    struct Sound: @unchecked Sendable {
         let input: AVAssetWriterInput
         let reader: AVAssetReader
         let output: AVAssetReaderTrackOutput
