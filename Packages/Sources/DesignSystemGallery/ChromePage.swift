@@ -84,6 +84,14 @@ struct ChromePage: View {
             .frame(maxWidth: 320)
         }
 
+        Specimen("FilterChip", note: "One pill in a row of filters, chosen and not. ChipPicker is a row of these, and so is the library's effect and pack filter — one chip everywhere.") {
+            SpecimenRow {
+                FilterChip("All", isSelected: false) {}
+                FilterChip("Emitter", isSelected: true) {}
+                FilterChip("Audio", isSelected: false) {}
+            }
+        }
+
         Specimen("ChipPicker", note: "Mutually exclusive filters, as above a list. Separate pills; the chosen one outlined in the accent, not filled.") {
             SpecimenRow {
                 ChipPicker(items: Filter.allCases, selection: $filter, label: \.rawValue)

@@ -24,27 +24,9 @@ public struct ChipPicker<Item: Hashable & Identifiable>: View {
     public var body: some View {
         HStack(spacing: Theme.Spacing.tight) {
             ForEach(items) { item in
-                let isSelected = item == selection
-
-                Button {
+                FilterChip(label(item), isSelected: item == selection) {
                     selection = item
-                } label: {
-                    Text(label(item))
-                        .font(Theme.Typography.label)
-                        .foregroundStyle(isSelected ? Theme.Palette.primary : Theme.Palette.secondary)
-                        .padding(.horizontal, Theme.Spacing.compact)
-                        .frame(height: Theme.Size.controlSmall)
-                        .background(Capsule(style: .continuous).fill(Theme.Tone.well))
-                        .overlay {
-                            Capsule(style: .continuous)
-                                .strokeBorder(
-                                    isSelected ? Theme.Palette.accent : .clear,
-                                    lineWidth: Theme.Size.ring,
-                                )
-                        }
-                        .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
             }
         }
         .animation(Theme.Motion.quick, value: selection)
