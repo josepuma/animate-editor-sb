@@ -275,19 +275,6 @@ struct EditorWindow: View {
                 )
             }
 
-            // Stills for the timeline's clips, drawn from sprites the shell
-            // already has — the renderer is what it cannot see. The mapper's
-            // own images resolve through the folder's index, like the assets
-            // panel, so a clip drawing `bg.jpg` shows `bg.jpg`.
-            shell.clipStillRenderer = { sprites in
-                ClipStills.renderer(
-                    for: sprites,
-                    aspect: EditorShellModel.clipStillAspect,
-                ) { path in
-                    folderAssets?.fileURL(forRelativePath: path).flatMap { try? Data(contentsOf: $0) }
-                }
-            }
-
             // Bringing an image into the project.
             //
             // Copied rather than referenced, because osu! reads only what sits
