@@ -755,10 +755,27 @@ public final class EditorShellModel {
             duration: duration,
             on: trackID ?? destinationTrackID,
         )
-        let placed = placeScriptFile(for: node)
+        let placed = completingPlacement { placeScriptFile(for: node) }
         selectedNodeID = placed.id
         effectsChanged()
         return placed
+    }
+
+    /// Writes that finish a placement `effects.add` began, as part of its one
+    /// undo step.
+    ///
+    /// The add records the document as it was before the clip existed — the
+    /// state ⌘Z should return to. Every placement then fills the node in
+    /// (name, values, layers, a script file) with further writes, and each
+    /// write to `effects` records another snapshot. Placing a preset took two
+    /// ⌘Z: the first left the clip at its defaults, somewhere the author never
+    /// was — the gap in an undo stack this model's `willSet` exists to prevent.
+    private func completingPlacement<T>(_ write: () -> T) -> T {
+        var result: T?
+        withoutRecording { result = write() }
+        // The closure always runs; the force is the price of `withoutRecording`
+        // taking no return value.
+        return result!
     }
 
     /// Places a preset, using the length the preset asks for.
@@ -829,10 +846,11 @@ public final class EditorShellModel {
             "\(preset.filters[index].type)-\(UUID().uuidString.prefix(8))"
         }
 
-        effects[node.id] = node
-
         // A preset can be a script's too, so it takes the same route.
-        let placed = placeScriptFile(for: node)
+        let placed = completingPlacement {
+            effects[node.id] = node
+            return placeScriptFile(for: node)
+        }
 
         selectedNodeID = placed.id
         effectsChanged()
@@ -863,7 +881,7 @@ public final class EditorShellModel {
         )
         node.name = (path as NSString).lastPathComponent
         node.values[ImageEffect.Param.sprite] = .text(path)
-        effects[node.id] = node
+        completingPlacement { effects[node.id] = node }
 
         selectedNodeID = node.id
         effectsChanged()
@@ -1791,7 +1809,7 @@ public final class EditorShellModel {
         node.scriptSource = source.scriptSource
         node.scriptFile = source.scriptFile
         node.scriptParameters = source.scriptParameters
-        effects[node.id] = node
+        completingPlacement { effects[node.id] = node }
 
         selectedNodeID = node.id
         effectsChanged()
