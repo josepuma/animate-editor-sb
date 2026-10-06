@@ -63,28 +63,3 @@ public struct IconSegments<Item: Hashable & Identifiable>: View {
         .animation(Theme.Motion.quick, value: selection)
     }
 }
-
-/// A labelled switch.
-public struct ToggleField: View {
-    private let label: String
-    @Binding private var isOn: Bool
-
-    public init(_ label: String, isOn: Binding<Bool>) {
-        self.label = label
-        _isOn = isOn
-    }
-
-    public var body: some View {
-        HStack {
-            Text(label)
-                .font(Theme.Typography.micro)
-                .foregroundStyle(Theme.Palette.secondary)
-
-            Spacer(minLength: Theme.Spacing.snug)
-
-            Toggle("", isOn: $isOn)
-                .labelsHidden()
-                .controlSize(.mini)
-        }
-    }
-}

@@ -1,3 +1,4 @@
+import DesignSystem
 import PlaybackFeature
 import ProjectBrowserFeature
 import SwiftUI
@@ -37,6 +38,11 @@ struct AppRootView: View {
         // The canvas is black by osu!'s convention, so the chrome around it is
         // dark by nature; a light appearance would frame it in pale panels.
         .preferredColorScheme(.dark)
+        // The app's accent, for every control AppKit draws — sliders, switches,
+        // focus rings. Left alone they take the user's system accent, so on a
+        // Mac set to orange the inspector's sliders came out orange beside a
+        // lime selection: two accents, one of them not chosen by the app.
+        .tint(Theme.Palette.accent)
         .alert(
             "Could not load that storyboard",
             isPresented: Binding(

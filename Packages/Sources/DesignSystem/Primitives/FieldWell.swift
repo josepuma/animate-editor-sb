@@ -72,48 +72,65 @@ public struct FieldWell<Content: View>: View {
     }
 }
 
-/// A titled block of fields, separated from its neighbours by its own surface.
-/// A titled block of fields.
+/// A titled block of fields, on a surface one tone above the panel.
 ///
-/// **A heading and space, not a card.** It used to draw its own filled
-/// rectangle, and a panel of them was boxes inside a box: the inspector already
-/// sits on `.panel`, so every group added a second surface over the first, and
-/// several stacked read as a list of tiles rather than as one panel with
-/// sections in it.
+/// **A surface again, and on purpose.** It was a card once, dropped because a
+/// panel of filled, bordered groups read as boxes inside a box — with
+/// translucent fills and a hairline around each, every group was a tile. The
+/// tone system changed what a surface is: no border, just a step lighter than
+/// what it sits on. A group as a tone step is what tells one group from the
+/// next at a glance, which a heading and some space were not doing once the
+/// inspector held a dozen of them.
 ///
-/// What separates one group from the next is the heading and the gap around
-/// it — the same thing that separates paragraphs in any document, and what the
-/// lyrics panel does. `Theme.Fill.subtle` is still there for a surface that
-/// genuinely needs to read as inset; a group of fields is not one.
+/// The title is an `overline` — small capitals — so it labels the rows under
+/// it instead of reading as one more of them.
 public struct FieldGroup<Content: View>: View {
     private let title: String?
+    private let isSurfaced: Bool
     private let content: Content
 
-    public init(_ title: String? = nil, @ViewBuilder content: () -> Content) {
+    /// - Parameter surfaced: false for a group whose rows are cards of their
+    ///   own — a card on a card of the same tone is the box in a box this
+    ///   surface was once removed for.
+    public init(_ title: String? = nil, surfaced: Bool = true, @ViewBuilder content: () -> Content) {
         self.title = title
+        isSurfaced = surfaced
         self.content = content()
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.compact) {
+        VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
             if let title {
-                SectionHeader(title)
+                Text(title)
+                    .font(Theme.Typography.overline)
+                    .tracking(Theme.Typography.overlineTracking)
+                    .textCase(.uppercase)
+                    .foregroundStyle(Theme.Palette.tertiary)
+                    .lineLimit(1)
+                    // Room under the title, more than between rows: it heads
+                    // the group rather than being its first line.
+                    .padding(.bottom, Theme.Spacing.tight)
             }
             content
+        }
+        .padding(isSurfaced ? Theme.Spacing.compact : 0)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            if isSurfaced {
+                RoundedRectangle(cornerRadius: Theme.Radius.bar, style: .continuous)
+                    .fill(Theme.Tone.raised)
+            }
         }
     }
 }
 
-/// A column of ``FieldGroup``s with a rule between them.
+/// A column of ``FieldGroup``s, one gap between each.
 ///
-/// Between, not before: a group cannot know whether it is first, and a rule on
-/// the first one separates it from nothing. Placed at each call site instead it
-/// gets forgotten — the inspector had one before its filters and one after the
-/// track summary, while Timing, Transform and Content, generated in a
-/// `ForEach`, ran together with nothing between them.
-///
-/// A separator that has to be remembered is a separator that will be missing
-/// somewhere.
+/// It drew a rule between groups while they were headings on the panel; now
+/// each group is its own surface and the gap is the separator. It stays a
+/// container rather than a `VStack` at each call site so the spacing between
+/// groups is decided once — Timing, Transform and Content, generated in a
+/// `ForEach`, once ran together because a call site forgot.
 public struct FieldGroups<Content: View>: View {
     private let content: Content
 
@@ -130,14 +147,10 @@ public struct FieldGroups<Content: View>: View {
 
     private struct Layout: _VariadicView_MultiViewRoot {
         func body(children: _VariadicView.Children) -> some View {
-            VStack(alignment: .leading, spacing: Theme.Spacing.loose) {
+            // No rule between groups any more: each is its own surface, and a
+            // line between two surfaces says nothing the gap does not.
+            VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
                 ForEach(children) { child in
-                    if child.id != children.first?.id {
-                        // Dimmed: a hairline at full contrast in a dark panel
-                        // reads as a border around what follows, which is the
-                        // card `FieldGroup` stopped drawing.
-                        Divider().opacity(0.4)
-                    }
                     child
                 }
             }

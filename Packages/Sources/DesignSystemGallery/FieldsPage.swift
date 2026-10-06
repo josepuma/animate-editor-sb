@@ -77,7 +77,7 @@ struct FieldsPage: View {
             .frame(maxWidth: 340)
         }
 
-        Specimen("FieldGroups", note: "A column of groups with the rule between them — between, not before, since a group cannot know whether it is first and a rule on the first separates it from nothing. Placed by hand at each call site it gets forgotten.") {
+        Specimen("FieldGroups", note: "A column of groups, one gap between each. Each group is its own surface now, so the gap is the separator — no rule.") {
             FieldGroups {
                 FieldGroup("Timing") {
                     PropertyRow("Start") { PropertyValue("15811 ms") }
@@ -92,7 +92,7 @@ struct FieldsPage: View {
             .frame(width: 260, alignment: .leading)
         }
 
-        Specimen("FieldGroup", note: "A titled block, separated by its heading and the space around it — not by a surface. A panel of filled groups is boxes inside a box: the panel already has one.") {
+        Specimen("FieldGroup", note: "A titled block on a surface one tone above the panel, its title in small capitals. No border: the tone step is what separates it. `surfaced: false` for a group whose rows are cards of their own.") {
             HStack(alignment: .top, spacing: Theme.Spacing.regular) {
                 FieldGroup("Transform") {
                     PropertyRow("Scale") {

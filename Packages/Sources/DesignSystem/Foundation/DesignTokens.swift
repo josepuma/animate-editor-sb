@@ -202,6 +202,14 @@ public enum Theme {
         /// promise if the face ever changes — `FontTests` checks the widths.
         public static let readout = Font.custom(Theme.FontFace.regular, size: 11, relativeTo: .caption)
             .monospacedDigit()
+        /// The title of a group of fields — "TRANSFORM", "SOLID FILL".
+        ///
+        /// Small and set in capitals with a little tracking, so it reads as a
+        /// label *for* the rows beneath rather than as one more row; a heading
+        /// the size of the labels under it gives the group no top.
+        public static let overline = Font.custom(Theme.FontFace.semibold, size: 10, relativeTo: .caption2)
+        /// The letter spacing that goes with `overline`.
+        public static let overlineTracking: CGFloat = 0.6
         /// Code, file paths and anything else that has to line up by column.
         public static let code = Font.custom(Theme.FontFace.mono, size: 11, relativeTo: .caption)
         /// Glyphs in icon buttons.
