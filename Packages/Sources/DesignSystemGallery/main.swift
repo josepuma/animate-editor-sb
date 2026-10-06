@@ -34,6 +34,8 @@ final class GalleryAppDelegate: NSObject, NSApplicationDelegate {
         )
         window.title = "Design System"
         window.titlebarAppearsTransparent = true
+        // The app's window tone, so the gallery shows the chrome as it ships.
+        window.backgroundColor = NSColor(Theme.Tone.base)
         window.contentView = NSHostingView(rootView: GalleryView())
         window.center()
         window.makeKeyAndOrderFront(nil)

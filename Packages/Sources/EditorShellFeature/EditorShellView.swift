@@ -142,7 +142,13 @@ public struct EditorShellView<Canvas: View>: View {
             // pointing at nothing, and a field being edited kept the keyboard
             // wherever you clicked. Fields commit when they lose focus, so a
             // typed value was only kept by pressing Return.
-            Theme.Palette.stage
+            //
+            // `Tone.base`, not the stage's black. The window and the canvas
+            // were the same black, so the picture had no edge against what
+            // held it; black is the stage's and only the stage's, and the
+            // window is the darkest tone of the chrome around it — base, then
+            // panels, then groups.
+            Theme.Tone.base
                 .contentShape(.rect)
                 .onTapGesture {
                     // Clearing the selection only: releasing the keyboard is
@@ -200,7 +206,10 @@ public struct EditorShellView<Canvas: View>: View {
                     label: \.title,
                 )
                 .frame(maxHeight: .infinity, alignment: .top)
-                .surface(.bar, radius: Theme.Radius.control)
+                // `bar`, not `control`: beside panels and a canvas cornered at
+                // 22, a rail at 10 read as a different family. The full 22 on
+                // a strip this narrow would round it into a pill.
+                .surface(.bar, radius: Theme.Radius.bar)
 
                 if shell.isSidePanelVisible {
                     SidePanelView(shell: shell, playheadNow: { shell.playheadTime })

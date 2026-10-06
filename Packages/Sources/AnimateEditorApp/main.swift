@@ -44,6 +44,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.title = "Animate Editor"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        // The window's own tone, so the transparent title bar shows the same
+        // surface as the content under it. Left undeclared it is AppKit's
+        // default grey, and the band above the editor read as a seam.
+        window.backgroundColor = NSColor(Theme.Tone.base)
         window.contentView = NSHostingView(rootView: AppRootView())
         window.center()
         // The editor layout has a floor below which its panels have nothing
