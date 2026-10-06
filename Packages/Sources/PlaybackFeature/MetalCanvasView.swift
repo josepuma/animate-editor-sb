@@ -185,6 +185,9 @@ struct MetalCanvasView: NSViewRepresentable {
                 try renderer.setSprites(model.sprites) { path in
                     Self.imageData(for: path, source: source).map { .data($0) }
                 }
+                // On the frame these are drawn, so a released drag preview
+                // and the sprites that commit it swap without a gap.
+                model.spritesUploaded(revision: model.spritesRevision)
             } catch {
                 model.contentFailed("\(error)")
             }
@@ -212,6 +215,7 @@ struct MetalCanvasView: NSViewRepresentable {
 
             guard let renderer else { return }
             renderer.measuredClipID = model.selectedClipID
+            renderer.preview = model.clipPreview
             renderer.draw(at: model.currentTime, in: view)
             model.frameRendered(
                 drawnCount: renderer.lastDrawnCount,

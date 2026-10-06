@@ -2259,7 +2259,7 @@ public final class EditorShellModel {
     /// position, so the copy jumped somewhere neither the hand nor the
     /// inspector had asked for.
     @ObservationIgnored private var canvasDragOrigin: (
-        node: EffectNode.ID, x: Double, y: Double, scaleX: Double, scaleY: Double
+        node: EffectNode.ID, x: Double, y: Double, scaleX: Double, scaleY: Double, rotation: Double
     )?
 
     /// Records where a canvas drag began, once per gesture.
@@ -2320,14 +2320,15 @@ public final class EditorShellModel {
     }
 
     private func canvasDragBaseline(for node: EffectNode, at time: Double) -> (
-        x: Double, y: Double, scaleX: Double, scaleY: Double
+        x: Double, y: Double, scaleX: Double, scaleY: Double, rotation: Double
     ) {
         // Only this node's. A baseline belonging to another clip is worse than
         // none: it measures the drag from a place the clip has never been.
         if let canvasDragOrigin, canvasDragOrigin.node == node.id {
             return (
                 x: canvasDragOrigin.x, y: canvasDragOrigin.y,
-                scaleX: canvasDragOrigin.scaleX, scaleY: canvasDragOrigin.scaleY
+                scaleX: canvasDragOrigin.scaleX, scaleY: canvasDragOrigin.scaleY,
+                rotation: canvasDragOrigin.rotation
             )
         }
         let local = min(max(0, time - node.startTime), node.duration)
@@ -2335,11 +2336,13 @@ public final class EditorShellModel {
             x: node.transform.value(.x, at: local),
             y: node.transform.value(.y, at: local),
             scaleX: node.transform.value(.scaleX, at: local),
-            scaleY: node.transform.value(.scaleY, at: local)
+            scaleY: node.transform.value(.scaleY, at: local),
+            rotation: node.transform.value(.rotation, at: local)
         )
         canvasDragOrigin = (
             node: node.id,
-            x: origin.x, y: origin.y, scaleX: origin.scaleX, scaleY: origin.scaleY
+            x: origin.x, y: origin.y, scaleX: origin.scaleX, scaleY: origin.scaleY,
+            rotation: origin.rotation
         )
         return origin
     }
@@ -2389,19 +2392,24 @@ public final class EditorShellModel {
         return selectionBounds?() != nil
     }
 
+    /// - Returns: whether the drag is one the document takes — `false` for no
+    ///   selection or a locked clip, so the canvas knows no committed sprites
+    ///   are coming to replace its preview.
+    @discardableResult
     public func applyCanvasDrag(
         dx: Double,
         dy: Double,
         scaleX: Double,
         scaleY: Double,
+        rotation: Double = 0,
         isStretch: Bool = false,
         isFinished: Bool,
         at time: Double,
-    ) {
+    ) -> Bool {
         guard let nodeID = selectedNodeID,
               let node = effects[nodeID],
               !isLocked(nodeID)
-        else { return }
+        else { return false }
 
         _ = canvasDragBaseline(for: node, at: time)
 
@@ -2413,11 +2421,19 @@ public final class EditorShellModel {
         // one, so the picture lagged behind the pointer and the frame rate came
         // apart. This is the same bargain the timeline already makes when a
         // clip is dragged along its lane: preview locally, commit once.
-        guard isFinished else { return }
+        guard isFinished else { return true }
 
         let origin = canvasDragBaseline(for: node, at: time)
         var updated = node
         let local = min(max(0, time - node.startTime), node.duration)
+
+        // The drag was measured on the picture, after the camera; the clip is
+        // stored before it. Under a roll a drag to the right is a diagonal in
+        // the lane, and under a zoom or at depth it is shorter or longer.
+        var (dx, dy) = (dx, dy)
+        if let z = canvasCameraDepth(of: nodeID) {
+            (dx, dy) = CameraTransform.unproject(dx: dx, dy: dy, through: effects.camera, at: time, z: z)
+        }
 
         if dx != 0 { write(origin.x + dx, for: .x, on: &updated, at: local) }
         if dy != 0 { write(origin.y + dy, for: .y, on: &updated, at: local) }
@@ -2427,14 +2443,6 @@ public final class EditorShellModel {
         // it bigger", so the pair moves together — but a side handle exists to
         // stretch one axis, and one that obeyed the lock was a second corner:
         // the frame showed one axis growing and the clip came out uniform, so
-        // The drag was measured on the picture, after the camera; the clip is
-        // stored before it. Under a roll a drag to the right is a diagonal in
-        // the lane, and under a zoom or at depth it is shorter or longer.
-        var (dx, dy) = (dx, dy)
-        if let z = canvasCameraDepth(of: nodeID) {
-            (dx, dy) = CameraTransform.unproject(dx: dx, dy: dy, through: effects.camera, at: time, z: z)
-        }
-
         // the preview promised something the commit would not honour.
         //
         // Which one it was is *passed*, never read off the values: a side
@@ -2445,10 +2453,15 @@ public final class EditorShellModel {
 
         if linkedX != 1 { write(origin.scaleX * linkedX, for: .scaleX, on: &updated, at: local) }
         if linkedY != 1 { write(origin.scaleY * linkedY, for: .scaleY, on: &updated, at: local) }
+        // A turn needs no camera conversion: the camera's roll and zoom turn
+        // and scale the whole lane, so an angle on screen is the same angle in
+        // the lane.
+        if rotation != 0 { write(origin.rotation + rotation, for: .rotation, on: &updated, at: local) }
 
         effects[nodeID] = updated
         effectsChanged()
         canvasDragOrigin = nil
+        return true
     }
 
     /// One transform write, following the same rule the inspector's fields do:
@@ -3484,8 +3497,21 @@ public final class EditorShellModel {
         lastEditedNode = nil
         onlyCameraMoved = false
         hasPendingClipEdit = true
+        hasPendingInputChange = true
         reevaluate()
     }
+
+    /// Whether something every effect reads moved since the last pass, so the
+    /// next one has to drop every remembered clip.
+    ///
+    /// Its own flag rather than read off "no clip was named". Adding, deleting
+    /// or hiding a lane names no clip either, and those used to drop the cache
+    /// as well: placing one plain image on a real project (80 clips, 3 scripts)
+    /// took 12.5s in debug and put a spinner on all 81 blocks. The cache
+    /// compares each clip whole, so a structural edit leaves the untouched ones
+    /// exactly right — only the song or the tempo moving makes all of them
+    /// stale.
+    @ObservationIgnored private var hasPendingInputChange = false
 
     private func reevaluate() {
         // During a gesture, wait for the hand to settle.
@@ -3526,22 +3552,9 @@ public final class EditorShellModel {
     ///
     /// A pass-through when there is no project folder yet: a document built in
     /// memory — which is every test that never opens one — has nothing to
-        hasPendingInputChange = true
     /// resolve against, and its nodes already carry whatever they were given.
     private func resolvedForScripts(_ document: EffectDocument) -> EffectDocument {
         guard let projectFolder else { return document }
-    /// Whether something every effect reads moved since the last pass, so the
-    /// next one has to drop every remembered clip.
-    ///
-    /// Its own flag rather than read off "no clip was named". Adding, deleting
-    /// or hiding a lane names no clip either, and those used to drop the cache
-    /// as well: placing one plain image on a real project (80 clips, 3 scripts)
-    /// took 12.5s in debug and put a spinner on all 81 blocks. The cache
-    /// compares each clip whole, so a structural edit leaves the untouched ones
-    /// exactly right — only the song or the tempo moving makes all of them
-    /// stale.
-    @ObservationIgnored private var hasPendingInputChange = false
-
         return ScriptResolver(folder: projectFolder).resolving(document)
     }
 
@@ -3588,6 +3601,8 @@ public final class EditorShellModel {
         // camera carries its own, or nothing says the picture is catching up.
         if isApplyingCamera != cameraOnly { isApplyingCamera = cameraOnly }
 
+        let cache = cache
+
         // Detached from the outset, not a main-actor task that hands work off.
         //
         // `Task { }` inherits the actor it was made on, so this one queued
@@ -3600,8 +3615,6 @@ public final class EditorShellModel {
             // The world as well, while the camera is being edited: every clip
             // is already cached by the line above, so this is the lanes
             // gathered again without the camera — no clip runs twice.
-        let cache = cache
-
             let world = showsWorld
                 ? cache.sprites(for: document, using: evaluator, applyingCamera: false)
                 : nil

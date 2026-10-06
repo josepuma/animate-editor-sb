@@ -18,6 +18,8 @@ public struct ClipDrag: Sendable, Equatable {
     /// a side drives one, which is what stretching means.
     public var scaleX: Double = 1
     public var scaleY: Double = 1
+    /// A turn added to the clip's rotation, in degrees, clockwise on screen.
+    public var rotation: Double = 0
 
     /// Whether this came from a side handle rather than a corner.
     ///
@@ -102,6 +104,7 @@ struct SelectionBox: View {
         case side(Side)
         /// A clip that refuses to move, so the pointer can say so.
         case locked
+        case rotate
 
         var cursor: NSCursor {
             switch self {
@@ -109,6 +112,7 @@ struct SelectionBox: View {
             case let .corner(corner): corner.cursor
             case let .side(side): side.cursor
             case .locked: .operationNotAllowed
+            case .rotate: SelectionBox.rotateCursor
             }
         }
     }
@@ -116,6 +120,18 @@ struct SelectionBox: View {
     @State private var liveOffset: CGSize = .zero
     @State private var liveScaleX: Double = 1
     @State private var liveScaleY: Double = 1
+    /// A turn in progress, in degrees, clockwise on screen.
+    @State private var liveRotation: Double = 0
+
+    /// Whether a drag has been released and the box is still showing it,
+    /// waiting for the measurement of the committed sprites.
+    ///
+    /// The evaluation runs off the main thread, so the next measurement is
+    /// some frames away. Dropping the drag on mouse-up showed the frame back
+    /// where the clip had been until then, and then jumping forward. The
+    /// first new measurement after release is the committed clip, and the
+    /// drag goes with it.
+    @State private var awaitingCommit = false
 
     /// Where the box sits in view coordinates, pulled back to the stage.
     ///
@@ -199,9 +215,35 @@ struct SelectionBox: View {
     private static let minimumSize: CGFloat = 8
 
     var body: some View {
-        // Nothing to frame yet, or nothing left worth framing.
-        if let box = frame {
-            content(box)
+        // A stack that is always there, so the change below is watched even
+        // while there is nothing to frame.
+        ZStack {
+            // Nothing to frame yet, or nothing left worth framing.
+            if let box = frame {
+                content(box)
+            }
+        }
+        .onChange(of: bounds) { _, _ in
+            guard awaitingCommit else { return }
+            awaitingCommit = false
+            liveOffset = .zero
+            liveScaleX = 1
+            liveScaleY = 1
+            liveRotation = 0
+        }
+    }
+
+    /// Keeps a released drag on screen until the committed clip is measured —
+    /// or drops it at once when it moved nothing, since nothing is coming.
+    private func holdUntilCommitted() {
+        let moved = liveOffset != .zero || liveScaleX != 1 || liveScaleY != 1 || liveRotation != 0
+        if moved {
+            awaitingCommit = true
+        } else {
+            liveOffset = .zero
+            liveScaleX = 1
+            liveScaleY = 1
+            liveRotation = 0
         }
     }
 
@@ -241,6 +283,8 @@ struct SelectionBox: View {
                     ForEach(Corner.allCases, id: \.self) { corner in
                         handle(corner, in: box)
                     }
+
+                    rotateKnob(in: box)
 
                     // The grip, inside the box's own stack — one hover
                     // surface, not two.
@@ -282,6 +326,9 @@ struct SelectionBox: View {
             // upright box around a rotating sprite swells and shrinks with the
             // angle, so a steady spin looked like the clip pulsing.
             .rotationEffect(.radians(bounds?.rotation ?? 0))
+            // A turn in progress, about the clip's own position — the point
+            // the committed rotation turns it about.
+            .rotationEffect(.degrees(liveRotation), anchor: pivotAnchor(in: box))
             .offset(x: box.minX, y: box.minY)
         }
         // The move gesture lives here, on a layer that does not move.
@@ -351,6 +398,124 @@ struct SelectionBox: View {
         }
     }
 
+    // ─── Rotating ────────────────────────────────────────────────────────────
+
+    /// A curved arrow, so the knob says what it does before it is dragged.
+    ///
+    /// AppKit ships no rotation cursor. Built from a system symbol: black with
+    /// a white halo, the way the system's own cursors stay legible over both
+    /// a dark stage and a bright sprite.
+    static let rotateCursor: NSCursor = {
+        let side: CGFloat = 22
+        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .bold)
+        guard let symbol = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Rotate")?
+            .withSymbolConfiguration(config)
+        else { return .pointingHand }
+
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { bounds in
+            let glyph = symbol.size
+            let origin = NSPoint(x: (bounds.width - glyph.width) / 2, y: (bounds.height - glyph.height) / 2)
+            func draw(_ colour: NSColor, at offset: NSPoint) {
+                let tinted = NSImage(size: glyph, flipped: false) { rect in
+                    symbol.draw(in: rect)
+                    colour.set()
+                    rect.fill(using: .sourceAtop)
+                    return true
+                }
+                tinted.draw(at: NSPoint(x: origin.x + offset.x, y: origin.y + offset.y),
+                            from: .zero, operation: .sourceOver, fraction: 1)
+            }
+            // The halo: the glyph in white, nudged a point every way.
+            for dx in [-1.0, 0, 1] {
+                for dy in [-1.0, 0, 1] where dx != 0 || dy != 0 {
+                    draw(.white, at: NSPoint(x: dx, y: dy))
+                }
+            }
+            draw(.black, at: .zero)
+            return true
+        }
+        return NSCursor(image: image, hotSpot: NSPoint(x: side / 2, y: side / 2))
+    }()
+
+    /// How far above the frame the rotation knob sits.
+    private static let knobReach: CGFloat = 22
+
+    /// The pivot as a point within the box, for turning the frame about it.
+    private func pivotAnchor(in box: CGRect) -> UnitPoint {
+        let pivot = scalePivot(in: box)
+        return UnitPoint(
+            x: box.width > 0 ? (pivot.x - box.minX) / box.width : 0.5,
+            y: box.height > 0 ? (pivot.y - box.minY) / box.height : 0.5,
+        )
+    }
+
+    /// A knob on a stem above the frame, turning the clip about its position.
+    ///
+    /// The same control the camera frame has for its roll, so turning means
+    /// one thing on the canvas. Below the frame instead when there is no room
+    /// above it — a knob pushed off the stage cannot be reached.
+    private func rotateKnob(in box: CGRect) -> some View {
+        let above = box.minY > Self.knobReach + Self.handleSize * 2
+        let edge = CGPoint(x: box.width / 2, y: above ? 0 : box.height)
+        let knob = CGPoint(x: edge.x, y: above ? -Self.knobReach : box.height + Self.knobReach)
+
+        return ZStack {
+            SwiftUI.Path { stem in
+                stem.move(to: edge)
+                stem.addLine(to: knob)
+            }
+            .stroke(.white, lineWidth: 1)
+            .allowsHitTesting(false)
+
+            Circle()
+                .fill(.white)
+                .overlay(Circle().strokeBorder(.black.opacity(0.35), lineWidth: 1))
+                .frame(width: Self.gripSize, height: Self.gripSize)
+                .contentShape(.circle.inset(by: -Self.handleSize))
+                .gesture(rotateGesture(about: scalePivot(in: box)))
+                .onHover { hovering in setZone(.rotate, hovering) }
+                .help("Drag to rotate — hold ⇧ for 15° steps")
+                // `.position` last, for the reason the handles put it there.
+                .position(knob)
+        }
+    }
+
+    /// Turns the clip by the angle the pointer sweeps around its pivot.
+    ///
+    /// Measured in the stage's fixed space: the knob turns with the frame, so
+    /// in its own space the pointer would be measured from a moving place.
+    private func rotateGesture(about pivot: CGPoint) -> some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.dragSpace))
+            .onChanged { value in
+                awaitingCommit = false
+                liveRotation = turn(value, about: pivot)
+                onDrag(ClipDrag(rotation: liveRotation))
+            }
+            .onEnded { value in
+                liveRotation = turn(value, about: pivot)
+                holdUntilCommitted()
+                onDrag(ClipDrag(rotation: liveRotation, isFinished: true))
+            }
+    }
+
+    /// The angle swept so far, in degrees.
+    ///
+    /// Unwrapped against the last reading rather than folded into half a turn,
+    /// so a drag that goes round the pivot more than once keeps turning
+    /// instead of snapping back at the far side. With ⇧ the clip's resulting
+    /// angle on screen lands on a 15° step.
+    private func turn(_ value: DragGesture.Value, about pivot: CGPoint) -> Double {
+        let from = atan2(value.startLocation.y - pivot.y, value.startLocation.x - pivot.x)
+        let to = atan2(value.location.y - pivot.y, value.location.x - pivot.x)
+        var degrees = Double(to - from) * 180 / .pi
+        while degrees - liveRotation > 180 { degrees -= 360 }
+        while degrees - liveRotation < -180 { degrees += 360 }
+
+        guard NSEvent.modifierFlags.contains(.shift) else { return degrees }
+        let base = (bounds?.rotation ?? 0) * 180 / .pi
+        return ((base + degrees) / 15).rounded() * 15 - base
+    }
+
     // ─── Moving ──────────────────────────────────────────────────────────────
 
     /// A space that does not move, for the move gesture to measure in.
@@ -374,6 +539,7 @@ struct SelectionBox: View {
     private var moveGesture: some Gesture {
         DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.dragSpace))
             .onChanged { value in
+                awaitingCommit = false
                 // Converted through the stage scale, not tracked in points: at
                 // any size but 1:1 the two disagree and the box drifts away
                 // from the pointer.
@@ -391,13 +557,13 @@ struct SelectionBox: View {
                 onDrag(ClipDrag(dx: snapped.dx, dy: snapped.dy))
             }
             .onEnded { value in
-                // Released before reporting: the measurement that arrives next
-                // already contains this move, so keeping the offset would apply
-                // it twice.
-                liveOffset = .zero
                 onSnap?(nil, nil)
 
                 let snapped = snap(value.translation)
+                liveOffset = CGSize(width: snapped.dx * scale, height: snapped.dy * scale)
+                // Held until the measurement of the committed clip replaces
+                // it, not dropped here: that measurement is frames away.
+                holdUntilCommitted()
                 onDrag(ClipDrag(dx: snapped.dx, dy: snapped.dy, isFinished: true))
             }
     }
@@ -518,11 +684,14 @@ struct SelectionBox: View {
             .contentShape(.rect.inset(by: -Self.handleSize))
             .gesture(stretchGesture(side))
             .onHover { hovering in setZone(.side(side), hovering) }
+            // Last, after the gesture and the hover: see `handle(_:in:)`.
+            .position(side.point(in: box.size, outset: handleOffset(box)))
     }
 
     private func stretchGesture(_ side: Side) -> some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged {
+                awaitingCommit = false
                 let drag = stretchDrag(side, $0.translation)
                 liveScaleX = drag.scaleX
                 liveScaleY = drag.scaleY
@@ -531,8 +700,9 @@ struct SelectionBox: View {
             .onEnded {
                 var drag = stretchDrag(side, $0.translation)
                 drag.isFinished = true
-                liveScaleX = 1
-                liveScaleY = 1
+                liveScaleX = drag.scaleX
+                liveScaleY = drag.scaleY
+                holdUntilCommitted()
                 onDrag(drag)
             }
     }
@@ -662,11 +832,18 @@ struct SelectionBox: View {
             .onHover { hovering in
                 setZone(.corner(corner), hovering)
             }
+            // `.position` last. It does not move a view: it wraps it in a
+            // container the size of the whole box, and whatever is chained
+            // after it answers the pointer across that container. Safe to
+            // move because the gesture reads only its translation, which is
+            // the same in any space.
+            .position(corner.point(in: box.size, outset: handleOffset(box)))
     }
 
     private func resizeGesture(_ corner: Corner) -> some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged {
+                awaitingCommit = false
                 let drag = scaleDrag(corner, $0.translation)
                 liveScaleX = drag.scaleX
                 liveScaleY = drag.scaleY
@@ -675,16 +852,15 @@ struct SelectionBox: View {
             .onEnded {
                 var drag = scaleDrag(corner, $0.translation)
                 drag.isFinished = true
-                liveScaleX = 1
-                liveScaleY = 1
+                liveScaleX = drag.scaleX
+                liveScaleY = drag.scaleY
+                holdUntilCommitted()
                 onDrag(drag)
             }
     }
 
     /// Turns a corner drag into a scale multiplier.
     ///
-            // Last, after the gesture and the hover: see `handle(_:in:)`.
-            .position(side.point(in: box.size, outset: handleOffset(box)))
     /// Both axes are projected onto the corner's outward direction and measured
     /// against the box's diagonal, so a drag away from the centre always grows
     /// and a drag towards it always shrinks — whichever corner is held.
@@ -747,9 +923,3 @@ struct SelectionBox: View {
 }
 
 
-            // `.position` last. It does not move a view: it wraps it in a
-            // container the size of the whole box, and whatever is chained
-            // after it answers the pointer across that container. Safe to
-            // move because the gesture reads only its translation, which is
-            // the same in any space.
-            .position(corner.point(in: box.size, outset: handleOffset(box)))

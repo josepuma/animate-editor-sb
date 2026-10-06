@@ -49,12 +49,36 @@ struct EditorWindow: View {
             isClipLocked: { shell.isSelectionLocked },
             clipOrigin: { shell.clipOrigin },
             onClipDrag: { drag in
-                shell.applyCanvasDrag(
+                let taken = shell.applyCanvasDrag(
                     dx: drag.dx, dy: drag.dy,
                     scaleX: drag.scaleX, scaleY: drag.scaleY,
+                    rotation: drag.rotation,
                     isStretch: drag.isStretch,
                     isFinished: drag.isFinished, at: playback.currentTime,
                 )
+                // The picture follows the hand, not just the frame: the clip
+                // is drawn where the drag has taken it until the committed
+                // sprites arrive. Scaled about the clip's own position as the
+                // canvas shows it — the pivot a committed scale grows from.
+                guard taken, let clipID = shell.selectedNodeID else {
+                    playback.cancelPreview()
+                    return
+                }
+                if drag.isFinished {
+                    playback.releasePreview()
+                    return
+                }
+                let bounds = playback.selectionBounds
+                let pivot = shell.clipOrigin ?? bounds.map {
+                    (x: ($0.minX + $0.maxX) / 2, y: ($0.minY + $0.maxY) / 2)
+                } ?? (x: 0, y: 0)
+                playback.previewDrag(ClipPreview(
+                    clipID: clipID,
+                    dx: drag.dx, dy: drag.dy,
+                    scaleX: drag.scaleX, scaleY: drag.scaleY,
+                    rotation: drag.rotation,
+                    pivotX: pivot.x, pivotY: pivot.y,
+                ))
             },
             onDeselect: {
                 shell.selectedNodeID = nil
@@ -181,6 +205,21 @@ struct EditorWindow: View {
             shell.onSelectionChanged = { [weak playback] id in
                 playback?.selectedClipID = id
             }
+            // Sprites reach the canvas when a pass lands, and only then.
+            //
+            // They used to be pushed on every revision as well, which fires
+            // when an edit *starts* — so the canvas re-prepared the sprites it
+            // already had, on the main thread, before the new ones existed.
+            // Measured on a real project (9,711 sprites, 380k commands), that
+            // was 544ms of frozen window per edit in debug, renames and colour
+            // changes included, for no change on screen.
+            //
+            // Installed before the project loads, so the first pass cannot
+            // land before anyone is listening.
+            shell.onSpritesChanged = { [weak playback] sprites in
+                playback?.effectsChanged(to: sprites)
+            }
+            playback.effectsChanged(to: shell.evaluateEffects())
             guard let folder else { return }
             shell.loadProject(fromFolder: folder)
 
@@ -205,21 +244,6 @@ struct EditorWindow: View {
             // and that arrives with the project. Read on demand: analysing five
             // minutes to animate eight seconds is work nobody sees, so the clip
             // asks only for the stretch it covers.
-            // Sprites reach the canvas when a pass lands, and only then.
-            //
-            // They used to be pushed on every revision as well, which fires
-            // when an edit *starts* — so the canvas re-prepared the sprites it
-            // already had, on the main thread, before the new ones existed.
-            // Measured on a real project (9,711 sprites, 380k commands), that
-            // was 544ms of frozen window per edit in debug, renames and colour
-            // changes included, for no change on screen.
-            //
-            // Installed before the project loads, so the first pass cannot
-            // land before anyone is listening.
-            shell.onSpritesChanged = { [weak playback] sprites in
-                playback?.effectsChanged(to: sprites)
-            }
-            playback.effectsChanged(to: shell.evaluateEffects())
             // The URL is captured, not read through the model.
             //
             // `PlaybackModel` is `@MainActor`, so a closure reading

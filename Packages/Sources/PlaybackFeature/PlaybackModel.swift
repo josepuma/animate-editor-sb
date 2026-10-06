@@ -1,6 +1,7 @@
 import Foundation
 import StoryboardCore
 import StoryboardPersistence
+import StoryboardRendering
 
 /// Playback clock and renderer statistics.
 ///
@@ -482,6 +483,53 @@ public final class PlaybackModel {
 
     /// Where that clip is on the stage, measured as it was last drawn.
     public private(set) var selectionBounds: ClipBounds?
+
+    // ─── Drag preview ────────────────────────────────────────────────────────
+
+    /// The clip being dragged, drawn where the drag has taken it.
+    ///
+    /// Not observed: the canvas reads it at draw time, and a property written
+    /// per drag event and read in a body would rebuild the view per event.
+    @ObservationIgnored public private(set) var clipPreview: ClipPreview?
+
+    /// The sprite revision current when the hand came up, once it has.
+    ///
+    /// The committed sprites are the first revision *after* this one. Sprites
+    /// already waiting at release were evaluated before the commit, and
+    /// letting them end the preview would show the clip back where it was.
+    @ObservationIgnored private var releasedAtRevision: Int?
+
+    /// Draws the dragged clip where the drag has taken it.
+    public func previewDrag(_ preview: ClipPreview) {
+        clipPreview = preview
+        releasedAtRevision = nil
+    }
+
+    /// The hand came up and the drag was committed: keep drawing the preview
+    /// until the sprites carrying the commit reach the GPU.
+    ///
+    /// Dropped on mouse-up, the picture jumped back to where the clip had been
+    /// and forward again when the evaluation landed — it runs off the main
+    /// thread, so there is always a gap.
+    public func releasePreview() {
+        guard clipPreview != nil else { return }
+        releasedAtRevision = spritesRevision
+    }
+
+    /// The drag ended without a commit: nothing is coming to replace it.
+    public func cancelPreview() {
+        clipPreview = nil
+        releasedAtRevision = nil
+    }
+
+    /// Called by the canvas as it uploads a sprite revision, on the frame it
+    /// will draw them — so the preview and the committed sprites swap without
+    /// a frame of either missing.
+    public func spritesUploaded(revision: Int) {
+        guard let released = releasedAtRevision, revision > released else { return }
+        clipPreview = nil
+        releasedAtRevision = nil
+    }
 
     // ─── Formatting ──────────────────────────────────────────────────────────
 

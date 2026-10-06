@@ -112,6 +112,13 @@ public final class MetalStoryboardRenderer {
     /// once cost 12ms a frame.
     public var measuredClipID: String?
 
+    /// A clip being dragged, drawn where the drag has taken it.
+    ///
+    /// Applied after the box is measured, so the box keeps describing where
+    /// the clip is in the document: the selection frame adds the drag itself,
+    /// and a box that already contained it would show it twice.
+    public var preview: ClipPreview?
+
     /// The box around `measuredClipID`'s sprites, as of the last frame drawn.
     public private(set) var measuredBounds: ClipBounds?
 
@@ -529,6 +536,9 @@ public final class MetalStoryboardRenderer {
                 )
                 if let box { measured = measured.map { $0.union(box) } ?? box }
             }
+
+            var state = state
+            if let preview, preview.covers(sprite.id) { preview.apply(to: &state) }
 
             let scaledWidth = size.x * Float(state.scaleX)
             let scaledHeight = size.y * Float(state.scaleY)
