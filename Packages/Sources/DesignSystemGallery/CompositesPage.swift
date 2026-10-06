@@ -44,6 +44,19 @@ struct CompositesPage: View {
             .background(Theme.Tone.panel, in: .rect(cornerRadius: Theme.Radius.control))
         }
 
+        Specimen(
+            "Clip with its tail",
+            note: "What a clip keeps drawing after its block ends — an emitter's last particles dying out — hatched in the track's colour, flat against the block. Hatched rather than faded: the system draws no decorative gradients, and stripes say \"derived from the clip\" the way editors mark a clip's handles.",
+        ) {
+            HStack(spacing: -Theme.Radius.bar) {
+                block(Theme.TrackPalette.violet, label: "Fire Ring")
+                tail(Theme.TrackPalette.violet)
+                    .zIndex(-1)
+            }
+            .padding(Theme.Spacing.snug)
+            .background(Theme.Tone.panel, in: .rect(cornerRadius: Theme.Radius.control))
+        }
+
         Specimen("BlockBadge", note: "A clip's type indicator, at the trailing edge of its block.") {
             SpecimenRow {
                 ForEach(["sparkles", "textformat", "photo", "curlybraces"], id: \.self) { icon in
@@ -116,6 +129,22 @@ struct CompositesPage: View {
             BlockBadge(systemImage: "sparkles")
         }
         .frame(width: 150, height: 32)
+    }
+
+    private func tail(_ tint: Color) -> some View {
+        let shape = UnevenRoundedRectangle(
+            topLeadingRadius: 0, bottomLeadingRadius: 0,
+            bottomTrailingRadius: Theme.Radius.bar, topTrailingRadius: Theme.Radius.bar,
+            style: .continuous,
+        )
+        return shape
+            .fill(tint.opacity(0.12))
+            .overlay {
+                Hatching(spacing: Theme.Spacing.snug)
+                    .stroke(tint.opacity(0.45), lineWidth: Theme.Size.hairline)
+                    .clipShape(shape)
+            }
+            .frame(width: 110 + Theme.Radius.bar, height: 32)
     }
 
     private func handle(_ name: String, _ handle: PlayheadHandle) -> some View {

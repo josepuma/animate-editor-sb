@@ -711,16 +711,14 @@ struct TrackTimelineView: View {
         let spans = occupied.sorted { $0.lowerBound < $1.lowerBound }
         var spanIndex = 0
 
-        // The glow is gathered and blurred once at the end.
-        //
-        // Blurring each mark on its own creates a filtered context per dot, and
-        // a filtered context is a render pass: measured on a full-width ruler,
-        // about a hundred and seventy of them per frame at **31ms a frame** —
-        // two frames' budget spent on the ruler alone, which is what dropped
-        // scrolling to thirty. Grouped by opacity so marks still brighten as
-        // the playhead reaches them.
-        var glowBuckets: [Int: Path] = [:]
-        /// The marks themselves, grouped the same way.
+        /// The marks, grouped by how far the playhead has lit them.
+        ///
+        /// No glow any more: played marks used to carry a blurred halo, and the
+        /// system draws no decorative light. They turn the accent instead —
+        /// the reference's ruler marks where you are in lime — which says
+        /// "played" as plainly and costs no blur pass, the most expensive
+        /// thing this row ever drew (31ms a frame, per mark, before it was
+        /// batched).
         var markBuckets: [Int: Path] = [:]
 
         // Once for the whole row, not once per mark.
@@ -776,13 +774,6 @@ struct TrackTimelineView: View {
             // brighten as the playhead reaches them instead of flicking on.
             let playedRatio = Self.playedRatio(atX: x, playheadX: playheadX)
 
-            if playedRatio > 0 {
-                // Quantised to twenty steps: the ramp still reads as a ramp,
-                // and twenty passes is nothing beside one per mark.
-                let bucket = Int(playedRatio * 20)
-                glowBuckets[bucket, default: Path()].addPath(shape)
-            }
-
             // Gathered, not filled here.
             //
             // A `fill` per mark is a draw call per mark, and the ruler carries
@@ -795,16 +786,16 @@ struct TrackTimelineView: View {
             markBuckets[bucket, default: Path()].addPath(shape)
         }
 
+        // Grey for what is still to come, the accent laid over it as the
+        // playhead arrives — the same ramp as before, ending in lime rather
+        // than white, so a mark crossing the playhead fades over instead of
+        // flicking.
         for (bucket, path) in markBuckets {
             let ratio = Double(bucket) / 20
-            context.fill(path, with: .color(.white.opacity(0.18 + 0.6 * ratio)))
-        }
-
-        guard !glowBuckets.isEmpty else { return }
-        var glow = context
-        glow.addFilter(.blur(radius: 2))
-        for (bucket, path) in glowBuckets {
-            glow.fill(path, with: .color(.white.opacity(0.2 * Double(bucket) / 20)))
+            context.fill(path, with: .color(.white.opacity(0.18)))
+            if ratio > 0 {
+                context.fill(path, with: .color(Theme.Palette.accent.opacity(ratio)))
+            }
         }
     }
 
@@ -2053,22 +2044,20 @@ struct TrackRowView: View {
             // Four rounded corners made it read as a second block, which is
             // exactly what a repeat looks like — and the whole reason the
             // two are drawn differently is that they mean different things.
-            // A flush edge says "this is still the same clip"; the fade says
-            // "and it is dying out".
-            UnevenRoundedRectangle(
-                topLeadingRadius: 0,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: Theme.Radius.bar,
-                topTrailingRadius: Theme.Radius.bar,
-                style: .continuous,
-            )
-            .fill(
-                LinearGradient(
-                    colors: [track.tint.opacity(0.3), track.tint.opacity(0.04)],
-                    startPoint: .leading,
-                    endPoint: .trailing,
-                ),
-            )
+            // A flush edge says "this is still the same clip"; the hatching
+            // says "and it is dying out".
+            //
+            // Hatched rather than faded: a gradient was the one decorative
+            // light left in the timeline, and stripes say "what is left of the
+            // clip" just as well — the convention editors use for a derived
+            // stretch, flat like everything else.
+            Self.tailShape
+                .fill(track.tint.opacity(0.12))
+                .overlay {
+                    Hatching(spacing: Theme.Spacing.snug)
+                        .stroke(track.tint.opacity(0.45), lineWidth: Theme.Size.hairline)
+                        .clipShape(Self.tailShape)
+                }
             // Slid back under the clip's rounded end, so the two meet with no
             // seam.
             //
@@ -2081,6 +2070,15 @@ struct TrackRowView: View {
             .allowsHitTesting(false)
         }
     }
+
+    /// A tail: square where it meets its clip, rounded where it ends.
+    private static let tailShape = UnevenRoundedRectangle(
+        topLeadingRadius: 0,
+        bottomLeadingRadius: 0,
+        bottomTrailingRadius: Theme.Radius.bar,
+        topTrailingRadius: Theme.Radius.bar,
+        style: .continuous,
+    )
 
     /// Where the tail sits on screen, if there is one.
     private func tailSpans(_ node: EffectNode) -> [VisibleSpan] {
@@ -2602,14 +2600,11 @@ private struct SpanThumbnail: View {
     let height: CGFloat
 
     var body: some View {
+        // Flat: the system draws no decorative gradients. This one came back
+        // once already — it was flattened in the same commit as the clip
+        // stills, and reverting those brought the gradient with them.
         RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [.black.opacity(0.45), tint.opacity(0.35)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing,
-                ),
-            )
+            .fill(.black.opacity(0.35))
             .overlay {
                 Image(systemName: "square.stack.3d.up.fill")
                     .font(Theme.Typography.micro)
