@@ -143,7 +143,6 @@ struct SelectionBox: View {
     /// it sits next to.
     private var frame: CGRect? {
         guard let bounds else { return nil }
-        let inset = Self.edgeInset
         var raw = CGRect(
             x: (bounds.minX + Double(OsuCanvas.xOffset)) * scale,
             y: bounds.minY * scale,
@@ -190,20 +189,35 @@ struct SelectionBox: View {
         // screen. Its four borders sit far outside the canvas, so what is
         // drawn inside the stage is its empty middle: the frame is there and
         // reads as gone, taking the resize handles with it.
+        return Self.held(raw, rotation: bounds.rotation, in: viewSize)
+    }
+
+    /// The frame held to the stage — while it is upright.
+    ///
+    /// The frame is an upright box turned afterwards about its centre, so
+    /// clamping only describes the drawn frame while there is no turn. A
+    /// turned sprite's upright box can reach past the stage while the sprite
+    /// does not: clamped, the frame came out shorter and slid along — about
+    /// twelve points off a stretched, rotated shape. A turned frame is left
+    /// whole; the stage clips what overhangs.
+    static func held(_ raw: CGRect, rotation: Double, in viewSize: CGSize) -> CGRect? {
+        guard abs(rotation) < 0.0001 else {
+            guard raw.width > minimumSize, raw.height > minimumSize else { return nil }
+            return raw
+        }
+        let inset = edgeInset
         let minX = max(inset, raw.minX)
         let minY = max(inset, raw.minY)
         let maxX = min(viewSize.width - inset, raw.maxX)
         let maxY = min(viewSize.height - inset, raw.maxY)
 
         // A clip whose sprites are momentarily off-stage measures as nothing,
-        // and clamping that to a pixel collapsed the frame to a dot mid-drag —
-        // an emitter re-evaluated between frames genuinely has different
-        // particles, some of which briefly leave the stage. Below a size worth
-        // drawing the frame is not drawn at all, which reads as "still
-        // catching up" rather than as a control that broke.
+        // and clamping that to a pixel collapsed the frame to a dot mid-drag.
+        // Below a size worth drawing the frame is not drawn at all, which
+        // reads as "still catching up" rather than as a control that broke.
         let width = maxX - minX
         let height = maxY - minY
-        guard width > Self.minimumSize, height > Self.minimumSize else { return nil }
+        guard width > minimumSize, height > minimumSize else { return nil }
 
         return CGRect(x: minX, y: minY, width: width, height: height)
     }
