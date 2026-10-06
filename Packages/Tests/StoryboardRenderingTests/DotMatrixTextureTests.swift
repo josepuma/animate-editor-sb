@@ -109,9 +109,14 @@ struct DotMatrixTextureTests {
         pitch: Double = 8, dotSize: Double = 0.7,
         shape: DerivedSprite.DotShape = .round, threshold: Double = 0.4,
     ) throws -> Picture {
-        DerivedTextures.clearCache()
+        // A source name of its own per call, not a shared "src.png" behind a
+        // cache clear. `DerivedTextures` caches by path, globally, and these
+        // tests run in parallel: two of them clearing the cache and then
+        // asking for the same path with different sources could each get the
+        // other's picture — a test failing on another test's image size, now
+        // and then, depending on timing.
         let path = DerivedSprite.dotMatrix(
-            "src.png", pitch: pitch, dotSize: dotSize, shape: shape, threshold: threshold,
+            "src-\(UUID().uuidString).png", pitch: pitch, dotSize: dotSize, shape: shape, threshold: threshold,
         )
         let made = try #require(DerivedTextures.data(for: path) { _ in image })
         return try Picture(made)
