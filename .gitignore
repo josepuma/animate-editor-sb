@@ -19,6 +19,13 @@ xcuserdata/
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
 
+# ─── Web leftovers ───────────────────────────────────────────────────────────
+# The Nuxt/Electron stack is gone (last seen in 7eba671), but its build
+# output and dependencies had been committed. Kept out for good.
+node_modules/
+.nuxt/
+.vite/
+
 # ─── Logs ────────────────────────────────────────────────────────────────────
 logs
 *.log
