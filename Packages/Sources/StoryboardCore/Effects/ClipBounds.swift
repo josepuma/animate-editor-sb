@@ -61,19 +61,10 @@ public struct ClipBounds: Sendable, Equatable {
     ) -> ClipBounds? {
         var box: ClipBounds?
 
-        var sharedAngle: Double?
-        var anglesAgree = true
-
         for state in states where state.visible && state.opacity > 0 {
             let size = sizeOf(state.spriteId)
             let halfWidth = abs((size?.width ?? 0) * state.scaleX) / 2
             let halfHeight = abs((size?.height ?? 0) * state.scaleY) / 2
-
-            if let sharedAngle {
-                if abs(sharedAngle - state.rotation) > 0.0001 { anglesAgree = false }
-            } else {
-                sharedAngle = state.rotation
-            }
 
             // The anchor decides where the image hangs off the position, and
             // this used to assume the middle. A `CentreLeft` sprite draws to
@@ -91,26 +82,26 @@ public struct ClipBounds: Sendable, Equatable {
             // y=480 upward into the frame, where osu! leaves it hanging off
             // the bottom edge, invisible.
             let anchor = originOf(state.spriteId).anchor
-            let centreX = state.x + (0.5 - Double(anchor.x)) * 2 * halfWidth
-            let centreY = state.y + (0.5 - Double(anchor.y)) * 2 * halfHeight
+            let offsetX = (0.5 - Double(anchor.x)) * 2 * halfWidth
+            let offsetY = (0.5 - Double(anchor.y)) * 2 * halfHeight
 
-            // Measured upright, about each sprite's own centre. The angle is
-            // reported alongside instead of being folded in, so the frame can
-            // be turned to match rather than grown to cover.
+            // Turned with the sprite, because osu! turns a sprite about its
+            // origin, not its centre. Left upright, a stretched `TopLeft` bar
+            // turned 16° had its frame tens of pixels off the picture.
+            let c = cos(state.rotation), s = sin(state.rotation)
+            let centreX = state.x + offsetX * c - offsetY * s
+            let centreY = state.y + offsetX * s + offsetY * c
+
+            // The sprite's own extent, about its centre, with its angle — so
+            // the frame can be turned to match rather than grown to cover.
             let sprite = ClipBounds(
                 minX: centreX - halfWidth,
                 minY: centreY - halfHeight,
                 maxX: centreX + halfWidth,
                 maxY: centreY + halfHeight,
+                rotation: state.rotation,
             )
             box = box.map { $0.union(sprite) } ?? sprite
-        }
-
-        // Sprites turning independently — a spinning particle field — have no
-        // one angle to draw, so the frame stays upright.
-        if var result = box, anglesAgree, let sharedAngle {
-            result.rotation = sharedAngle
-            return result
         }
         return box
     }
@@ -131,12 +122,57 @@ public struct ClipBounds: Sendable, Equatable {
         return rest.isEmpty || rest.first == "/"
     }
 
+    /// The box around both.
+    ///
+    /// Two boxes turned alike are joined in their own axes and stay turned —
+    /// two bars end to end along a slanted line are one long slanted frame.
+    /// Turned differently, there is no one angle to draw: the result is the
+    /// upright box around both boxes' turned corners. A spinning particle
+    /// field gets that, and it is the honest answer.
+    ///
+    /// The angle used to be dropped here outright, and the upright extents
+    /// joined as if nothing were turned.
     public func union(_ other: ClipBounds) -> ClipBounds {
-        ClipBounds(
-            minX: Swift.min(minX, other.minX),
-            minY: Swift.min(minY, other.minY),
-            maxX: Swift.max(maxX, other.maxX),
-            maxY: Swift.max(maxY, other.maxY),
+        if abs(rotation - other.rotation) < Self.sameAngle {
+            let a = local(), b = other.local()
+            let minU = Swift.min(a.minU, b.minU), maxU = Swift.max(a.maxU, b.maxU)
+            let minV = Swift.min(a.minV, b.minV), maxV = Swift.max(a.maxV, b.maxV)
+            // The centre goes back to the stage; the extent stays in the
+            // turned axes.
+            let u = (minU + maxU) / 2, v = (minV + maxV) / 2
+            let c = cos(rotation), s = sin(rotation)
+            let x = u * c - v * s, y = u * s + v * c
+            let halfWidth = (maxU - minU) / 2, halfHeight = (maxV - minV) / 2
+            return ClipBounds(
+                minX: x - halfWidth, minY: y - halfHeight,
+                maxX: x + halfWidth, maxY: y + halfHeight,
+                rotation: rotation,
+            )
+        }
+        let corners = self.corners() + other.corners()
+        return ClipBounds(
+            minX: corners.map(\.x).min()!, minY: corners.map(\.y).min()!,
+            maxX: corners.map(\.x).max()!, maxY: corners.map(\.y).max()!,
         )
+    }
+
+    /// Angles closer than this are one angle.
+    private static let sameAngle = 0.0001
+
+    /// The extent in the box's own turned axes.
+    private func local() -> (minU: Double, maxU: Double, minV: Double, maxV: Double) {
+        let c = cos(rotation), s = sin(rotation)
+        let u = centreX * c + centreY * s
+        let v = -centreX * s + centreY * c
+        return (u - width / 2, u + width / 2, v - height / 2, v + height / 2)
+    }
+
+    /// The four corners on the stage, turned about the centre.
+    private func corners() -> [(x: Double, y: Double)] {
+        let c = cos(rotation), s = sin(rotation)
+        return [(-1.0, -1.0), (1, -1), (1, 1), (-1, 1)].map { sx, sy in
+            let dx = sx * width / 2, dy = sy * height / 2
+            return (centreX + dx * c - dy * s, centreY + dx * s + dy * c)
+        }
     }
 }

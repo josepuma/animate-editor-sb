@@ -305,3 +305,72 @@ struct ClipBoundsRotationTests {
         #expect(box.rotation == 0)
     }
 }
+
+@Suite("Clip bounds of turned sprites")
+struct ClipBoundsTurnedTests {
+    private func state(
+        _ id: String, x: Double, y: Double, scale: Double = 1, rotation: Double,
+    ) -> SpriteRenderState {
+        SpriteRenderState(spriteId: id, x: x, y: y, scaleX: scale, scaleY: scale, rotation: rotation)
+    }
+
+    private let size: (String) -> (width: Double, height: Double)? = { _ in (100, 50) }
+
+    /// osu! turns a sprite about its origin. The box used to shift by the
+    /// origin in upright axes and then be turned about its own centre, so a
+    /// stretched `TopLeft` bar turned 30° had its frame tens of pixels away
+    /// from the picture — reported after stretching a shape and rotating it.
+    @Test("a rotated sprite's box is centred where osu! draws it", arguments: [
+        Origin.topLeft, .topCentre, .centreLeft, .bottomRight, .centre,
+    ])
+    func rotatedOriginCentre(origin: Origin) throws {
+        let angle = 30 * Double.pi / 180
+        let box = try #require(ClipBounds.around(
+            [state("a", x: 300, y: 200, scale: 2, rotation: angle)],
+            sizeOf: size,
+            originOf: { _ in origin },
+        ))
+
+        // The sprite's centre: its position plus the origin's offset, turned.
+        let anchor = origin.anchor
+        let ox = (0.5 - Double(anchor.x)) * 200, oy = (0.5 - Double(anchor.y)) * 100
+        let cx = 300 + ox * cos(angle) - oy * sin(angle)
+        let cy = 200 + ox * sin(angle) + oy * cos(angle)
+
+        #expect(abs(box.centreX - cx) < 1e-9 && abs(box.centreY - cy) < 1e-9,
+                "centre (\(box.centreX), \(box.centreY)) against (\(cx), \(cy))")
+        #expect(abs(box.width - 200) < 1e-9 && abs(box.height - 100) < 1e-9)
+        #expect(box.rotation == angle)
+    }
+
+    /// Two sprites sharing an angle are framed in their own axes: two bars
+    /// end to end along a turned line make one long turned frame, not the
+    /// upright box around them.
+    @Test("sprites sharing an angle union in their own axes")
+    func sharedAngleUnion() throws {
+        let angle = 30 * Double.pi / 180
+        let step = 100.0
+        let box = try #require(ClipBounds.around([
+            state("a", x: 300, y: 200, rotation: angle),
+            state("b", x: 300 + step * cos(angle), y: 200 + step * sin(angle), rotation: angle),
+        ], sizeOf: size))
+
+        #expect(abs(box.width - 200) < 1e-9 && abs(box.height - 50) < 1e-9, "\(box.width)×\(box.height)")
+        #expect(box.rotation == angle)
+    }
+
+    /// Sprites turned differently have no one angle; the upright box has to
+    /// contain their turned corners, not their upright extents.
+    @Test("mixed angles give an upright box around the turned corners")
+    func mixedAnglesContainCorners() throws {
+        let box = try #require(ClipBounds.around([
+            state("a", x: 300, y: 200, rotation: .pi / 2),
+            state("b", x: 300, y: 200, rotation: 0),
+        ], sizeOf: size))
+
+        // A 100×50 sprite stood on end reaches 50 above and below its centre.
+        #expect(box.rotation == 0)
+        #expect(abs(box.minY - 150) < 1e-9 && abs(box.maxY - 250) < 1e-9, "\(box.minY)…\(box.maxY)")
+        #expect(abs(box.minX - 250) < 1e-9 && abs(box.maxX - 350) < 1e-9)
+    }
+}
