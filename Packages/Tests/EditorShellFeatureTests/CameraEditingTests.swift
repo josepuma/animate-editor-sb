@@ -127,10 +127,10 @@ struct CameraEditingTests {
         shell.endGesture()
         await shell.awaitEvaluation()
 
-        // Exactly four: each of the two clips once for the picture and once
-        // more for its tail, which is measured off its sprites. The camera-only
-        // path runs none — so zero is the bug.
-        #expect(counter.total == 4, "the input change ran clips \(counter.total) times, expected 4")
+        // Exactly two: each clip once. Its tail is measured off the sprites
+        // that same run produced — it used to cost a second run per clip. The
+        // camera-only path runs none — so zero is the bug.
+        #expect(counter.total == 2, "the input change ran clips \(counter.total) times, expected 2")
     }
 
     /// A camera edit is an edit: saved, undoable, and it still re-runs clips

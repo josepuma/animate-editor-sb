@@ -18,7 +18,7 @@ public struct BeatLine: Sendable, Equatable {
 /// Ported from `app/composables/useTiming.ts`. Tempo can change mid-map, so
 /// every operation resolves the timing point governing the moment in question
 /// rather than assuming one tempo throughout.
-public struct BeatGrid: Sendable {
+public struct BeatGrid: Sendable, Equatable {
     public let timing: BeatmapTimingData
     /// Subdivisions per beat: 1 for whole beats, 4 for sixteenths.
     public let divisor: Int

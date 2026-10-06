@@ -85,6 +85,11 @@ final class EvaluationCache: @unchecked Sendable {
         /// Unique to this evaluation, so a lane can tell whether a clip on it
         /// was re-run without comparing what the clip produced.
         let serial: UInt64
+        /// How far past its block one pass is still drawing — see
+        /// `measure(_:sprites:using:)`.
+        let tail: Double
+        /// How badly a loop's seam jumps, for a clip that loops.
+        let seam: Double?
     }
 
     /// Everything a lane's baked sprites are a function of.
@@ -172,9 +177,22 @@ final class EvaluationCache: @unchecked Sendable {
         var produced: [StoryboardSprite] = []
 
         for track in document.tracks {
+            // A cancelled pass stops here rather than running to the end.
+            //
+            // Its result is thrown away by whoever cancelled it, and opening a
+            // project starts several passes in a row: one that kept going
+            // competed for cores with the pass whose answer is wanted. What it
+            // already wrote stays — every entry is keyed by the node it came
+            // from, so it is valid whatever happens to the pass.
+            if Task.isCancelled { return produced }
+
             // Every clip is asked for even on a hidden lane: its entries have to
             // survive, or showing the lane again re-runs every script on it.
-            let clips = track.nodes.map { self.sprites(for: $0, using: evaluator) }
+            var clips: [(sprites: [StoryboardSprite], serial: UInt64)] = []
+            for node in track.nodes {
+                if Task.isCancelled { return produced }
+                clips.append(self.sprites(for: node, using: evaluator))
+            }
             guard track.isVisible else { continue }
 
             // The lane owns the layer, so everything on it takes that layer —
@@ -255,6 +273,7 @@ final class EvaluationCache: @unchecked Sendable {
         if let cached, cached.node == key { return (cached.sprites, cached.serial) }
 
         let sprites = evaluator.evaluate(node)
+        let (tail, seam) = Self.measure(node, sprites: sprites, using: evaluator)
 
         // Written as it is produced, not handed back when the pass ends. Every
         // edit cancels the pass before it, so a result kept until completion is
@@ -266,10 +285,88 @@ final class EvaluationCache: @unchecked Sendable {
         lock.lock()
         nextSerial &+= 1
         let serial = nextSerial
-        entries[node.id] = Entry(node: key, sprites: sprites, serial: serial)
+        entries[node.id] = Entry(
+            node: key, sprites: sprites, serial: serial, tail: tail, seam: seam,
+        )
         lock.unlock()
 
         return (sprites, serial)
+    }
+
+    /// The clips whose remembered sprites no longer match the document — the
+    /// ones the next pass will run, and so the ones to mark as catching up.
+    func staleNodes(in document: EffectDocument) -> Set<EffectNode.ID> {
+        lock.lock()
+        defer { lock.unlock() }
+        return Set(document.nodes.lazy.filter { node in
+            self.entries[node.id]?.node != Self.drawingKey(node)
+        }.map(\.id))
+    }
+
+    /// Each clip's tail and loop seam, as measured when its sprites were made.
+    ///
+    /// Read after a pass completes, when every clip in the document has an
+    /// entry. Kept on the entry rather than measured in a separate sweep, so a
+    /// tail can never describe a different version of the clip than the
+    /// sprites beside it do.
+    func measurements(
+        for document: EffectDocument,
+    ) -> (tails: [EffectNode.ID: Double], seams: [EffectNode.ID: Double]) {
+        lock.lock()
+        defer { lock.unlock() }
+        var tails: [EffectNode.ID: Double] = [:]
+        var seams: [EffectNode.ID: Double] = [:]
+        for node in document.nodes {
+            guard let entry = entries[node.id] else { continue }
+            tails[node.id] = entry.tail
+            if let seam = entry.seam { seams[node.id] = seam }
+        }
+        return (tails, seams)
+    }
+
+    /// How far past its own block one pass of a clip is still drawing, and —
+    /// for a clip that loops — how badly the seam jumps.
+    ///
+    /// Read off the sprites rather than derived from the parameters: life,
+    /// life randomness, emission mode and every filter move it, and a formula
+    /// chasing all of those would drift from what the evaluator produces.
+    ///
+    /// A clip with no loop is measured off the sprites just produced, which
+    /// are exactly one pass. This used to evaluate every clip a second time to
+    /// get the same sprites — every script ran twice per edit. Only a loop
+    /// needs its own run: afterwards the commands live in a loop body and
+    /// every sprite looks like it runs the whole span.
+    static func measure(
+        _ node: EffectNode,
+        sprites: [StoryboardSprite],
+        using evaluator: EffectEvaluator,
+    ) -> (tail: Double, seam: Double?) {
+        let loops = node.filters.contains { $0.type == LoopFilter.descriptor.type }
+
+        var seam: Double?
+        if node.filters.contains(where: { $0.isEnabled && $0.type == LoopFilter.descriptor.type }) {
+            var bare = node
+            bare.filters = []
+            seam = LoopFilter.seamSeverity(of: evaluator.evaluate(bare))
+        }
+
+        var unlooped = node
+        unlooped.filters = node.filters.filter { $0.type != LoopFilter.descriptor.type }
+        let pass = loops ? evaluator.evaluate(unlooped) : sprites
+
+        var last = unlooped.endTime
+        for sprite in pass {
+            for command in sprite.commands {
+                last = max(last, command.endTime)
+            }
+            // A loop keeps its commands in the body, so the group's own span
+            // is what plays.
+            for loop in sprite.loops {
+                let body = loop.commands.map(\.endTime).max() ?? 0
+                last = max(last, loop.startTime + body * Double(loop.loopCount))
+            }
+        }
+        return (max(0, (last - node.startTime) - unlooped.duration), seam)
     }
 
     /// The node with the fields that do not reach a sprite flattened out.

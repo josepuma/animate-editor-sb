@@ -1328,8 +1328,12 @@ public final class EditorShellModel {
     /// asks this — so a pulse needs no BPM typed into it.
     public var beat: BeatGrid? {
         didSet {
+            // The app assigns the beat when the window appears and again when
+            // the track loads, and every assignment dropped every clip — the
+            // scripts with them — for a grid that had not changed.
+            guard beat != oldValue else { return }
             evaluator.beat = beat
-            effectsChanged()
+            inputsChanged()
         }
     }
 
@@ -3493,9 +3497,22 @@ public final class EditorShellModel {
     ///
     /// A pass-through when there is no project folder yet: a document built in
     /// memory — which is every test that never opens one — has nothing to
+        hasPendingInputChange = true
     /// resolve against, and its nodes already carry whatever they were given.
     private func resolvedForScripts(_ document: EffectDocument) -> EffectDocument {
         guard let projectFolder else { return document }
+    /// Whether something every effect reads moved since the last pass, so the
+    /// next one has to drop every remembered clip.
+    ///
+    /// Its own flag rather than read off "no clip was named". Adding, deleting
+    /// or hiding a lane names no clip either, and those used to drop the cache
+    /// as well: placing one plain image on a real project (80 clips, 3 scripts)
+    /// took 12.5s in debug and put a spinner on all 81 blocks. The cache
+    /// compares each clip whole, so a structural edit leaves the untouched ones
+    /// exactly right — only the song or the tempo moving makes all of them
+    /// stale.
+    @ObservationIgnored private var hasPendingInputChange = false
+
         return ScriptResolver(folder: projectFolder).resolving(document)
     }
 
@@ -3513,18 +3530,30 @@ public final class EditorShellModel {
         let evaluator = evaluator
         let revision = effectsRevision
 
-        // Only when it actually changes: writing the same value to observed
-        // state still invalidates every view reading it, and during a drag that
-        // is the whole timeline rebuilt per step for no visible difference.
-        //
-        // And only the clip that was edited, not every clip in the project.
-        // Marking all of them puts a spinner on twenty blocks when one changed
-        // — which is both a lie and twenty rows rebuilt to tell it.
-        // A camera edit re-runs no clip, so no clip is catching up.
         let cameraOnly = onlyCameraMoved
         hasPendingClipEdit = false
         let showsWorld = isEditingCamera
-        let pending = cameraOnly ? [] : lastEditedNode.map { Set([$0]) } ?? Set(document.nodes.map(\.id))
+        // Dropped here, where what moved is still known, and pruned against the
+        // document while it is settled — a pass can be cancelled halfway and
+        // must not conclude anything about clips it never reached.
+        if !cameraOnly {
+            if hasPendingInputChange {
+                cache.invalidate(node: nil)
+            } else if let lastEditedNode {
+                cache.invalidate(node: lastEditedNode)
+            }
+        }
+        hasPendingInputChange = false
+        cache.prune(keeping: Set(document.nodes.map(\.id)))
+
+        // Only the clips the pass will actually run, not every clip in the
+        // project. Marking all of them puts a spinner on eighty blocks when one
+        // changed — which is both a lie and eighty rows rebuilt to tell it.
+        // A camera edit re-runs no clip, so no clip is catching up.
+        let pending = cameraOnly ? [] : cache.staleNodes(in: document)
+        // Only when it actually changes: writing the same value to observed
+        // state still invalidates every view reading it, and during a drag that
+        // is the whole timeline rebuilt per step for no visible difference.
         if evaluatingNodes != pending { evaluatingNodes = pending }
         // A camera pass re-runs no clip, so no clip shows a spinner — the
         // camera carries its own, or nothing says the picture is catching up.
@@ -3537,107 +3566,33 @@ public final class EditorShellModel {
         // gesture, 1,098ms before it even started, against 552ms of actual
         // work. That wait is the pause between letting go of a clip and the
         // spinner appearing.
-        // Measured only for the clip the edit named, when it named one.
-        //
-        // Every node here costs a *second* full evaluation of that node — the
-        // tail is read off the sprites rather than derived from the parameters,
-        // because life, life randomness, emission mode and every filter move
-        // it, and a formula chasing all of those would drift from what the
-        // evaluator actually produces. Doing that for the whole project on
-        // every edit measured, on a real project of 17 nodes, **787ms against
-        // 768ms for the evaluation itself**: the pass was costing twice what it
-        // needed to, and the second half answered a question nobody asked.
-        // Resizing a background image with nothing but a scale and a fade paid
-        // for fourteen scripts to be run again.
-        //
-        // The same reading of `lastEditedNode` the caches next door already
-        // make, arrived at for the same reason. An edit that names no node —
-        // adding, deleting, pasting, importing — can move any of them, so it
-        // measures the lot.
-        // Nothing to measure after a camera edit: a tail is a clip's own, and
-        // the camera changes where things are, not how long they last.
-        let toMeasure = cameraOnly ? [] : lastEditedNode.flatMap { id in
-            document.nodes.first { $0.id == id }.map { [$0] }
-        } ?? document.nodes
-
-        // Dropped here, where what moved is still known, and pruned against the
-        // document while it is settled — a pass can be cancelled halfway and
-        // must not conclude anything about clips it never reached.
-        if !cameraOnly { cache.invalidate(node: lastEditedNode) }
-        cache.prune(keeping: Set(document.nodes.map(\.id)))
-        let cache = cache
-
         evaluationTask = Task.detached(priority: .userInitiated) { [weak self] in
             let sprites = cache.sprites(for: document, using: evaluator)
             // The world as well, while the camera is being edited: every clip
             // is already cached by the line above, so this is the lanes
             // gathered again without the camera — no clip runs twice.
+        let cache = cache
+
             let world = showsWorld
                 ? cache.sprites(for: document, using: evaluator, applyingCamera: false)
                 : nil
 
             guard !Task.isCancelled else { return }
 
-            // Worked out here, off the main thread, because the timeline reads
-            // them on every rebuild.
-            var measured: [EffectNode.ID: Double] = [:]
-            var seamed: [EffectNode.ID: Double] = [:]
-            for node in toMeasure {
-                // Measured before the loop wraps them: afterwards the commands
-                // live in a loop body and every sprite looks like it runs the
-                // whole span.
-                if node.filters.contains(where: { $0.isEnabled && $0.type == LoopFilter.descriptor.type }) {
-                    var bare = node
-                    bare.filters = []
-                    seamed[node.id] = LoopFilter.seamSeverity(of: evaluator.evaluate(bare))
-                }
-
-                var unlooped = node
-                unlooped.filters = node.filters.filter { $0.type != "loop" }
-
-                // The last moment anything is still drawn, measured on one
-                // pass before a loop multiplies it. Only ever here, off the
-                // main thread: a synchronous version of this lived beside the
-                // tail readers and froze the window on audio clips.
-                var last = unlooped.endTime
-                for sprite in evaluator.evaluate(unlooped) {
-                    for command in sprite.commands {
-                        last = max(last, command.endTime)
-                    }
-                    // A loop keeps its commands in the body, so the group's own
-                    // span is what plays.
-                    for loop in sprite.loops {
-                        let body = loop.commands.map(\.endTime).max() ?? 0
-                        last = max(last, loop.startTime + body * Double(loop.loopCount))
-                    }
-                }
-
-                measured[node.id] = max(0, (last - node.startTime) - unlooped.duration)
-            }
-
-            // The ids still in the document, so a partial pass can drop what is
-            // gone without having to know how it went.
-            let living = Set(document.nodes.map(\.id))
+            // Measured by the cache as each clip was evaluated, so a tail
+            // always describes the same version of the clip as its sprites.
+            // Read here, off the main thread, because the timeline reads them
+            // on every rebuild.
+            let (tails, seams) = cache.measurements(for: document)
 
             await MainActor.run {
                 guard let self, self.effectsRevision == revision else { return }
 
-                // Merged, not assigned. A pass that measured one clip holds one
-                // entry, and writing that over the dictionary would take every
-                // other clip's tail to zero — the whole timeline losing the
-                // overhang it draws, to redraw one row.
-                //
-                // Pruned against the document in the same step: a merge alone
-                // keeps a deleted clip's tail forever, and an id is reused when
-                // a node is duplicated onto it.
-                self.tails = self.tails.filter { living.contains($0.key) }.merging(
-                    measured,
-                    uniquingKeysWith: { _, fresh in fresh },
-                )
-                // A measured clip that lost its loop has no seam left to report.
-                self.seams = self.seams
-                    .filter { living.contains($0.key) && measured[$0.key] == nil }
-                    .merging(seamed, uniquingKeysWith: { _, fresh in fresh })
+                // Assigned whole: a completed pass has an entry for every clip
+                // in the document, and only those — so a deleted clip's tail
+                // goes with it and an untouched clip keeps the one it had.
+                self.tails = tails
+                self.seams = seams
                 self.evaluated = sprites
                 self.world = world
                 if !self.evaluatingNodes.isEmpty { self.evaluatingNodes = [] }
