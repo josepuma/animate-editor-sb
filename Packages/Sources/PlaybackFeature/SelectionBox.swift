@@ -264,11 +264,16 @@ struct SelectionBox: View {
                                     .strokeBorder(.black.opacity(0.35), lineWidth: 1),
                             )
                             .frame(width: Self.gripSize, height: Self.gripSize)
-                            .contentShape(.circle)
+                            // Drawn only. It sits on top of the move area,
+                            // and with its hover chained after `.position` it
+                            // took every press across the whole box and did
+                            // nothing with it — dragging a clip by its body
+                            // never reached the move gesture, and only the
+                            // half of each corner handle outside the box
+                            // still worked. The body underneath has the same
+                            // gesture and the same cursor.
+                            .allowsHitTesting(false)
                             .position(point)
-                            .onHover { hovering in
-                                setZone(.body, hovering)
-                            }
                     }
                 }
             }
@@ -511,7 +516,6 @@ struct SelectionBox: View {
                 height: side.isHorizontal ? Self.sideLength : Self.handleSize,
             )
             .contentShape(.rect.inset(by: -Self.handleSize))
-            .position(side.point(in: box.size, outset: handleOffset(box)))
             .gesture(stretchGesture(side))
             .onHover { hovering in setZone(.side(side), hovering) }
     }
@@ -654,7 +658,6 @@ struct SelectionBox: View {
             // A 7pt square is a small target, so the grabbable area is larger
             // than what is drawn — but still only around this corner.
             .contentShape(.rect.inset(by: -Self.handleSize))
-            .position(corner.point(in: box.size, outset: handleOffset(box)))
             .gesture(resizeGesture(corner))
             .onHover { hovering in
                 setZone(.corner(corner), hovering)
@@ -680,6 +683,8 @@ struct SelectionBox: View {
 
     /// Turns a corner drag into a scale multiplier.
     ///
+            // Last, after the gesture and the hover: see `handle(_:in:)`.
+            .position(side.point(in: box.size, outset: handleOffset(box)))
     /// Both axes are projected onto the corner's outward direction and measured
     /// against the box's diagonal, so a drag away from the centre always grows
     /// and a drag towards it always shrinks — whichever corner is held.
@@ -742,3 +747,9 @@ struct SelectionBox: View {
 }
 
 
+            // `.position` last. It does not move a view: it wraps it in a
+            // container the size of the whole box, and whatever is chained
+            // after it answers the pointer across that container. Safe to
+            // move because the gesture reads only its translation, which is
+            // the same in any space.
+            .position(corner.point(in: box.size, outset: handleOffset(box)))
