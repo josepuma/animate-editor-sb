@@ -138,8 +138,10 @@ public enum Theme {
         /// not, so the labels line up.
         public static let keyframeGutter: CGFloat = controlTiny
         /// 22 — the column after an inspector field: the key at the playhead.
-        /// Reserved whether or not the property animates, so a field does not
-        /// shrink the moment its diamond appears.
+        /// Reserved for a whole group as soon as one of its rows animates, so
+        /// the group's fields still line up with each other — and not before:
+        /// held open while nothing animates, it left every field short of the
+        /// group's edge for a diamond that was not there.
         ///
         /// One control wide, not three. Arrows either side of the diamond were
         /// tried: in a 264-point inspector they left the field 50 points — too

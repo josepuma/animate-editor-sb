@@ -107,7 +107,11 @@ struct InspectorView: View {
                         // disagreeing about the selection is the bug this
                         // panel already had once, with keyframe mode.
                         cameraSections
-                            .propertyGrid(leading: Theme.Size.keyframeGutter, trailing: Theme.Size.keyframeSlot)
+                            .propertyGrid(
+                                leading: Theme.Size.keyframeGutter,
+                                trailing: CameraProperty.allCases.contains { shell.effects.camera[$0].isActive }
+                                    ? Theme.Size.keyframeSlot : nil,
+                            )
                     } else if let clip {
                         clipTabs(descriptor: clip.descriptor, node: clip.node)
                     } else if let track = shell.selectedTrack {
@@ -302,7 +306,11 @@ struct InspectorView: View {
             // across two.
             timingRow(node: node)
             transformSection(node)
-                .propertyGrid(leading: Theme.Size.keyframeGutter, trailing: Theme.Size.keyframeSlot)
+                .propertyGrid(
+                    leading: Theme.Size.keyframeGutter,
+                    trailing: TransformProperty.allCases.contains { node.transform[$0].isActive }
+                        ? Theme.Size.keyframeSlot : nil,
+                )
         case .filters:
             if node.filters.isEmpty {
                 // Said rather than left blank: an empty tab reads as broken,
@@ -691,15 +699,10 @@ struct InspectorView: View {
     /// editor draws this strip.
     @ViewBuilder
     private var alignRow: some View {
-        HStack(spacing: Theme.Spacing.snug) {
-            // The same label column the property rows use, so the strip lines
-            // up with the fields under it rather than starting at the panel
-            // edge on its own.
-            Text("Align")
-                .font(Theme.Typography.micro)
-                .foregroundStyle(Theme.Palette.tertiary)
-                .frame(width: Theme.Size.propertyLabel, alignment: .leading)
-
+        // A `PropertyRow`, so it takes the group's columns: as a hand-built
+        // row it had the label width but not the stopwatch gutter, and its
+        // label started a column left of every label under it.
+        PropertyRow("Align") {
             HStack(spacing: 0) {
                 ForEach(StageSnap.Alignment.allCases, id: \.self) { alignment in
                     IconButton(
@@ -1173,8 +1176,14 @@ private struct FilterNodeCard: View {
         // Timing were already spared. `nil` reserves nothing.
         .propertyGrid(
             leading: hasAnimatableParameters ? Theme.Size.keyframeGutter : nil,
-            trailing: hasAnimatableParameters ? Theme.Size.keyframeSlot : nil,
+            trailing: isAnimating ? Theme.Size.keyframeSlot : nil,
         )
+    }
+
+    /// Whether any of this filter's parameters animates now — the diamond's
+    /// column is only worth its width while there is a diamond in it.
+    private var isAnimating: Bool {
+        descriptor.parameters.contains { animation($0.id)?.isActive == true }
     }
 
     private var hasAnimatableParameters: Bool {
