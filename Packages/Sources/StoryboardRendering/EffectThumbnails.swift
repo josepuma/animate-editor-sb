@@ -70,7 +70,7 @@ public enum EffectThumbnails {
     /// pictures comparable: Glow beside Blur over identical input is the
     /// comparison someone is making when they choose between them.
     public static func frames(for descriptor: FilterDescriptor) -> [CGImage] {
-        cached("filter:" + descriptor.type) {
+        cached("filter:" + descriptor.type, background: filterBackground, focus: filterFocus) {
             var node = subject
             node.filters = [FilterNode(
                 id: "preview-filter",
@@ -119,22 +119,45 @@ public enum EffectThumbnails {
 
     /// What a filter is shown acting on.
     ///
-    /// A modest emitter rather than one sprite: a glow over a single dot says
-    /// almost nothing, while the same glow over a scattering of them shows how
-    /// it accumulates — which is the part worth seeing before committing to it.
+    /// Chosen to give every filter something to act on, because a filter is
+    /// only visible against what it changes. The first subject was sixty soft
+    /// dots, still and centred — together a blur — and almost every card looked
+    /// the same: a glow on a glow, a blur of a blur, a mirror of something
+    /// symmetric, an echo of something that barely moved. Each property here
+    /// answers one of those:
+    ///
+    /// - **Hard edges** (flat arrows, not soft dots): Blur, Glow and Chromatic
+    ///   all work on edges, and a soft particle has none.
+    /// - **Movement** (a stream heading right): an echo shows where something
+    ///   *was*, and a still subject stacks its copies on itself.
+    /// - **Direction** (pointing along their path, off to one side of centre):
+    ///   a mirror or a radial repeat of something symmetric is itself.
+    ///
+    /// Shared by every filter, so the cards still compare like for like.
     private static var subject: EffectNode {
         var values = EmitterEffect.descriptor.defaultValues
-        values[EmitterEffect.Param.count] = .integer(60)
-        values[EmitterEffect.Param.width] = .number(220)
-        values[EmitterEffect.Param.height] = .number(140)
-        values[EmitterEffect.Param.velocity] = .number(20)
-        values[EmitterEffect.Param.life] = .number(2500)
-        values[EmitterEffect.Param.scaleStart] = .number(0.5)
-        values[EmitterEffect.Param.scaleEnd] = .number(0.4)
+        values[EmitterEffect.Param.count] = .integer(6)
+        values[EmitterEffect.Param.sprite] = .text(BuiltInSprite.arrow)
+        values[EmitterEffect.Param.shape] = .choice(EmitterEffect.Shape.point.rawValue)
+        // Rightwards, a little fanned: 0 is right in Direction's convention.
+        values[EmitterEffect.Param.direction] = .number(0)
+        values[EmitterEffect.Param.spread] = .number(30)
+        values[EmitterEffect.Param.velocity] = .number(110)
+        values[EmitterEffect.Param.life] = .number(2200)
+        values[EmitterEffect.Param.alignToMotion] = .toggle(true)
+        // The arrow is drawn at 512: about 80 stage units across. Half that
+        // was tried, and Blur and LED all but erased it — a blur of fixed
+        // radius swallows a small shape, and a dot matrix has too few cells
+        // across it to draw one.
+        values[EmitterEffect.Param.scaleStart] = .number(0.16)
+        values[EmitterEffect.Param.scaleEnd] = .number(0.16)
+        // Painted, not lit: additive arrows would burn white where they meet
+        // and lose the edges this subject is for.
+        values[EmitterEffect.Param.additive] = .toggle(false)
         values[EmitterEffect.Param.color] = .color(EffectColor(r: 200, g: 220, b: 255))
-        values[EmitterEffect.Param.colorEnd] = .color(EffectColor(r: 120, g: 160, b: 255))
+        values[EmitterEffect.Param.colorEnd] = .color(EffectColor(r: 200, g: 220, b: 255))
 
-        let node = EffectNode(
+        return EffectNode(
             id: "subject",
             type: EmitterEffect.descriptor.type,
             name: "Subject",
@@ -143,12 +166,37 @@ public enum EffectThumbnails {
             seed: 3,
             values: values,
         )
-        return node
+    }
+
+    /// Dark grey behind a filter's preview, not black.
+    ///
+    /// A shadow is a dark copy, and on black it is invisible — Shadow's card
+    /// showed the subject and nothing else. Only filters get it: a preset's
+    /// preview is a picture of the stage, and the stage is black.
+    private static let filterBackground = MTLClearColor(red: 0.24, green: 0.24, blue: 0.26, alpha: 1)
+
+    /// Where a filter's preview looks, and how close.
+    ///
+    /// The whole stage at 240 pixels puts a default 12-unit glow at three
+    /// pixels — every filter's own size is lost before it can be seen, and
+    /// exaggerating the values instead would make the card lie about what
+    /// adding the filter gives. So the preview moves in on the subject, the way
+    /// zooming the canvas does: the arrows' path, about a third of the stage.
+    private static let filterFocus = Focus(x: 400, y: 240, zoom: 2.5)
+
+    /// A point on the stage and a magnification, for previews that look closer
+    /// than the whole frame.
+    struct Focus {
+        let x: Double
+        let y: Double
+        let zoom: Double
     }
 
     private static func cached(
         _ key: String,
         duration: Double = previewDuration,
+        background: MTLClearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1),
+        focus: Focus? = nil,
         sprites: () -> [StoryboardSprite],
     ) -> [CGImage] {
         if let existing = cache[key] { return existing }
@@ -162,7 +210,7 @@ public enum EffectThumbnails {
         // installs the measurer at launch, and a thumbnail asked for before
         // that had none.
         TextTextures.install()
-        let made = render(sprites(), duration: duration)
+        let made = render(sprites(), duration: duration, background: background, focus: focus)
         cache[key] = made
         return made
     }
@@ -176,7 +224,12 @@ public enum EffectThumbnails {
     /// differently both showed the same settled word, which tells a browser
     /// nothing about the difference between them. A third in, an emitter is
     /// already dense and an entrance is still visibly happening.
-    private static func render(_ sprites: [StoryboardSprite], duration: Double) -> [CGImage] {
+    private static func render(
+        _ sprites: [StoryboardSprite],
+        duration: Double,
+        background: MTLClearColor,
+        focus: Focus?,
+    ) -> [CGImage] {
         guard !sprites.isEmpty,
               let device = MTLCreateSystemDefaultDevice(),
               let renderer = try? MetalStoryboardRenderer(
@@ -188,25 +241,29 @@ public enum EffectThumbnails {
         let prepared = StoryboardResolver.prepare(sprites)
         do {
             try renderer.setSprites(prepared) { path in
-                // Text glyphs as well as the built-in shapes.
+                // The app's whole chain — derived, text, built-in — the one the
+                // canvas and the export resolve with. A preview has no beatmap,
+                // so the mapper's own files are the one link it lacks.
                 //
-                // A text effect names its glyphs `__text__/<hash>.png`, which
-                // `BuiltInTextures` knows nothing about — asked only for those,
-                // the renderer found no image and drew bare quads. Every text
-                // preview was a white box, and two presets that animate very
-                // differently produced byte-identical pictures, because a box
-                // is a box.
-                let data = BuiltInTextures.data(for: path) ?? TextTextures.data(for: path)
-                return data.map { .data($0) }
+                // It used to ask only the built-ins and the text glyphs. Text
+                // had already been learned the hard way (every text preview a
+                // white box); the derived images were not: Blur, LED, Glow and
+                // Shadow swap a sprite's image for a derived one
+                // (`__derived__/…`), which resolved to nothing, so those four
+                // cards showed specks or the bare subject — never the filter.
+                StoryboardExport.appImageData(for: path, beatmapImage: { _ in nil }).map { .data($0) }
             }
         } catch {
             return []
         }
 
+        // Rendered larger and cropped when looking closer: the same pixels a
+        // zoomed camera would give, without the renderer needing one.
+        let scale = focus?.zoom ?? 1
         let descriptor = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: TextureAtlas.pixelFormat,
-            width: width,
-            height: height,
+            width: Int((Double(width) * scale).rounded()),
+            height: Int((Double(height) * scale).rounded()),
             mipmapped: false,
         )
         descriptor.usage = [.renderTarget, .shaderRead]
@@ -234,9 +291,45 @@ public enum EffectThumbnails {
         return (0 ..< frameCount).compactMap { index in
             let progress = Double(index) / Double(frameCount - 1)
             let at = duration * 0.8 * progress * progress
-            guard renderer.render(at: at, into: texture) else { return nil }
-            return image(from: texture)
+            guard renderer.render(at: at, into: texture, background: background),
+                  let frame = image(from: texture)
+            else { return nil }
+            guard let focus else { return frame }
+            return cropped(frame, to: focus)
         }
+    }
+
+    /// The part of a frame around `focus`, redrawn at preview size.
+    ///
+    /// Redrawn into its own bitmap rather than kept as a `cropping(to:)`
+    /// result, which would hold the whole enlarged frame alive per image.
+    private static func cropped(_ frame: CGImage, to focus: Focus) -> CGImage? {
+        let frameWidth = Double(frame.width)
+        let frameHeight = Double(frame.height)
+        // Stage to pixels: the frame spans the widescreen stage, which starts
+        // `xOffset` to the left of storyboard x = 0.
+        let centreX = (focus.x + Double(OsuCanvas.xOffset)) / Double(OsuCanvas.width) * frameWidth
+        let centreY = focus.y / Double(OsuCanvas.height) * frameHeight
+        let cropWidth = frameWidth / focus.zoom
+        let cropHeight = frameHeight / focus.zoom
+        let crop = CGRect(
+            x: min(max(centreX - cropWidth / 2, 0), frameWidth - cropWidth),
+            y: min(max(centreY - cropHeight / 2, 0), frameHeight - cropHeight),
+            width: cropWidth,
+            height: cropHeight,
+        ).integral
+
+        guard let part = frame.cropping(to: crop),
+              let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                  data: nil, width: width, height: height,
+                  bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
+              )
+        else { return nil }
+        context.interpolationQuality = .high
+        context.draw(part, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage()
     }
 
     /// Copies a rendered texture into a `CGImage`.

@@ -376,18 +376,21 @@ public final class MetalStoryboardRenderer {
     /// the drawable came from it, and a texture supplies the first while the
     /// second is what presenting is *for*.
     ///
+    /// - Parameter background: what the frame is cleared to. Black unless a
+    ///   caller has a reason: a storyboard is composited over black, and
+    ///   anything else tints every partly transparent sprite.
     /// - Returns: false when the frame could not be drawn.
     @discardableResult
-    public func render(at time: Double, into texture: MTLTexture) -> Bool {
+    public func render(
+        at time: Double,
+        into texture: MTLTexture,
+        background: MTLClearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1),
+    ) -> Bool {
         let descriptor = MTLRenderPassDescriptor()
         descriptor.colorAttachments[0].texture = texture
         descriptor.colorAttachments[0].loadAction = .clear
         descriptor.colorAttachments[0].storeAction = .store
-        // Black, as a storyboard is composited over — anything else tints every
-        // partly transparent sprite.
-        descriptor.colorAttachments[0].clearColor = MTLClearColor(
-            red: 0, green: 0, blue: 0, alpha: 1,
-        )
+        descriptor.colorAttachments[0].clearColor = background
 
         var drew = false
         render(at: time, into: descriptor) { commandBuffer in
