@@ -57,7 +57,8 @@ public struct ProjectBrowserView: View {
             .padding(Theme.Spacing.section)
         }
         .frame(minWidth: 760, minHeight: 560)
-        .background(Theme.Palette.stage)
+        // The window's tone, as in the editor: black belongs to the stage.
+        .background(Theme.Tone.base)
         .surfaceGroup()
         .onDrop(of: [.fileURL], isTargeted: $isTargetedForDrop, perform: handleDrop)
         .overlay {
@@ -225,11 +226,13 @@ public struct ProjectBrowserView: View {
                 ForEach(0 ..< 3, id: \.self) { _ in
                     HStack(spacing: Theme.Spacing.compact) {
                         ForEach(0 ..< 3, id: \.self) { _ in
+                            // Tone, not an outline: the empty slots are the
+                            // same surfaces the cards will be, only fainter.
                             RoundedRectangle(
                                 cornerRadius: Theme.Radius.control,
                                 style: .continuous,
                             )
-                            .strokeBorder(Theme.Border.card, lineWidth: 1)
+                            .fill(Theme.Tone.raised)
                         }
                     }
                     // Shared out rather than fixed, so the ghosts fill the
@@ -326,7 +329,6 @@ private struct BeatmapCard: View {
         PosterCard(
             title: preview?.title ?? entry.name,
             subtitle: subtitle,
-            badge: badge,
             isBusy: isOpening,
             action: open,
         ) {
@@ -341,14 +343,16 @@ private struct BeatmapCard: View {
     }
 
     /// Artist, falling back to the folder's own name while the preview loads.
+    /// The artist and the tempo on one quiet line.
+    ///
+    /// The tempo was a pill laid over the artwork — a bright badge on every
+    /// card shouting over the pictures it sits on, the same look the asset
+    /// tiles dropped. As text beside the artist it is still there to read.
     private var subtitle: String? {
-        guard let preview, !preview.artist.isEmpty else { return nil }
-        return preview.artist
-    }
-
-    private var badge: String? {
-        guard let bpm = preview?.bpm, bpm > 0 else { return nil }
-        return String(format: "%.0f BPM", bpm)
+        let artist = preview.flatMap { $0.artist.isEmpty ? nil : $0.artist }
+        let tempo = preview?.bpm.flatMap { $0 > 0 ? String(format: "%.0f BPM", $0) : nil }
+        let parts = [artist, tempo].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     @ViewBuilder

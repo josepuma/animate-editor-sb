@@ -77,9 +77,9 @@ struct CompositesPage: View {
             }
         }
 
-        Specimen("PosterCard", note: "A beatmap in the project browser: artwork, a caption over its gradient, an optional badge, and the busy state.") {
+        Specimen("PosterCard", note: "A beatmap in the project browser: artwork, its title and a quiet line of artist · tempo over a black scrim, and the busy state. Hover lights the edge; the card does not grow.") {
             HStack(alignment: .top, spacing: Theme.Spacing.regular) {
-                PosterCard(title: "Toki wo Kizamu Uta", subtitle: "Konomi Suzuki", badge: "Storyboard", action: {}) {
+                PosterCard(title: "Toki wo Kizamu Uta", subtitle: "Konomi Suzuki · 128 BPM", action: {}) {
                     PosterArtwork(url: nil)
                 }
                 .frame(width: 160)

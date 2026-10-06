@@ -9,7 +9,6 @@ import SwiftUI
 package struct PosterCard<Artwork: View, Footer: View>: View {
     private let title: String
     private let subtitle: String?
-    private let badge: String?
     private let aspectRatio: CGFloat
     private let isBusy: Bool
     private let artwork: Artwork
@@ -27,7 +26,6 @@ package struct PosterCard<Artwork: View, Footer: View>: View {
     package init(
         title: String,
         subtitle: String? = nil,
-        badge: String? = nil,
         aspectRatio: CGFloat =  9.0 / 16.0,
         isBusy: Bool = false,
         action: @escaping () -> Void,
@@ -36,7 +34,6 @@ package struct PosterCard<Artwork: View, Footer: View>: View {
     ) {
         self.title = title
         self.subtitle = subtitle
-        self.badge = badge
         self.aspectRatio = aspectRatio
         self.isBusy = isBusy
         self.action = action
@@ -54,9 +51,10 @@ package struct PosterCard<Artwork: View, Footer: View>: View {
         }
         .buttonStyle(.plain)
         .disabled(isBusy)
-        // A small lift rather than a large one: a grid of cards that jump on
-        // hover reads as unstable.
-        .scaleEffect(isHovered && !isBusy ? 1.02 : 1)
+        // Hover lights the edge; the card does not grow. A scale resamples
+        // the artwork off the pixel grid and leaves the clickable area where
+        // it was rather than where the card is drawn — the rule `IconButton`
+        // already follows.
         .animation(Theme.Motion.quick, value: isHovered)
         .animation(Theme.Motion.quick, value: isBusy)
         .onHover { isHovered = $0 }
@@ -85,23 +83,6 @@ package struct PosterCard<Artwork: View, Footer: View>: View {
             )
 
             VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
-                if let badge {
-                    Text(badge)
-                        .font(Theme.Typography.micro)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, Theme.Spacing.snug)
-                        .padding(.vertical, Theme.Spacing.hair)
-                        .background {
-                            Capsule().fill(.black.opacity(0.45))
-                        }
-                        .overlay {
-                            Capsule().strokeBorder(
-                                Theme.Border.badge,
-                                lineWidth: Theme.Size.hairline,
-                            )
-                        }
-                }
-
                 Text(title)
                     .font(Theme.Typography.cardTitle)
                     .foregroundStyle(.white)
