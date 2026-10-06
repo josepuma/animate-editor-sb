@@ -251,6 +251,38 @@ public enum CameraTransform {
         view(z: z) { camera.value($0, at: time) }
     }
 
+    /// Where a point of a lane at depth `z` is drawn on screen at `time`.
+    ///
+    /// For the editor's tools, which see the picture after the camera while
+    /// the clip's position is stored before it: without this the grip sat
+    /// beside a clip on any project with a camera. The same `View` the bake
+    /// uses, so the two cannot disagree about where a sprite is.
+    public static func project(
+        _ x: Double, _ y: Double,
+        through camera: StoryboardCamera,
+        at time: Double,
+        z: Double,
+    ) -> (x: Double, y: Double) {
+        view(of: camera, at: time, z: z).map(x, y)
+    }
+
+    /// How far a lane has to move for a point of it to travel `dx`, `dy` on
+    /// screen — a drag measured on the canvas, taken back into the lane.
+    ///
+    /// Under a roll a drag to the right is a diagonal in the lane, and under a
+    /// zoom or on a lane with depth it is shorter or longer than the hand.
+    public static func unproject(
+        dx: Double, dy: Double,
+        through camera: StoryboardCamera,
+        at time: Double,
+        z: Double,
+    ) -> (dx: Double, dy: Double) {
+        let view = view(of: camera, at: time, z: z)
+        let from = view.unmap(centre.x, centre.y)
+        let to = view.unmap(centre.x + dx, centre.y + dy)
+        return (to.x - from.x, to.y - from.y)
+    }
+
     /// The one place the mapping is written, fed by whoever holds the values.
     private static func view(z: Double, value: (CameraProperty) -> Double) -> View {
         let focal = max(value(.focal), 1)

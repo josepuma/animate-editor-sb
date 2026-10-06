@@ -2288,14 +2288,35 @@ public final class EditorShellModel {
         return isLocked(nodeID)
     }
 
+    /// Where the selected clip's position is drawn on the canvas.
+    ///
+    /// Through the storyboard camera, because that is what the canvas shows
+    /// and what the selection box is measured on. Read straight off the
+    /// transform, the grip sat beside the clip on any project with a camera —
+    /// reported on one that rolls and zooms, with lanes at depth.
     @ObservationIgnored
     public var clipOrigin: (x: Double, y: Double)? {
         guard let nodeID = selectedNodeID, let node = effects[nodeID] else { return nil }
         let local = min(max(0, playheadTime - node.startTime), node.duration)
-        return (
-            x: node.transform.value(.x, at: local),
-            y: node.transform.value(.y, at: local)
-        )
+        let x = node.transform.value(.x, at: local)
+        let y = node.transform.value(.y, at: local)
+        guard let z = canvasCameraDepth(of: nodeID) else { return (x, y) }
+        return CameraTransform.project(x, y, through: effects.camera, at: playheadTime, z: z)
+    }
+
+    /// The depth the canvas sees a clip's lane at through the camera, or `nil`
+    /// when it draws the lane as stored.
+    ///
+    /// The same condition `canvasSprites` decides the picture by: while the
+    /// camera is edited the canvas shows the world before it, and a lane fixed
+    /// to the screen never follows it.
+    private func canvasCameraDepth(of nodeID: EffectNode.ID) -> Double? {
+        guard !(isEditingCamera && !isViewingThroughCamera),
+              let trackID = effects.trackID(of: nodeID),
+              let track = effects.tracks.first(where: { $0.id == trackID }),
+              track.followsCamera
+        else { return nil }
+        return track.z
     }
 
     private func canvasDragBaseline(for node: EffectNode, at time: Double) -> (
@@ -2406,6 +2427,14 @@ public final class EditorShellModel {
         // it bigger", so the pair moves together — but a side handle exists to
         // stretch one axis, and one that obeyed the lock was a second corner:
         // the frame showed one axis growing and the clip came out uniform, so
+        // The drag was measured on the picture, after the camera; the clip is
+        // stored before it. Under a roll a drag to the right is a diagonal in
+        // the lane, and under a zoom or at depth it is shorter or longer.
+        var (dx, dy) = (dx, dy)
+        if let z = canvasCameraDepth(of: nodeID) {
+            (dx, dy) = CameraTransform.unproject(dx: dx, dy: dy, through: effects.camera, at: time, z: z)
+        }
+
         // the preview promised something the commit would not honour.
         //
         // Which one it was is *passed*, never read off the values: a side
