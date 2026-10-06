@@ -30,6 +30,7 @@ struct PreviewsPage: View {
 
     @State private var selectedTile = "portal"
     @State private var selectedTag = "Video Effects"
+    @State private var renamedScript = "wave-mesh"
 
     /// The poster frame of each preview, for tiles that show a still.
     private var stills: [(id: String, title: String, frame: CGImage)] {
@@ -135,7 +136,7 @@ struct PreviewsPage: View {
 
         Specimen(
             "ScriptCard",
-            note: "A script shows its code: the shape of the code is what you recognise, the file name is what you read. Its state is a dot — accent, red, amber — with the detail on hover. ×N appears when several clips share the file — editing it reloads all of them.",
+            note: "A script shows its code: the shape of the code is what you recognise, the file name is what you read. Its state is a dot — accent, red, amber — with the detail on hover. ×N appears when several clips share the file — editing it reloads all of them. The first card can be renamed: double-click its name, or right-click → Rename….",
         ) {
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: 220, maximum: 280), spacing: Theme.Spacing.compact)],
@@ -143,16 +144,19 @@ struct PreviewsPage: View {
                 spacing: Theme.Spacing.compact,
             ) {
                 ScriptCard(
-                    fileName: "wave-mesh.js",
+                    fileName: renamedScript + ".js",
+                    editableName: renamedScript,
                     snippet: Self.waveMesh,
-                    status: .ready(sprites: 342),
+                    status: .ready,
                     clipCount: 3,
                     tint: Theme.TrackPalette.blue,
+                    rename: { renamedScript = $0 },
+                    openInEditor: {},
                 )
                 ScriptCard(
                     fileName: "lyrics-intro.js",
                     snippet: Self.lyrics,
-                    status: .ready(sprites: 48),
+                    status: .ready,
                     clipCount: 1,
                     tint: Theme.TrackPalette.pink,
                     isSelected: true,

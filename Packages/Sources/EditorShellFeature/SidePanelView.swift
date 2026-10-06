@@ -60,13 +60,26 @@ struct SidePanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.compact) {
             SectionHeader(shell.sidePanel.title) {
-                if shell.sidePanel == .scripts, shell.selectedScriptID == nil {
-                    newEffectMenu
+                // One place and one mark for "add" in every panel that can
+                // add something: the lime + at the end of the heading. Each
+                // panel used to say it its own way — a grey + in the filter
+                // row, an icon button by the track count, a card in the grid —
+                // and a control that moves between panels is one that has to be
+                // looked for each time.
+                switch shell.sidePanel {
+                case .assets: importAssetsMenu
+                case .effects: newEffectMenu
+                case .scripts: newScriptButton
+                case .layers: newTrackButton
+                // Filters are applied, not created; Lyrics' action is to
+                // transcribe, which lives with its settings.
+                case .filters, .lyrics: EmptyView()
                 }
             }
 
             switch shell.sidePanel {
             case .assets: assets
+            case .effects: library
             case .scripts: scripts
             case .filters: filtersPanel
             case .layers: layers
@@ -100,43 +113,6 @@ struct SidePanelView: View {
                     label: \.title,
                 )
 
-                Spacer(minLength: 0)
-
-                // Beside the filter rather than under the list: it belongs to
-                // the panel, not to whatever happens to be in it — and under
-                // the list it would sit below the fold the moment a project has
-                // a dozen assets.
-                // A menu rather than a button, because the destination is a
-                // real fork: the root is the beatmap's own art and `sb/` is the
-                // storyboard's, and a file in the wrong one is broken in a way
-                // nothing shows until export. Choosing for the author is what
-                // put a background in `sb/` and made a mess to untangle.
-                //
-                // A plus, not a download arrow: nothing is being fetched from
-                // anywhere — a file is being added to what the panel lists.
-                Menu {
-                    ForEach(AssetDestination.allCases) { destination in
-                        Button {
-                            shell.importAssetsFromDisk(into: destination)
-                        } label: {
-                            Text(destination.title)
-                            Text(destination.detail)
-                        }
-                    }
-                } label: {
-                    Image(systemName: "plus")
-                        .font(Theme.Typography.micro)
-                        .foregroundStyle(Theme.Palette.secondary)
-                        .frame(
-                            width: Theme.Size.controlTiny,
-                            height: Theme.Size.controlTiny,
-                        )
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Import images")
-                .disabled(!shell.canImportAssets)
             }
 
             if shell.visibleAssets.isEmpty {
@@ -186,26 +162,43 @@ struct SidePanelView: View {
     /// Effects and scripts share this panel because they will be the same
     /// thing: a scripted effect declares the same descriptor a native one does,
     /// and will appear in this list beside them.
-    /// The effect library.
+    /// The project's scripts, as cards — and only as cards.
     ///
-    /// No list of what has been placed: the timeline already shows that, in the
-    /// arrangement that matters. Repeating it here spends the panel's height on
-    /// a second, worse view of the same thing.
-    @ViewBuilder
+    /// A card is acted on, not opened: a click places another clip running
+    /// that file, and the card's edit button opens the file in the editor. It
+    /// used to swap the list for the selected clip's script panel, which is a
+    /// second screen to get lost in for what are two actions.
     private var scripts: some View {
-        // The editor REPLACES the library while a script is selected, rather
-        // than sitting above it.
-        //
-        // Stacked, nothing fitted: the editor, the tool row, the search field
-        // and the filter chips together are taller than the panel, so every one
-        // of them got squeezed and the code drew straight over the rest. And
-        // the library is for placing something *new* — with a script selected,
-        // the code is what you came here for, so giving it the whole panel is
-        // both the fix and the right arrangement.
-        if let scriptID = shell.selectedScriptID {
-            ScriptPanel(shell: shell, nodeID: scriptID)
-        } else {
-            library
+        scriptList
+    }
+
+    /// Every script file the project uses.
+    private var scriptList: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
+            search
+
+            ScrollView {
+                LazyVGrid(columns: Self.cardColumns, alignment: .leading, spacing: Theme.Spacing.snug) {
+                    ForEach(visibleScripts) { entry in
+                        scriptCard(entry)
+                    }
+                }
+
+                if visibleScripts.isEmpty {
+                    if query.isEmpty {
+                        ComingSoon(
+                            title: "No scripts yet",
+                            detail: "Start one with the + above — it opens in your code editor.",
+                            systemImage: "curlybraces",
+                        )
+                    } else {
+                        Text("Nothing matches")
+                            .font(Theme.Typography.micro)
+                            .foregroundStyle(Theme.Palette.tertiary)
+                            .padding(.top, Theme.Spacing.compact)
+                    }
+                }
+            }
         }
     }
 
@@ -224,21 +217,6 @@ struct SidePanelView: View {
                 // Lazy, so a card is only built — and only asks for its
                 // preview — once it scrolls into view.
                 LazyVGrid(columns: Self.cardColumns, alignment: .leading, spacing: Theme.Spacing.snug) {
-                    if let blank = blankEffect {
-                        // The blank effect, first among its own presets: with
-                        // a chip narrowing the grid to one effect, starting
-                        // from nothing is one click in the place it is looked
-                        // for — not a row of unlabelled glyphs kept on screen
-                        // for every effect at once.
-                        EffectPreviewCard(
-                            title: "New \(blank.name)",
-                            systemImage: "plus",
-                            tint: Theme.Palette.accent,
-                            action: { shell.addEffect(blank, at: playheadNow()) },
-                        )
-                        .help("Add a blank \(blank.name) at the playhead")
-                    }
-
                     ForEach(visiblePresets, id: \.id) { preset in
                         EffectPreviewCard(
                             title: preset.name,
@@ -256,7 +234,7 @@ struct SidePanelView: View {
                     }
                 }
 
-                if visiblePresets.isEmpty {
+                if visiblePresets.isEmpty, !query.isEmpty {
                     Text("Nothing matches")
                         .font(Theme.Typography.micro)
                         .foregroundStyle(Theme.Palette.tertiary)
@@ -311,12 +289,101 @@ struct SidePanelView: View {
         .help("Add a blank effect at the playhead")
     }
 
-    /// The effect a chip has narrowed the grid to, offered blank as its first
-    /// card — only while the search is empty, since a blank effect matches no
-    /// name anybody is typing.
-    private var blankEffect: EffectDescriptor? {
-        guard query.isEmpty, case let .effect(type) = selectedFilter else { return nil }
-        return shell.library.descriptor(for: type)
+    /// Images into the project, from disk.
+    ///
+    /// A menu rather than a button, because the destination is a real fork:
+    /// the root is the beatmap's own art and `sb/` is the storyboard's, and a
+    /// file in the wrong one is broken in a way nothing shows until export.
+    /// Choosing for the author is what put a background in `sb/` and made a
+    /// mess to untangle.
+    private var importAssetsMenu: some View {
+        Menu {
+            ForEach(AssetDestination.allCases) { destination in
+                Button {
+                    shell.importAssetsFromDisk(into: destination)
+                } label: {
+                    Text(destination.title)
+                    Text(destination.detail)
+                }
+            }
+        } label: {
+            AddBadge(isHighlighted: true)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(!shell.canImportAssets)
+        // A plain style draws the label as given, disabled or not, so the
+        // dimming is said here — a lit + that does nothing is a control that
+        // lies.
+        .opacity(shell.canImportAssets ? 1 : 0.4)
+        .help("Import images")
+    }
+
+    /// A new, empty track.
+    private var newTrackButton: some View {
+        Button { shell.addTrack() } label: {
+            AddBadge(isHighlighted: true)
+        }
+        .buttonStyle(.plain)
+        .help("New track")
+    }
+
+    /// A new script clip, with a fresh file to edit — the Scripts tab's `+`,
+    /// the same mark and the same place as the Effects tab's.
+    ///
+    /// A button, not a card in the grid: a "New Script" card sat among the
+    /// file cards in a different shape from all of them, and the panel had two
+    /// ways to say "add" where Effects has one.
+    private var newScriptButton: some View {
+        Button {
+            guard let script = shell.library.descriptor(for: ScriptEffect.descriptor.type) else { return }
+            shell.addEffect(script, at: playheadNow())
+        } label: {
+            AddBadge(isHighlighted: true)
+        }
+        .buttonStyle(.plain)
+        .help("Add a script clip at the playhead, with a new file to edit")
+    }
+
+    /// The script cards on show, narrowed by the search like everything else.
+    private var visibleScripts: [ScriptEntry] {
+        shell.scriptEntries.filter { matches($0.file.name) }
+    }
+
+    /// One script file as a card.
+    ///
+    /// A click places another clip running the same file at the playhead —
+    /// what a click on any card in the library does. The edit button opens the
+    /// file in the editor; the menu also renames it. One card per file, so a
+    /// file three clips share is one card marked ×3 — editing it reloads all
+    /// three.
+    private func scriptCard(_ entry: ScriptEntry) -> some View {
+        let status: ScriptCard.Status = if entry.isMissing {
+            .missing
+        } else if let failure = shell.scriptFailure(of: entry) {
+            .failed(failure)
+        } else {
+            .ready
+        }
+
+        return ScriptCard(
+            fileName: entry.file.fileName,
+            editableName: entry.file.name,
+            snippet: entry.snippet,
+            status: status,
+            clipCount: entry.clipIDs.count,
+            tint: entry.trackID
+                .flatMap { id in shell.effects.tracks.first { $0.id == id }?.tint }
+                ?? Theme.Palette.tertiary,
+            isSelected: shell.selectedNodeID.map(entry.clipIDs.contains) ?? false,
+            action: { shell.addScriptClip(using: entry.file, at: playheadNow()) },
+            rename: { shell.renameScript(entry.file, to: $0) },
+            openInEditor: entry.isMissing ? nil : {
+                if let first = entry.clipIDs.first { shell.openScriptExternally(first) }
+            },
+        )
     }
 
     /// Which pack the list is showing, as a row of chips.
@@ -546,12 +613,6 @@ struct SidePanelView: View {
                     .foregroundStyle(Theme.Palette.tertiary)
 
                 Spacer()
-
-                IconButton(
-                    systemImage: "plus",
-                    size: Theme.Size.controlTiny,
-                    help: "New track",
-                ) { shell.addTrack() }
             }
 
             if shell.effects.tracks.isEmpty {

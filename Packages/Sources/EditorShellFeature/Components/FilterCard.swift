@@ -78,10 +78,13 @@ package struct FilterCard<Content: View>: View {
             .onTapGesture { isExpanded.toggle() }
 
             if isExpanded {
-                VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
+                // The same row rhythm and inset as a `FieldGroup`'s, so a filter
+                // card beside a group reads as the same kind of form — it was
+                // looser on both counts, and narrower for it.
+                VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
                     content
                 }
-                .padding(.horizontal, Theme.Spacing.compact)
+                .padding(.horizontal, Theme.Spacing.snug)
                 .padding(.top, Theme.Spacing.snug)
                 .padding(.bottom, Theme.Spacing.compact)
                 // A hairline between head and body, so an open card reads as
@@ -97,8 +100,8 @@ package struct FilterCard<Content: View>: View {
         // filter is a **row of a list** — collapsible, switchable, removable —
         // not a section of a panel. Several of them stacked need to read as
         // separate items, which spacing alone cannot say.
+        // Tone only, no hairline — the same surface a `FieldGroup` is.
         .background(shape.fill(Theme.Tone.raised))
-        .overlay { shape.strokeBorder(Theme.Border.card, lineWidth: Theme.Size.hairline) }
         .clipShape(shape)
         .animation(Theme.Motion.quick, value: isExpanded)
         .animation(Theme.Motion.quick, value: isEnabled)

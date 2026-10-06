@@ -14,7 +14,13 @@ import SwiftUI
 /// show the sample properties until there is something real to bind to.
 struct InspectorView: View {
     /// Fixed width, so the shell can size the workspace around the canvas.
-    static let width: CGFloat = 264
+    ///
+    /// 300 rather than the 264 it was. Groups became surfaces with their own
+    /// padding, and a transform row still needs its stopwatch and diamond
+    /// columns: at 264 that left a number field about 70 points — "3654 ms"
+    /// cut off behind its stepper. The window's minimum is derived from this,
+    /// so it follows.
+    static let width: CGFloat = 300
 
     let shell: EditorShellModel
 
@@ -50,11 +56,12 @@ struct InspectorView: View {
             // Outside the scroll view, so the tabs stay put while their
             // content scrolls under them — a tab row that scrolls away is a
             // tab row that has to be scrolled back to.
-            if clip != nil {
+            if let clip {
+                let isScript = clip.node.type == ScriptEffect.descriptor.type
                 ToolTabs(
-                    items: InspectorTab.allCases,
+                    items: InspectorTab.tabs(isScript: isScript),
                     selection: Binding(
-                        get: { shell.inspectorTab },
+                        get: { shell.inspectorTab.shown(isScript: isScript) },
                         set: { shell.inspectorTab = $0 },
                     ),
                     icon: \.systemImage,
@@ -100,6 +107,7 @@ struct InspectorView: View {
                         // disagreeing about the selection is the bug this
                         // panel already had once, with keyframe mode.
                         cameraSections
+                            .propertyGrid(leading: Theme.Size.keyframeGutter, trailing: Theme.Size.keyframeSlot)
                     } else if let clip {
                         clipTabs(descriptor: clip.descriptor, node: clip.node)
                     } else if let track = shell.selectedTrack {
@@ -113,10 +121,6 @@ struct InspectorView: View {
                     }
 
                 }
-                // One grid for every row in the panel, animatable or not, so
-                // labels and fields line up down the whole column whichever
-                // rows carry a stopwatch.
-                .propertyGrid(leading: Theme.Size.keyframeGutter, trailing: Theme.Size.keyframeSlot)
                 .padding(Theme.Spacing.compact)
             }
             .scrollBounceBehavior(.basedOnSize)
@@ -141,7 +145,9 @@ struct InspectorView: View {
 
     @ViewBuilder
     private func filterSection(_ node: EffectNode) -> some View {
-        FieldGroup("Filters") {
+        // Not surfaced: each filter is a card of its own, and a card on a
+        // surface of the same tone is a box in a box.
+        FieldGroup("Filters", surfaced: false) {
             ForEach(node.filters) { filter in
                 if let descriptor = shell.filters.descriptor(for: filter.type) {
                     FilterNodeCard(
@@ -283,12 +289,20 @@ struct InspectorView: View {
         selectedKeyframeSection(node)
         selectedFilterKeyframeSection(node)
 
-        switch shell.inspectorTab {
+        switch shell.inspectorTab.shown(isScript: node.type == ScriptEffect.descriptor.type) {
         case .effect:
             effectParameters(descriptor: descriptor, node: node)
         case .clip:
+            // The keyframe grid on Transform only, whose rows carry a stopwatch
+            // and a diamond. Not on Timing, nor on the Effect tab: nothing there
+            // animates, and reserving the two columns cost every row 44 points
+            // and pushed its label a column inward. Lining Timing up with
+            // Transform was the reason it once shared the grid — but each group
+            // is its own surface now, and alignment is owed within a group, not
+            // across two.
             timingRow(node: node)
             transformSection(node)
+                .propertyGrid(leading: Theme.Size.keyframeGutter, trailing: Theme.Size.keyframeSlot)
         case .filters:
             if node.filters.isEmpty {
                 // Said rather than left blank: an empty tab reads as broken,
@@ -301,6 +315,15 @@ struct InspectorView: View {
             } else {
                 filterSection(node)
             }
+        case .output:
+            // Reading `evaluatingNodes` is also what redraws this when a run
+            // lands: the report itself comes through a closure SwiftUI cannot
+            // observe, so a saved script's new output would otherwise wait for
+            // some unrelated change to show.
+            ScriptOutputView(
+                report: shell.scriptReport?(node.id),
+                isRunning: shell.evaluatingNodes.contains(node.id),
+            )
         }
     }
 
@@ -597,7 +620,10 @@ struct InspectorView: View {
         .offset(
             x: Theme.Size.keyframeGutter + Theme.Spacing.snug
                 + Theme.Size.propertyLabel - Theme.Size.controlTiny,
-            y: -(Theme.Spacing.compact + Theme.Size.controlTiny) / 2,
+            // Half the gap between the rows plus half the link: centred on the
+            // gap. The gap is `FieldGroup`'s row spacing — change one, change
+            // both.
+            y: -(Theme.Spacing.tight + Theme.Size.controlTiny) / 2,
         )
     }
 
@@ -1100,13 +1126,9 @@ private struct FilterNodeCard: View {
                 descriptor.parameters.filter { $0.shownWhen?.holds(in: filter.values) ?? true },
                 id: \.id,
             ) { parameter in
-                // The keyframe controls go *under* the field, not beside it.
-                //
-                // A `PropertyRow` is the width of one control, and three
-                // buttons alongside it squeezed a number field down to its
-                // own stepper — no room left to read or type the value.
-                // The same lesson `ColorField` already taught with three
-                // controls in one row, and the alignment buttons after it.
+                // An animatable parameter's stopwatch sits before its label and
+                // its diamond after its field — the same columns a transform
+                // row uses — so the field keeps its width.
                 ParameterControl(
                     parameter: parameter,
                     // While animating, the field shows the value at the
@@ -1144,6 +1166,19 @@ private struct FilterNodeCard: View {
             .disabled(!filter.isEnabled)
             .opacity(filter.isEnabled ? 1 : 0.5)
         }
+        // The keyframe columns only on a filter that has something to animate.
+        // Decided per card, not for the whole Filters tab: Echo animates
+        // nothing, and the two empty columns it was given pushed its labels
+        // inward and narrowed every field — the same cost the Effect tab and
+        // Timing were already spared. `nil` reserves nothing.
+        .propertyGrid(
+            leading: hasAnimatableParameters ? Theme.Size.keyframeGutter : nil,
+            trailing: hasAnimatableParameters ? Theme.Size.keyframeSlot : nil,
+        )
+    }
+
+    private var hasAnimatableParameters: Bool {
+        descriptor.parameters.contains { $0.animation.isAnimatable }
     }
 
     /// The stopwatch and navigation for a parameter, or `nil` when its

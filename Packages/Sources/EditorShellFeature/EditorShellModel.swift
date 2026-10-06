@@ -5,8 +5,12 @@ import StoryboardCore
 /// Which panel the left rail is showing.
 public enum SidePanel: String, CaseIterable, Identifiable, Sendable {
     case assets
-    case scripts
+    /// The effect library. Its own case since scripts got a tab of their own:
+    /// this used to be `.scripts` — a name left from when the panel was the
+    /// script browser — so the rail's `{}` opened "Effects".
+    case effects
     case filters
+    case scripts
     case layers
     case lyrics
 
@@ -15,6 +19,7 @@ public enum SidePanel: String, CaseIterable, Identifiable, Sendable {
     public var systemImage: String {
         switch self {
         case .assets: "photo.stack"
+        case .effects: "sparkles"
         case .scripts: "curlybraces"
         case .filters: "wand.and.stars"
         case .layers: "square.3.layers.3d"
@@ -25,7 +30,8 @@ public enum SidePanel: String, CaseIterable, Identifiable, Sendable {
     public var title: String {
         switch self {
         case .assets: "Assets"
-        case .scripts: "Effects"
+        case .effects: "Effects"
+        case .scripts: "Scripts"
         case .filters: "Filters"
         case .layers: "Layers"
         case .lyrics: "Lyrics"
@@ -738,6 +744,7 @@ public final class EditorShellModel {
         // The declarations, so the editor has types the moment it opens — and
         // this is the first script in a project that had none.
         try? writeScriptTypesHandler?(projectFolder)
+        refreshScriptSnippets()
 
         return placed
     }
@@ -1268,6 +1275,7 @@ public final class EditorShellModel {
             // watcher first: left running, it would reload this project every
             // time someone edited a script in the folder they just closed.
             startWatchingScripts()
+            refreshScriptSnippets()
             // Loading is not a change: a project opened and closed untouched
             // should not claim to need saving.
             hasUnsavedChanges = false
@@ -1525,6 +1533,18 @@ public final class EditorShellModel {
     @ObservationIgnored
     public var openScriptHandler: ((_ file: URL) -> Bool)?
 
+    /// The first lines of each script file, by file name, for the library's
+    /// script cards.
+    ///
+    /// Read on the few events that can change them — a project opening, the
+    /// watcher reporting an edit, a script placed or renamed — and never from
+    /// a view's body: a card redraws far more often than a file changes.
+    @ObservationIgnored private var scriptSnippets: [String: [String]] = [:]
+    /// Script files a clip names that are not on disk.
+    @ObservationIgnored private var missingScripts: Set<String> = []
+    /// Bumped when the two above change, so the cards reading them redraw.
+    public private(set) var scriptsRevision = 0
+
     /// Sets which file a script node reads.
     ///
     /// Through the model so `EditHistory` sees it: pointing a clip at another
@@ -1537,6 +1557,173 @@ public final class EditorShellModel {
         node.scriptFile = file
         effects[nodeID] = node
         effectsChanged(node: nodeID)
+    }
+
+    // ─── Script library ──────────────────────────────────────────────────────
+
+    /// The project's script files, one entry per file rather than per clip.
+    ///
+    /// Per file because the file is what a script *is*: two clips sharing one
+    /// run the same code, and editing it reloads both. Listed in the order
+    /// their first clip appears on the timeline.
+    public var scriptEntries: [ScriptEntry] {
+        _ = scriptsRevision
+
+        var byFile: [String: (file: ScriptFile, clips: [(EffectNode, EffectTrack.ID, Int)])] = [:]
+        var order = 0
+        for track in effects.tracks {
+            for node in track.nodes {
+                guard let file = node.scriptFile else { continue }
+                byFile[file.name, default: (file, [])].clips.append((node, track.id, order))
+                order += 1
+            }
+        }
+
+        return byFile.values
+            .map { entry in
+                // Earliest on the timeline; document order breaks a tie, so
+                // the answer never depends on dictionary iteration.
+                let clips = entry.clips.sorted {
+                    ($0.0.startTime, $0.2) < ($1.0.startTime, $1.2)
+                }
+                return ScriptEntry(
+                    file: entry.file,
+                    snippet: scriptSnippets[entry.file.name] ?? [],
+                    isMissing: missingScripts.contains(entry.file.name),
+                    clipIDs: clips.map(\.0.id),
+                    trackID: clips.first?.1,
+                )
+            }
+            .sorted {
+                let first = effects[$0.clipIDs[0]]?.startTime ?? 0
+                let second = effects[$1.clipIDs[0]]?.startTime ?? 0
+                return (first, $0.file.name) < (second, $1.file.name)
+            }
+    }
+
+    /// Why a script's last run failed, if any of its clips' did.
+    ///
+    /// Only failures count. A truncated run still drew, and a card turning red
+    /// for "kept 2000 of 2400 sprites" would cry wolf on a script that works.
+    public func scriptFailure(of entry: ScriptEntry) -> String? {
+        for id in entry.clipIDs {
+            for diagnostic in scriptReport?(id)?.diagnostics ?? [] {
+                switch diagnostic {
+                case let .compileFailed(message), let .runtimeFailed(message): return message
+                case .noSource: return "The file is missing or empty."
+                default: continue
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Places another clip running an existing script file.
+    ///
+    /// Not `addEffect`: that writes a new file for every script clip it
+    /// places, and the point here is the opposite — a second clip sharing the
+    /// first's code, so editing the file changes both. An ordinary edit, so
+    /// undo takes it back like any placement.
+    @discardableResult
+    public func addScriptClip(using file: ScriptFile, at startTime: Double) -> EffectNode? {
+        guard let descriptor = library.descriptor(for: ScriptEffect.descriptor.type) else { return nil }
+
+        var node = effects.add(descriptor, at: startTime, duration: 2000, on: destinationTrackID)
+        node.name = file.name
+        node.scriptFile = file
+        completingPlacement { effects[node.id] = node }
+        selectedNodeID = node.id
+        effectsChanged()
+        return node
+    }
+
+    /// Re-reads the first lines of every script file the document names.
+    ///
+    /// Bumps the revision only when something changed: writing an observed
+    /// value redraws every card reading it, change or not.
+    func refreshScriptSnippets() {
+        guard let projectFolder else { return }
+
+        let files = Set(effects.nodes.compactMap(\.scriptFile))
+        var snippets: [String: [String]] = [:]
+        var missing: Set<String> = []
+        for file in files {
+            guard let source = try? ScriptStore.read(file, inFolder: projectFolder) else {
+                missing.insert(file.name)
+                continue
+            }
+            snippets[file.name] = source
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .prefix(Self.snippetLines)
+                .map(String.init)
+        }
+
+        guard snippets != scriptSnippets || missing != missingScripts else { return }
+        scriptSnippets = snippets
+        missingScripts = missing
+        scriptsRevision &+= 1
+    }
+
+    /// How many lines a script card shows.
+    private static let snippetLines = 5
+
+    /// Renames a script file on disk and points every clip that ran it at the
+    /// new name.
+    ///
+    /// **Not undoable, by design.** ⌘Z cannot rename the file back on disk,
+    /// and undoing only the references would leave the document naming a file
+    /// that no longer exists — the silent disagreement between document and
+    /// disk the scripts move to files was meant to end. So the references are
+    /// written outside the history, as `reloadScripts` does; the project is
+    /// still marked unsaved, because the document changed.
+    ///
+    /// Every clip naming the file follows, **locked ones too**: a lock refuses
+    /// edits to what a clip does, and leaving it pointing at a name that is
+    /// gone would break it rather than protect it.
+    ///
+    /// - Returns: whether the rename happened. On failure `saveError` says
+    ///   why, and nothing on disk or in the document has changed.
+    @discardableResult
+    public func renameScript(_ file: ScriptFile, to proposed: String) -> Bool {
+        guard let projectFolder else { return false }
+
+        let trimmed = proposed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let target = ScriptFile(name: trimmed) else {
+            saveError = "“\(trimmed)” can't be a script name."
+            return false
+        }
+        guard target != file else { return true }
+
+        let destination = ScriptStore.url(of: target, inFolder: projectFolder)
+        // Never over another file: a rename that silently replaced a script
+        // would lose its code with no undo to get it back.
+        guard !FileManager.default.fileExists(atPath: destination.path) else {
+            saveError = "A script named \(target.fileName) already exists."
+            return false
+        }
+        do {
+            try FileManager.default.moveItem(
+                at: ScriptStore.url(of: file, inFolder: projectFolder),
+                to: destination,
+            )
+        } catch {
+            saveError = "Could not rename \(file.fileName)."
+            return false
+        }
+
+        withoutRecording {
+            for node in effects.nodes where node.scriptFile == file {
+                var renamed = node
+                renamed.scriptFile = target
+                effects[node.id] = renamed
+            }
+        }
+        saveError = nil
+        refreshScriptSnippets()
+        // Every clip naming the file, so an edit that names none: their code
+        // resolves through the new name from the next pass on.
+        effectsChanged()
+        return true
     }
 
     /// Whether this clip has a script file that exists to be opened.
@@ -3298,6 +3485,7 @@ public final class EditorShellModel {
     /// Resolution happens inside the evaluation pass, so this only has to ask
     /// for one.
     public func reloadScripts() {
+        refreshScriptSnippets()
         effectsChanged()
     }
 
@@ -3629,3 +3817,19 @@ public extension PreviewSubject {
     }
 }
 
+/// One script file and the clips that run it.
+///
+/// Outside the model for the reason `PreviewSubject` is: `@Observable`
+/// tries to give every member of the class an accessor.
+public struct ScriptEntry: Equatable, Identifiable {
+    public var id: String { file.name }
+    public let file: ScriptFile
+    /// The first lines of the file, empty when it is missing.
+    public let snippet: [String]
+    public let isMissing: Bool
+    /// Every clip naming the file, earliest first — so the first is the
+    /// one a click on the card selects.
+    public let clipIDs: [EffectNode.ID]
+    /// The lane the first clip is on, for the card's colour.
+    public let trackID: EffectTrack.ID?
+}

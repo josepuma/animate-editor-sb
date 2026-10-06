@@ -33,4 +33,22 @@ struct InspectorTabTests {
         shell.selectedNodeID = first.id
         #expect(shell.inspectorTab == .filters)
     }
+
+    @Test("only a script clip has an output tab")
+    func outputIsForScriptsOnly() {
+        #expect(InspectorTab.tabs(isScript: true).contains(.output))
+        #expect(!InspectorTab.tabs(isScript: false).contains(.output))
+    }
+
+    @Test("output on a clip that has none shows effect, and is not forgotten")
+    func outputFallsBackWithoutForgetting() {
+        let shell = EditorShellModel()
+        shell.inspectorTab = .output
+
+        // An emitter has no output: the panel shows Effect…
+        #expect(shell.inspectorTab.shown(isScript: false) == .effect)
+        // …but the choice stands, so the next script clip opens on Output.
+        #expect(shell.inspectorTab == .output)
+        #expect(shell.inspectorTab.shown(isScript: true) == .output)
+    }
 }

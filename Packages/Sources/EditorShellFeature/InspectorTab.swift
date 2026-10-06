@@ -12,6 +12,8 @@ public enum InspectorTab: String, CaseIterable, Identifiable, Sendable {
     case clip
     /// How it looks: the filters on it.
     case filters
+    /// What its last run printed and where it failed — script clips only.
+    case output
 
     public var id: Self { self }
 
@@ -20,6 +22,7 @@ public enum InspectorTab: String, CaseIterable, Identifiable, Sendable {
         case .effect: "Effect"
         case .clip: "Clip"
         case .filters: "Filters"
+        case .output: "Output"
         }
     }
 
@@ -28,6 +31,23 @@ public enum InspectorTab: String, CaseIterable, Identifiable, Sendable {
         case .effect: "wand.and.stars"
         case .clip: "move.3d"
         case .filters: "camera.filters"
+        case .output: "text.alignleft"
         }
+    }
+
+    /// The tabs a clip has: every clip the first three, a script clip its
+    /// output as well. A tab that is always there and empty for nine clips out
+    /// of ten is a tab that teaches people to stop looking at it.
+    public static func tabs(isScript: Bool) -> [InspectorTab] {
+        isScript ? [.effect, .clip, .filters, .output] : [.effect, .clip, .filters]
+    }
+
+    /// The tab to show for a clip, given the one that was chosen.
+    ///
+    /// The choice itself is kept: someone reading a script's output who picks
+    /// an emitter for a moment and comes back finds the output still open,
+    /// rather than having been sent to Effect for good.
+    public func shown(isScript: Bool) -> InspectorTab {
+        Self.tabs(isScript: isScript).contains(self) ? self : .effect
     }
 }
