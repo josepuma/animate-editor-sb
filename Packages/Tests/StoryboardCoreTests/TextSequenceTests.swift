@@ -223,7 +223,7 @@ struct TextSequenceTests {
     func groups() {
         let descriptor = TextEffect.descriptor
         #expect(descriptor.groups == [
-            "Content", "Layout", "Colour", "Sequence", "Entrance", "Scatter", "Hold", "Exit",
+            "Content", "Layout", "Colour", "Sequence", "Entrance", "Scatter", "Hold", "Exit", "Particles",
         ])
         func members(_ group: String) -> [String] {
             descriptor.parameters.filter { $0.group == group }.map(\.id)

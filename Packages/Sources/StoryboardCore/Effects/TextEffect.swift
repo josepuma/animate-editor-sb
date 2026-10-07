@@ -236,7 +236,7 @@ public struct TextEffect: Effect {
                 id: Param.scatterScale, name: "Scatter Scale", group: "Scatter",
                 defaultValue: .number(0), range: 0...3, step: 0.05,
             ),
-        ] + TextHoldMotion.parameters + TextExit.parameters,
+        ] + TextHoldMotion.parameters + TextExit.parameters + TextGlyphParticles.parameters,
     )
 
     public func evaluate(in context: EffectContext, rng: inout EffectRandom) -> [StoryboardSprite] {
@@ -303,7 +303,7 @@ public struct TextEffect: Effect {
             )
         }
 
-        return placed.enumerated().map { index, glyph -> StoryboardSprite in
+        let letters = placed.enumerated().map { index, glyph -> StoryboardSprite in
             // A stream per character, so raising the count adds letters rather
             // than reshuffling the ones already placed.
             var stream = rng.stream(index)
@@ -316,6 +316,24 @@ public struct TextEffect: Effect {
                 rng: &stream,
             )
         }
+
+        // After every letter, so a burst draws over the line it comes from and
+        // the letters keep the draw order they always had.
+        let fadeIn = max(0, context.number(Param.fadeIn))
+        let particles = TextGlyphParticles.sprites(
+            for: placed.indices.map { index in
+                let span = Span(plan: plans[index], duration: context.duration, fadeIn: fadeIn, fadeOut: fadeOut)
+                return TextGlyphParticles.Glyph(
+                    index: index, sprite: letters[index],
+                    birth: span.birth, landed: span.landed, exitStart: span.exitStart,
+                    life: span.life, hasExit: span.hasExit,
+                    halfWidth: placed[index].size.width / 2, halfHeight: placed[index].size.height / 2,
+                )
+            },
+            context: context,
+            rng: rng,
+        )
+        return letters + particles
     }
 
     // ─── Layout ──────────────────────────────────────────────────────────────

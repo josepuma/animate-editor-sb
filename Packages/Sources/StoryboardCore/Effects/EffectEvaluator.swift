@@ -125,7 +125,20 @@ public struct EffectEvaluator: Sendable {
             var nested = layer
             // Timed against the parent, not the project: a layer sits inside
             // its clip, and the clip's own offset is applied once at the end.
-            nested.startTime = 0
+            // A layer that waits starts that much into the clip, still local:
+            // evaluating it shifts it by its own start, and the parent's offset
+            // comes once at the end like everything else's.
+            let delay = max(layer.delay ?? 0, 0)
+            // One that would start after its clip has ended never starts: a
+            // zero-length layer still writes sprites, frozen on the clip's
+            // last frame.
+            guard delay == 0 || delay < node.duration else { continue }
+            nested.startTime = delay
+            // And it lasts as long as what is left of the clip. A layer keeps
+            // the duration it was placed with, and resizing touches only the
+            // clip — so a stretched compound's layers would otherwise still
+            // think the clip was its old length.
+            nested.duration = node.duration - delay
             produced += evaluate(nested)
         }
 

@@ -5,13 +5,10 @@ import Testing
 
 @Suite("Text presets")
 struct TextPresetTests {
+    /// Placed as the editor places it, layers and filters included: a
+    /// compound judged on its title alone is judged on half of it.
     private func sprites(_ preset: EffectPreset, text: String? = nil) -> [StoryboardSprite] {
-        var document = EffectDocument()
-        var node = document.add(TextEffect.descriptor, at: 0, duration: preset.duration)
-        for (key, value) in preset.values { node.values[key] = value }
-        if let text { node.values[TextEffect.Param.text] = .text(text) }
-        document[node.id] = node
-        return EffectEvaluator().evaluate(document)
+        PlacedPreset.sprites(preset, text: text)
     }
 
     /// All of them are the one effect with different numbers — no special cases
@@ -59,9 +56,16 @@ struct TextPresetTests {
             P.stretchFromX, P.stretchFromY, P.pivot, P.spinFrom, P.exit,
             P.holdMotion, P.colourMode, P.exitStagger, P.exitOrder,
         ]
-        let signatures = TextEffect.presets.map { preset in axes.map { preset.values[$0] } }
+        // What a preset brings besides its numbers is part of what it is: two
+        // with the same title movement and different layers are two presets.
+        let signatures = TextEffect.presets.map { preset in
+            "\(axes.map { preset.values[$0] })"
+                + " \(preset.values[TextGlyphParticles.Param.mode].map(String.init(describing:)) ?? "")"
+                + " \(preset.filters.map { "\($0.type) \($0.values.sorted { $0.key < $1.key }) \($0.animations.keys.sorted())" })"
+                + " \(preset.layers.map { "\($0.effectType) \($0.values.sorted { $0.key < $1.key }) \($0.delay)" })"
+        }
 
-        #expect(Set(signatures.map(String.init(describing:))).count == signatures.count)
+        #expect(Set(signatures).count == signatures.count)
     }
 
     /// Different numbers are not enough: what the presets draw has to differ.
@@ -88,7 +92,7 @@ struct TextPresetTests {
     func animatorPresetsExist() {
         let ids = TextEffect.presets.map(\.id)
         #expect(Self.animatorIDs.allSatisfy(ids.contains))
-        #expect(TextEffect.presets.count == 35)
+        #expect(TextEffect.presets.count == 50)
     }
 
     /// S8.1: unique across every preset the editor lists, not only the text
@@ -230,7 +234,7 @@ struct TextPresetTests {
     @Test("the motion presets are in the library, after the animator ones")
     func motionPresetsExist() {
         let ids = TextEffect.presets.map(\.id)
-        #expect(Array(ids.suffix(10)) == Self.motionIDs)
+        #expect(Array(ids.dropLast(TextEffect.fxPresets.count).suffix(10)) == Self.motionIDs)
     }
 
     /// A hold is at most 48 steps on top of the ten the effect could already

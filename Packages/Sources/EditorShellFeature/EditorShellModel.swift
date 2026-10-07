@@ -835,6 +835,7 @@ public final class EditorShellModel {
                 duration: preset.duration,
                 seed: EffectNode.layerSeed(from: node.seed, index: index),
                 values: layerDescriptor.defaultValues.merging(layer.values) { _, new in new },
+                delay: layer.delay > 0 ? layer.delay : nil,
             )
             // A layer's position is a transform too, for the same reason the
             // parent's is.

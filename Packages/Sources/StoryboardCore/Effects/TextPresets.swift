@@ -12,7 +12,7 @@ public extension TextEffect {
         typewriter, fadeUp, drop, popIn, sweep, scatter,
         shockwave, unfold, cascade, wave, glitch, revealCentre,
         driftApart, burst, ledSign,
-    ] + animatorPresets + motionPresets
+    ] + animatorPresets + motionPresets + fxPresets
 
     /// Shared with `TextAnimatorPresets.swift` and `TextMotionPresets.swift`,
     /// so every preset is built the same way: values merged over the
@@ -23,6 +23,9 @@ public extension TextEffect {
         _ summary: String,
         duration: Double = 4000,
         _ values: [String: EffectValue],
+        layers: [EffectPreset.Layer] = [],
+        pack: String? = nil,
+        filters: [EffectPreset.Filter] = [],
     ) -> EffectPreset {
         EffectPreset(
             id: id,
@@ -32,6 +35,9 @@ public extension TextEffect {
             duration: duration,
             values: descriptor.defaultValues.merging(values) { _, override in override },
             overrides: values,
+            layers: layers,
+            pack: pack,
+            filters: filters,
         )
     }
 

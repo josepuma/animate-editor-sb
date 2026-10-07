@@ -108,7 +108,7 @@ public struct EffectNode: Identifiable, Sendable, Equatable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, type, name, layer, startTime, duration, seed, values
-        case transform, filters, layers, isVisible, isLocked
+        case transform, filters, layers, delay, isVisible, isLocked
         case scriptSource, scriptFile, scriptParameters
     }
 
@@ -132,6 +132,7 @@ public struct EffectNode: Identifiable, Sendable, Equatable, Codable {
         // Absent in every project written before compound effects existed, and
         // an effect with no layers is the ordinary single-layer kind.
         layers = try container.decodeIfPresent([EffectNode].self, forKey: .layers) ?? []
+        delay = try container.decodeIfPresent(Double.self, forKey: .delay)
         isVisible = try container.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
         isLocked = try container.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
         // Absent in every project written before scripting, and absent from
@@ -197,6 +198,20 @@ public struct EffectNode: Identifiable, Sendable, Equatable, Codable {
     /// asked for.
     public var layers: [EffectNode]
 
+    /// How long a layer waits, inside its parent clip, before it starts.
+    ///
+    /// Every layer used to start at the clip's local zero, so a compound could
+    /// not say "first this, then that": an impact burst fired while the title
+    /// it belongs to was still flying in, and a firework's rocket and its burst
+    /// went off in the same instant. A layer that waits still runs until its
+    /// parent ends, so it stretches with the clip.
+    ///
+    /// Optional rather than zero so it is only written when set: every project
+    /// saved before this keeps the bytes it had, and a node that is not a layer
+    /// never carries it. Ignored on anything but a layer — a clip's place on
+    /// the timeline is its `startTime`.
+    public var delay: Double?
+
     public var isVisible: Bool
     public var isLocked: Bool
 
@@ -242,6 +257,7 @@ public struct EffectNode: Identifiable, Sendable, Equatable, Codable {
         transform: Transform = Transform(),
         filters: [FilterNode] = [],
         layers: [EffectNode] = [],
+        delay: Double? = nil,
         isVisible: Bool = true,
         isLocked: Bool = false,
         scriptSource: String? = nil,
@@ -259,6 +275,7 @@ public struct EffectNode: Identifiable, Sendable, Equatable, Codable {
         self.transform = transform
         self.filters = filters
         self.layers = layers
+        self.delay = delay
         self.isVisible = isVisible
         self.isLocked = isLocked
         self.scriptSource = scriptSource

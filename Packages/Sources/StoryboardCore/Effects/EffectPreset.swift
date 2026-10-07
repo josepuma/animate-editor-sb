@@ -78,10 +78,20 @@ public struct EffectPreset: Sendable, Identifiable {
     public struct Filter: Sendable {
         public let type: String
         public var values: [String: EffectValue]
+        /// Keyframes, by parameter id, in the clip's local time.
+        ///
+        /// A blur that pulls into focus is a blur whose radius *moves*; with
+        /// values alone a preset could only hand over a blur that stays put.
+        public var animations: [String: KeyframeTrack]
 
-        public init(type: String, values: [String: EffectValue] = [:]) {
+        public init(
+            type: String,
+            values: [String: EffectValue] = [:],
+            animations: [String: KeyframeTrack] = [:],
+        ) {
             self.type = type
             self.values = values
+            self.animations = animations
         }
     }
 
@@ -100,6 +110,14 @@ public struct EffectPreset: Sendable, Identifiable {
                 id: id(index),
                 type: filter.type,
                 values: descriptor.defaultValues.merging(filter.values) { _, new in new },
+                // Fresh keyframe ids per placement: the preset is one static
+                // value, and two clips sharing a key's id would select together.
+                animations: filter.animations.mapValues { track in
+                    KeyframeTrack(
+                        track.keyframes.map { Keyframe(time: $0.time, value: $0.value, easing: $0.easing) },
+                        isEnabled: track.isEnabled,
+                    )
+                },
             )
         }
     }
@@ -109,11 +127,14 @@ public struct EffectPreset: Sendable, Identifiable {
         public let effectType: String
         public var name: String
         public var values: [String: EffectValue]
+        /// How long the layer waits inside the clip — see ``EffectNode/delay``.
+        public var delay: Double
 
-        public init(effectType: String, name: String, values: [String: EffectValue]) {
+        public init(effectType: String, name: String, values: [String: EffectValue], delay: Double = 0) {
             self.effectType = effectType
             self.name = name
             self.values = values
+            self.delay = delay
         }
     }
 
