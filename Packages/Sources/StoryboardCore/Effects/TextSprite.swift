@@ -69,6 +69,26 @@ public enum TextSprite {
         path.hasPrefix(prefix)
     }
 
+    /// The room drawn around a glyph's font box, on every side.
+    ///
+    /// Ink can reach past the box — an italic's overhang and a stroke both do
+    /// — and a texture cropped to it loses those edges. Declared here rather
+    /// than in the renderer because Core needs it too: anchoring a character
+    /// on the bottom edge of its texture means knowing where that edge is, and
+    /// Core cannot open the image to look.
+    public static func padding(for style: TextStyle) -> Double {
+        max(4, style.strokeWidth * 2)
+    }
+
+    /// How tall a glyph's texture is, from the metrics Core already has.
+    ///
+    /// The renderer draws every glyph in a box of the font's height plus this
+    /// padding, rounded up to whole pixels; a test draws real glyphs to hold
+    /// the two to the same number.
+    public static func boxHeight(_ glyph: TextMetrics.Glyph, style: TextStyle) -> Double {
+        (glyph.height + padding(for: style) * 2).rounded(.up)
+    }
+
     /// djb2, which is what the TypeScript side already uses for the same job.
     ///
     /// The two never compare hashes, but a storyboard written by one and opened

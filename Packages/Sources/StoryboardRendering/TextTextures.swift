@@ -90,9 +90,9 @@ public enum TextTextures {
         let descent = CTFontGetDescent(font)
         let advance = CTLineGetTypographicBounds(line, nil, nil, nil)
 
-        // Padded, because ink can reach past the box — an italic's overhang and
-        // a stroke both do — and a texture cropped to it loses those edges.
-        let padding = max(4, style.strokeWidth * 2)
+        // Padded, because ink can reach past the box. The amount comes from
+        // Core, which predicts this texture's height without opening it.
+        let padding = TextSprite.padding(for: style)
         let width = Int((advance + padding * 2).rounded(.up))
         let height = Int((ascent + descent + padding * 2).rounded(.up))
         guard width > 0, height > 0 else { return nil }
@@ -150,21 +150,28 @@ public enum TextTextures {
     }
 
     public static func installMetrics() {
-        TextMetrics.measure = { character, style in
-            let font = self.font(for: style)
-            let attributed = NSAttributedString(
-                string: String(character), attributes: [.font: font],
-            )
-            let line = CTLineCreateWithAttributedString(attributed)
-            // The advance, which is the width the next character starts after —
-            // not the ink's width. Laying out by ink crowds narrow glyphs and
-            // spreads wide ones, because it ignores the space a font builds
-            // into each character.
-            let width = CTLineGetTypographicBounds(line, nil, nil, nil)
-            return TextMetrics.Glyph(
-                width: width,
-                height: CTFontGetAscent(font) + CTFontGetDescent(font),
-            )
-        }
+        TextMetrics.measure = { character, style in metrics(character, style: style) }
+    }
+
+    /// One glyph measured against the real font, without installing anything.
+    ///
+    /// Separate from `installMetrics` so a test can measure the way the app
+    /// does while leaving the global measurer — which every Core layout
+    /// reads — alone.
+    public static func metrics(_ character: Character, style: TextStyle) -> TextMetrics.Glyph {
+        let font = font(for: style)
+        let attributed = NSAttributedString(
+            string: String(character), attributes: [.font: font],
+        )
+        let line = CTLineCreateWithAttributedString(attributed)
+        // The advance, which is the width the next character starts after —
+        // not the ink's width. Laying out by ink crowds narrow glyphs and
+        // spreads wide ones, because it ignores the space a font builds
+        // into each character.
+        let width = CTLineGetTypographicBounds(line, nil, nil, nil)
+        return TextMetrics.Glyph(
+            width: width,
+            height: CTFontGetAscent(font) + CTFontGetDescent(font),
+        )
     }
 }

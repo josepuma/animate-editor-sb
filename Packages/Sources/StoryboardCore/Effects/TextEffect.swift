@@ -36,7 +36,25 @@ public struct TextEffect: Effect {
         public static let driftY = "driftY"
         public static let scaleFrom = "scaleFrom"
         public static let spinFrom = "spinFrom"
+        public static let unit = "unit"
+        public static let waveAmount = "waveAmount"
+        public static let staggerMode = "staggerMode"
+        public static let staggerSpread = "staggerSpread"
+        public static let scatterX = "scatterX"
+        public static let scatterY = "scatterY"
+        public static let scatterRotation = "scatterRotation"
+        public static let scatterScale = "scatterScale"
+        public static let stretchFromX = "stretchFromX"
+        public static let stretchFromY = "stretchFromY"
+        public static let pivot = "pivot"
     }
+
+    /// The stream In Scatter draws from, derived from each glyph's own.
+    ///
+    /// Its own stream rather than the glyph's: Explode and Drift already draw
+    /// from that one, and four more draws ahead of them would hand every saved
+    /// burst a different set of headings.
+    static let scatterTag = 0x5CA7
 
     public static let descriptor = EffectDescriptor(
         type: "text",
@@ -83,7 +101,6 @@ public struct TextEffect: Effect {
                 defaultValue: .toggle(false),
             ),
 
-            // ─── Animation ───────────────────────────────────────────────────
             // Every animation parameter rests at nothing.
             //
             // Dropping a text effect gives text, not a performance: a stagger
@@ -91,73 +108,149 @@ public struct TextEffect: Effect {
             // placement, and it has to be found and switched off before the
             // plain case can be had. The presets are where the moves live —
             // the same rule a placed effect already follows elsewhere.
+            //
+            // Grouped by the question each answers — in what order, how it
+            // arrives, how loose, how it holds and leaves — instead of one
+            // "Animation" block thirty rows long. The groups are only labels:
+            // moving a parameter between them touches no stored value.
+
+            // ─── Sequence ────────────────────────────────────────────────────
+            // What arrives together, and in what order.
             EffectParameter(
-                id: Param.stagger, name: "Stagger", group: "Animation",
-                defaultValue: .number(0), range: 0...1000, step: 5, unit: "ms",
+                id: Param.unit, name: "Unit", group: "Sequence",
+                defaultValue: .choice("Character"),
+                options: ["Character", "Word", "Line"],
             ),
             EffectParameter(
-                id: Param.staggerFrom, name: "Stagger From", group: "Animation",
+                id: Param.staggerFrom, name: "Stagger From", group: "Sequence",
                 defaultValue: .choice("Start"),
-                options: ["Start", "End", "Centre", "Random"],
+                options: ["Start", "End", "Centre", "Random", "Edges", "Wave"],
             ),
             EffectParameter(
-                id: Param.fadeIn, name: "Fade In", group: "Animation",
+                id: Param.waveAmount, name: "Wave Amount", group: "Sequence",
+                defaultValue: .number(1), range: 0...3, step: 0.1,
+                shownWhen: .init(parameter: Param.staggerFrom, isAnyOf: ["Wave"]),
+            ),
+            EffectParameter(
+                id: Param.staggerMode, name: "Stagger Mode", group: "Sequence",
+                defaultValue: .choice("Per Unit"),
+                options: ["Per Unit", "Spread"],
+            ),
+            EffectParameter(
+                id: Param.stagger, name: "Stagger", group: "Sequence",
+                defaultValue: .number(0), range: 0...1000, step: 5, unit: "ms",
+                shownWhen: .init(parameter: Param.staggerMode, isAnyOf: ["Per Unit"]),
+            ),
+            EffectParameter(
+                id: Param.staggerSpread, name: "Spread", group: "Sequence",
+                defaultValue: .number(60), range: 0...100, step: 1, unit: "%",
+                shownWhen: .init(parameter: Param.staggerMode, isAnyOf: ["Spread"]),
+            ),
+
+            // ─── Entrance ────────────────────────────────────────────────────
+            EffectParameter(
+                id: Param.fadeIn, name: "Fade In", group: "Entrance",
                 defaultValue: .number(0), range: 0...5000, step: 10, unit: "ms",
             ),
+            // The curve is what separates a fall from a drop, a slide from a
+            // snap. Fixed at one ease, every preset reads the same however its
+            // numbers differ.
             EffectParameter(
-                id: Param.fadeOut, name: "Fade Out", group: "Animation",
-                defaultValue: .number(0), range: 0...5000, step: 10, unit: "ms",
+                id: Param.easing, name: "Easing", group: "Entrance",
+                defaultValue: .choice("Ease Out"),
+                options: ["Linear", "Ease Out", "Back", "Elastic", "Bounce", "Expo"],
             ),
             EffectParameter(
-                id: Param.riseFrom, name: "Rise From", group: "Animation",
+                id: Param.riseFrom, name: "Rise From", group: "Entrance",
                 defaultValue: .number(0), range: -400...400, step: 1, unit: "px",
             ),
             // Horizontal as well as vertical, so letters can sweep in from a
             // side rather than only from above or below. One axis alone makes
             // every entrance a variation of the same move.
             EffectParameter(
-                id: Param.driftFrom, name: "Drift From", group: "Animation",
+                id: Param.driftFrom, name: "Drift From", group: "Entrance",
                 defaultValue: .number(0), range: -800...800, step: 1, unit: "px",
             ),
-            // The curve is what separates a fall from a drop, a slide from a
-            // snap. Fixed at one ease, every preset reads the same however its
-            // numbers differ.
             EffectParameter(
-                id: Param.easing, name: "Easing", group: "Animation",
-                defaultValue: .choice("Ease Out"),
-                options: ["Linear", "Ease Out", "Back", "Elastic", "Bounce", "Expo"],
+                id: Param.scaleFrom, name: "Scale From", group: "Entrance",
+                defaultValue: .number(1), range: 0...5, step: 0.05,
             ),
-            // Leaving is its own move: text that arrives with character and
-            // then simply dissolves is half an animation.
+            EffectParameter(
+                id: Param.spinFrom, name: "Spin From", group: "Entrance",
+                defaultValue: .number(0), range: -720...720, step: 5, unit: "°",
+            ),
+            // One axis squashed is a card turning or a letter unfolding, which
+            // a uniform scale cannot say. At 1 they write nothing.
+            EffectParameter(
+                id: Param.stretchFromX, name: "Stretch From X", group: "Entrance",
+                defaultValue: .number(1), range: 0...5, step: 0.05,
+            ),
+            EffectParameter(
+                id: Param.stretchFromY, name: "Stretch From Y", group: "Entrance",
+                defaultValue: .number(1), range: 0...5, step: 0.05,
+            ),
+            // What a glyph scales and turns about. Bottom is the bottom edge
+            // of the glyph's texture box, not the typographic baseline: the
+            // box is what a sprite's origin can name, and it holds the same
+            // place in every glyph of a style, so a line still sits level.
+            EffectParameter(
+                id: Param.pivot, name: "Pivot", group: "Entrance",
+                defaultValue: .choice("Centre"),
+                options: ["Centre", "Bottom"],
+            ),
+
+            // ─── Scatter ─────────────────────────────────────────────────────
+            // Where each glyph starts from, jittered on its own. Rise and Drift
+            // move the whole line the same way; scatter is what makes letters
+            // assemble out of a cloud rather than slide in as a block.
+            EffectParameter(
+                id: Param.scatterX, name: "Scatter X", group: "Scatter",
+                defaultValue: .number(0), range: 0...800, step: 5, unit: "px",
+            ),
+            EffectParameter(
+                id: Param.scatterY, name: "Scatter Y", group: "Scatter",
+                defaultValue: .number(0), range: 0...600, step: 5, unit: "px",
+            ),
+            EffectParameter(
+                id: Param.scatterRotation, name: "Scatter Rotation", group: "Scatter",
+                defaultValue: .number(0), range: 0...360, step: 5, unit: "°",
+            ),
+            EffectParameter(
+                id: Param.scatterScale, name: "Scatter Scale", group: "Scatter",
+                defaultValue: .number(0), range: 0...3, step: 0.05,
+            ),
+
+            // ─── Hold & Exit ─────────────────────────────────────────────────
             // Movement across the whole clip, not just its ends.
             //
             // A line that arrives, sits perfectly still, and leaves is three
             // separate moments. Letting it travel while it is up is what turns
             // those into one shot — the drift a title has as it holds.
             EffectParameter(
-                id: Param.driftX, name: "Travel X", group: "Animation",
+                id: Param.driftX, name: "Travel X", group: "Hold & Exit",
                 defaultValue: .number(0), range: -800...800, step: 5, unit: "px",
             ),
             EffectParameter(
-                id: Param.driftY, name: "Travel Y", group: "Animation",
+                id: Param.driftY, name: "Travel Y", group: "Hold & Exit",
                 defaultValue: .number(0), range: -600...600, step: 5, unit: "px",
             ),
             EffectParameter(
-                id: Param.exitForce, name: "Exit Force", group: "Animation",
-                defaultValue: .number(220), range: 0...1200, step: 10, unit: "px",
+                id: Param.fadeOut, name: "Fade Out", group: "Hold & Exit",
+                defaultValue: .number(0), range: 0...5000, step: 10, unit: "ms",
             ),
+            // Leaving is its own move: text that arrives with character and
+            // then simply dissolves is half an animation.
             EffectParameter(
-                id: Param.exit, name: "Exit", group: "Animation",
+                id: Param.exit, name: "Exit", group: "Hold & Exit",
                 defaultValue: .choice("Fade"),
                 options: ["Fade", "Rise", "Fall", "Shrink", "Grow", "Spin", "Explode", "Drift"],
             ),
+            // How far Explode and Drift throw. Under any other exit it does
+            // nothing, and a control that does nothing lies.
             EffectParameter(
-                id: Param.scaleFrom, name: "Scale From", group: "Animation",
-                defaultValue: .number(1), range: 0...5, step: 0.05,
-            ),
-            EffectParameter(
-                id: Param.spinFrom, name: "Spin From", group: "Animation",
-                defaultValue: .number(0), range: -720...720, step: 5, unit: "°",
+                id: Param.exitForce, name: "Exit Force", group: "Hold & Exit",
+                defaultValue: .number(220), range: 0...1200, step: 10, unit: "px",
+                shownWhen: .init(parameter: Param.exit, isAnyOf: ["Explode", "Drift"]),
             ),
         ],
     )
@@ -176,8 +269,30 @@ public struct TextEffect: Effect {
         let placed = layout(content, style: style, context: context)
         guard !placed.isEmpty else { return [] }
 
-        let order = staggerOrder(count: placed.count, mode: context.choice(Param.staggerFrom), rng: &rng)
-        let stagger = max(0, context.number(Param.stagger))
+        let units: [Int] = switch context.choice(Param.unit) {
+        case "Word": placed.map(\.word)
+        case "Line": placed.map(\.line)
+        default: Array(placed.indices)
+        }
+        let ranks = TextStagger.ranks(
+            units: units,
+            order: context.choice(Param.staggerFrom),
+            waveAmount: context.number(Param.waveAmount),
+            rng: &rng,
+        )
+        // The room a stagger can use: what is left once the entrance has run
+        // and the exit has made room for itself.
+        let window = max(
+            0,
+            context.duration - max(0, context.number(Param.fadeIn)) - max(0, context.number(Param.fadeOut)),
+        )
+        let delays = TextStagger.delays(
+            ranks: ranks,
+            mode: context.choice(Param.staggerMode),
+            stagger: max(0, context.number(Param.stagger)),
+            spread: context.number(Param.staggerSpread),
+            window: window,
+        )
 
         return placed.enumerated().map { index, glyph -> StoryboardSprite in
             // A stream per character, so raising the count adds letters rather
@@ -186,7 +301,7 @@ public struct TextEffect: Effect {
             return sprite(
                 glyph,
                 index: index,
-                delay: stagger * Double(order[index]),
+                delay: delays[index],
                 style: style,
                 context: context,
                 rng: &stream,
@@ -201,6 +316,13 @@ public struct TextEffect: Effect {
         var character: Character
         var x: Double
         var y: Double
+        /// Dense indices of the word and the line this glyph belongs to.
+        /// Dense, because End, Centre and Spread read the highest one — a
+        /// blank line or a run of spaces must not leave gaps in the count.
+        var word: Int
+        var line: Int
+        /// The glyph's own metrics, which size its texture box.
+        var size: TextMetrics.Glyph
     }
 
     /// Lays the text out around its own centre.
@@ -225,6 +347,8 @@ public struct TextEffect: Effect {
                 - (line.isEmpty ? 0 : tracking)
         }
 
+        var word = -1
+        var lineIndex = -1
         let blockHeight = lineHeight * Double(lines.count)
         let originY = -blockHeight / 2 + lineHeight / 2
 
@@ -233,11 +357,18 @@ public struct TextEffect: Effect {
             // about. There is no alignment control: it would need more than one
             // line to mean anything, and the field holds one.
             var cursor = -widths[row] / 2
+            var inWord = false
+            var lineStarted = false
 
             for character in line {
                 let glyph = TextMetrics.glyph(character, style: style)
                 // Spaces take their width and draw nothing.
-                if !character.isWhitespace {
+                if character.isWhitespace {
+                    inWord = false
+                } else {
+                    // Punctuation is not whitespace, so it stays with its word.
+                    if !inWord { word += 1; inWord = true }
+                    if !lineStarted { lineIndex += 1; lineStarted = true }
                     // Centred on the advance, which is what the texture spans:
                     // the glyph's own drawing sits inside that box wherever the
                     // font puts it, and moving the sprite to the ink's centre
@@ -246,6 +377,9 @@ public struct TextEffect: Effect {
                         character: character,
                         x: cursor + glyph.width / 2,
                         y: originY + lineHeight * Double(row),
+                        word: word,
+                        line: lineIndex,
+                        size: glyph,
                     ))
                 }
                 cursor += glyph.width + tracking
@@ -268,39 +402,6 @@ public struct TextEffect: Effect {
         case "Bounce": .bounceOut
         case "Expo": .expoOut
         default: .out
-        }
-    }
-
-    // ─── Stagger ─────────────────────────────────────────────────────────────
-
-    /// The order characters arrive in.
-    ///
-    /// Returned as a position per character rather than a sorted list, so the
-    /// sprites stay in reading order — their order in the array is their draw
-    /// order, and shuffling that would reorder overlapping glyphs.
-    private func staggerOrder(
-        count: Int,
-        mode: String,
-        rng: inout EffectRandom,
-    ) -> [Int] {
-        switch mode {
-        case "End":
-            return (0..<count).map { count - 1 - $0 }
-        case "Centre":
-            let middle = Double(count - 1) / 2
-            return (0..<count).map { Int(abs(Double($0) - middle).rounded()) }
-        case "Random":
-            var positions = Array(0..<count)
-            // Fisher-Yates through the seeded stream, so a text effect is as
-            // reproducible as an emitter: the preview and the exported file
-            // have to agree.
-            for index in stride(from: count - 1, to: 0, by: -1) {
-                let swap = rng.integer(in: 0...index)
-                positions.swapAt(index, swap)
-            }
-            return positions
-        default:
-            return Array(0..<count)
         }
     }
 
@@ -340,13 +441,19 @@ public struct TextEffect: Effect {
         // hundred milliseconds off.
         let exitStart = max(birth + fadeIn, death - fadeOut)
 
+        // Bottom moves the anchor down by half the box and the position with
+        // it, so a glyph at rest is drawn exactly where Centre draws it: only
+        // what it scales and turns about changes. Every move below is relative
+        // to `defaultY`, so rises and falls travel the same distance.
+        let onBottom = context.choice(Param.pivot) == "Bottom"
+        let centreY = TransformProperty.y.defaultValue + glyph.y
         var sprite = StoryboardSprite(
             id: "\(context.idPrefix)/c\(index)",
             layer: .foreground,
-            origin: .centre,
+            origin: onBottom ? .bottomCentre : .centre,
             filePath: TextSprite.path(for: glyph.character, style: style),
             defaultX: TransformProperty.x.defaultValue + glyph.x,
-            defaultY: TransformProperty.y.defaultValue + glyph.y,
+            defaultY: onBottom ? centreY + TextSprite.boxHeight(glyph.size, style: style) / 2 : centreY,
         )
 
         // Opacity first, and always present: without a fade the sprite holds
@@ -391,15 +498,16 @@ public struct TextEffect: Effect {
         let curve = Self.easing(named: context.choice(Param.easing))
         let rise = context.number(Param.riseFrom)
         let drift = context.number(Param.driftFrom)
+        let scatter = Scatter(context: context, stream: rng.stream(Self.scatterTag))
 
         // Both axes in one command when both move: `_M` carries the pair, and
         // two separate commands would each fight for the same position.
-        if fadeIn > 0, rise != 0 || drift != 0 {
+        if fadeIn > 0, rise != 0 || drift != 0 || scatter.x != nil || scatter.y != nil {
             sprite.commands.append(Command(
                 easing: curve, startTime: birth, endTime: birth + fadeIn,
                 payload: .move(
-                    startX: sprite.defaultX + drift,
-                    startY: sprite.defaultY + rise,
+                    startX: Scatter.adding(scatter.x, to: sprite.defaultX + drift),
+                    startY: Scatter.adding(scatter.y, to: sprite.defaultY + rise),
                     endX: sprite.defaultX,
                     endY: sprite.defaultY,
                 ),
@@ -407,18 +515,34 @@ public struct TextEffect: Effect {
         }
 
         let scaleFrom = context.number(Param.scaleFrom)
-        if scaleFrom != 1, fadeIn > 0 {
+        let stretchX = context.number(Param.stretchFromX)
+        let stretchY = context.number(Param.stretchFromY)
+        // A stretched sprite speaks `_V` for its whole life, exit included.
+        //
+        // osu! keeps `S` and `V` as two properties that multiply, while the
+        // editor's resolver lets a `V` track override `S` outright: a sprite
+        // holding both draws one way here and another in the game. One
+        // vocabulary per sprite is what keeps the preview and the file in
+        // agreement, and plain `_S` stays where nothing is stretched — one
+        // number where a vector would cost two.
+        let usesVector = fadeIn > 0 && (stretchX != 1 || stretchY != 1)
+        if scaleFrom != 1 || scatter.scale != nil || usesVector, fadeIn > 0 {
+            // Clamped only when jittered: a glyph cannot start inside out, and
+            // an unjittered start has to stay the very number it always was.
+            let start = scatter.scale.map { max(0, scaleFrom + $0) } ?? scaleFrom
             sprite.commands.append(Command(
                 easing: curve, startTime: birth, endTime: birth + fadeIn,
-                payload: .scale(start: scaleFrom, end: 1),
+                payload: usesVector
+                    ? .vectorScale(startX: start * stretchX, startY: start * stretchY, endX: 1, endY: 1)
+                    : .scale(start: start, end: 1),
             ))
         }
 
         let spin = context.number(Param.spinFrom)
-        if spin != 0, fadeIn > 0 {
+        if spin != 0 || scatter.rotation != nil, fadeIn > 0 {
             sprite.commands.append(Command(
                 easing: curve, startTime: birth, endTime: birth + fadeIn,
-                payload: .rotate(start: spin * .pi / 180, end: 0),
+                payload: .rotate(start: Scatter.adding(scatter.rotation, to: spin) * .pi / 180, end: 0),
             ))
         }
 
@@ -459,12 +583,16 @@ public struct TextEffect: Effect {
             case "Shrink":
                 sprite.commands.append(Command(
                     easing: .quadIn, startTime: start, endTime: death,
-                    payload: .scale(start: 1, end: 0.2),
+                    payload: usesVector
+                        ? .vectorScale(startX: 1, startY: 1, endX: 0.2, endY: 0.2)
+                        : .scale(start: 1, end: 0.2),
                 ))
             case "Grow":
                 sprite.commands.append(Command(
                     easing: .quadIn, startTime: start, endTime: death,
-                    payload: .scale(start: 1, end: 2),
+                    payload: usesVector
+                        ? .vectorScale(startX: 1, startY: 1, endX: 2, endY: 2)
+                        : .scale(start: 1, end: 2),
                 ))
             case "Spin":
                 sprite.commands.append(Command(
@@ -534,5 +662,40 @@ public struct TextEffect: Effect {
         }
 
         return sprite
+    }
+
+    // ─── In Scatter ──────────────────────────────────────────────────────────
+
+    /// One glyph's entrance jitter: `nil` on every axis whose amplitude is 0.
+    ///
+    /// All four are drawn whenever any is, in a fixed order, so turning one axis
+    /// on never moves another's numbers. An axis at 0 contributes nothing at
+    /// all rather than a drawn zero: `x + -0.0` is `x`, but the rule "an
+    /// untouched axis is not in the arithmetic" is easier to keep than to
+    /// reason about every time.
+    private struct Scatter {
+        var x: Double?
+        var y: Double?
+        var rotation: Double?
+        var scale: Double?
+
+        init(context: EffectContext, stream: EffectRandom) {
+            let amplitudes = [
+                context.number(Param.scatterX), context.number(Param.scatterY),
+                context.number(Param.scatterRotation), context.number(Param.scatterScale),
+            ]
+            guard amplitudes.contains(where: { $0 != 0 }) else { return }
+            var stream = stream
+            let drawn = amplitudes.map { stream.symmetric($0) }
+            func kept(_ index: Int) -> Double? { amplitudes[index] != 0 ? drawn[index] : nil }
+            x = kept(0)
+            y = kept(1)
+            rotation = kept(2)
+            scale = kept(3)
+        }
+
+        static func adding(_ jitter: Double?, to value: Double) -> Double {
+            jitter.map { value + $0 } ?? value
+        }
     }
 }

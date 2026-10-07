@@ -12,9 +12,11 @@ public extension TextEffect {
         typewriter, fadeUp, drop, popIn, sweep, scatter,
         shockwave, unfold, cascade, wave, glitch, revealCentre,
         driftApart, burst, ledSign,
-    ]
+    ] + animatorPresets
 
-    private static func preset(
+    /// Shared with `TextAnimatorPresets.swift`, so every preset is built the
+    /// same way: values merged over the defaults, overrides the named ones.
+    internal static func preset(
         _ id: String,
         _ name: String,
         _ summary: String,
