@@ -47,6 +47,30 @@ public struct TextEffect: Effect {
         public static let stretchFromX = "stretchFromX"
         public static let stretchFromY = "stretchFromY"
         public static let pivot = "pivot"
+        public static let exitStagger = "exitStagger"
+        public static let exitOrder = "exitOrder"
+        public static let outRise = "outRise"
+        public static let outDrift = "outDrift"
+        public static let outScale = "outScale"
+        public static let outSpin = "outSpin"
+        public static let outStretchX = "outStretchX"
+        public static let outStretchY = "outStretchY"
+        public static let outScatter = "outScatter"
+        public static let outScatterRotation = "outScatterRotation"
+        public static let outEasing = "outEasing"
+        public static let colourMode = "colourMode"
+        public static let colour2 = "colour2"
+        public static let gradientAcross = "gradientAcross"
+        public static let sweepOrder = "sweepOrder"
+        public static let sweepStart = "sweepStart"
+        public static let sweepLength = "sweepLength"
+        public static let sweepEdge = "sweepEdge"
+        public static let flash = "flash"
+        public static let holdMotion = "holdMotion"
+        public static let holdAmount = "holdAmount"
+        public static let holdBreathe = "holdBreathe"
+        public static let holdSpeed = "holdSpeed"
+        public static let holdPhase = "holdPhase"
     }
 
     /// The stream In Scatter draws from, derived from each glyph's own.
@@ -91,16 +115,9 @@ public struct TextEffect: Effect {
                 id: Param.lineHeight, name: "Line Height", group: "Layout",
                 defaultValue: .number(1.2), range: 0.5...4, step: 0.05,
             ),
-
-            EffectParameter(
-                id: Param.color, name: "Colour", group: "Appearance",
-                defaultValue: .color(EffectColor(r: 255, g: 255, b: 255)),
-            ),
-            EffectParameter(
-                id: Param.additive, name: "Additive", group: "Appearance",
-                defaultValue: .toggle(false),
-            ),
-
+            // Colour sits with the content rather than the animation: what
+            // colour the words are is a property of the words.
+        ] + TextColour.parameters + [
             // Every animation parameter rests at nothing.
             //
             // Dropping a text effect gives text, not a performance: a stagger
@@ -219,40 +236,7 @@ public struct TextEffect: Effect {
                 id: Param.scatterScale, name: "Scatter Scale", group: "Scatter",
                 defaultValue: .number(0), range: 0...3, step: 0.05,
             ),
-
-            // ─── Hold & Exit ─────────────────────────────────────────────────
-            // Movement across the whole clip, not just its ends.
-            //
-            // A line that arrives, sits perfectly still, and leaves is three
-            // separate moments. Letting it travel while it is up is what turns
-            // those into one shot — the drift a title has as it holds.
-            EffectParameter(
-                id: Param.driftX, name: "Travel X", group: "Hold & Exit",
-                defaultValue: .number(0), range: -800...800, step: 5, unit: "px",
-            ),
-            EffectParameter(
-                id: Param.driftY, name: "Travel Y", group: "Hold & Exit",
-                defaultValue: .number(0), range: -600...600, step: 5, unit: "px",
-            ),
-            EffectParameter(
-                id: Param.fadeOut, name: "Fade Out", group: "Hold & Exit",
-                defaultValue: .number(0), range: 0...5000, step: 10, unit: "ms",
-            ),
-            // Leaving is its own move: text that arrives with character and
-            // then simply dissolves is half an animation.
-            EffectParameter(
-                id: Param.exit, name: "Exit", group: "Hold & Exit",
-                defaultValue: .choice("Fade"),
-                options: ["Fade", "Rise", "Fall", "Shrink", "Grow", "Spin", "Explode", "Drift"],
-            ),
-            // How far Explode and Drift throw. Under any other exit it does
-            // nothing, and a control that does nothing lies.
-            EffectParameter(
-                id: Param.exitForce, name: "Exit Force", group: "Hold & Exit",
-                defaultValue: .number(220), range: 0...1200, step: 10, unit: "px",
-                shownWhen: .init(parameter: Param.exit, isAnyOf: ["Explode", "Drift"]),
-            ),
-        ],
+        ] + TextHoldMotion.parameters + TextExit.parameters,
     )
 
     public func evaluate(in context: EffectContext, rng: inout EffectRandom) -> [StoryboardSprite] {
@@ -280,11 +264,26 @@ public struct TextEffect: Effect {
             waveAmount: context.number(Param.waveAmount),
             rng: &rng,
         )
+        // Who leaves when. Nothing to stagger without a fade-out: the glyph
+        // has no exit to move.
+        let fadeOut = max(0, context.number(Param.fadeOut))
+        let exitDelays = fadeOut > 0
+            ? TextExit.delays(
+                entranceRanks: ranks,
+                units: units,
+                order: context.choice(Param.exitOrder),
+                stagger: max(0, context.number(Param.exitStagger)),
+                rng: rng,
+            )
+            : ranks.map { _ in 0 }
+        let latestExit = exitDelays.max() ?? 0
         // The room a stagger can use: what is left once the entrance has run
-        // and the exit has made room for itself.
+        // and the exit has made room for itself — its staggered start
+        // included, so every glyph has landed before the first one leaves.
         let window = max(
             0,
-            context.duration - max(0, context.number(Param.fadeIn)) - max(0, context.number(Param.fadeOut)),
+            context.duration - max(0, context.number(Param.fadeIn)) - fadeOut
+                - (latestExit > 0 ? latestExit : 0),
         )
         let delays = TextStagger.delays(
             ranks: ranks,
@@ -294,6 +293,16 @@ public struct TextEffect: Effect {
             window: window,
         )
 
+        let holdStream = rng.stream(TextHoldMotion.tag)
+        let colours = TextColour.plan(placed.map { ($0.x, $0.line) }, units: units, context: context, rng: rng)
+        let plans = placed.indices.map { index in
+            GlyphPlan(
+                delay: delays[index], exitDelay: exitDelays[index], unit: units[index],
+                colour: colours[index].colour, highlightAt: colours[index].highlightAt,
+                hold: holdStream.stream(units[index]),
+            )
+        }
+
         return placed.enumerated().map { index, glyph -> StoryboardSprite in
             // A stream per character, so raising the count adds letters rather
             // than reshuffling the ones already placed.
@@ -301,7 +310,7 @@ public struct TextEffect: Effect {
             return sprite(
                 glyph,
                 index: index,
-                delay: delays[index],
+                plan: plans[index],
                 style: style,
                 context: context,
                 rng: &stream,
@@ -407,39 +416,82 @@ public struct TextEffect: Effect {
 
     // ─── One character ───────────────────────────────────────────────────────
 
+    /// What `evaluate` decides for a glyph before any of its commands exist:
+    /// when it arrives, how much earlier than the clip's end it leaves, which
+    /// unit it moves with, its colour, and the stream its hold draws from.
+    struct GlyphPlan {
+        var delay: Double
+        var exitDelay: Double
+        var unit: Int
+        var colour: EffectColor
+        var highlightAt: Double?
+        /// The hold's stream, one per unit, so a word trembles as one.
+        var hold: EffectRandom
+    }
+
+    /// The moments one glyph's stages share.
+    ///
+    /// One place, because the fade, the travel and the exit all need the same
+    /// answer — three copies of it is how one of them ends up a few hundred
+    /// milliseconds off.
+    struct Span {
+        /// When the glyph starts arriving.
+        let birth: Double
+        /// When its entrance has finished.
+        let landed: Double
+        /// When it starts leaving.
+        let exitStart: Double
+        /// When it is gone: the end of its own exit, or the clip's end if it
+        /// has none.
+        let life: Double
+        let hasExit: Bool
+
+        /// When *this* character leaves — never before it has finished
+        /// arriving.
+        ///
+        /// `birth` carries the stagger and so differs per character, while the
+        /// clip's end is the same for all of them. Taken as `end - fadeOut`
+        /// alone, every character's fade-out fired at the same moment while
+        /// the late ones were still fading in — two commands fighting over
+        /// opacity, which osu! settles by letting the last one written win.
+        /// Measured on `cascade` over sixteen characters in a two-second clip:
+        /// fade-outs at 1500 against fade-ins running to 2350.
+        ///
+        /// A character that cannot both arrive and leave inside the clip keeps
+        /// its arrival and loses the exit: appearing and then vanishing is
+        /// still the line being read, while a fade-out over an unfinished
+        /// fade-in is a glyph that flickers and never lands.
+        ///
+        /// An exit delay moves this glyph's whole exit earlier, so later ones
+        /// can leave after it; with no fade-out there is nothing to move.
+        init(plan: GlyphPlan, duration: Double, fadeIn: Double, fadeOut: Double) {
+            birth = plan.delay
+            landed = birth + fadeIn
+            let end = max(landed, duration - (fadeOut > 0 ? plan.exitDelay : 0))
+            exitStart = max(landed, end - fadeOut)
+            hasExit = fadeOut > 0 && exitStart < end
+            life = hasExit ? end : duration
+        }
+
+        /// Where the glyph stops holding: its exit, or the end of its life.
+        var holdEnd: Double { hasExit ? exitStart : life }
+    }
+
+    /// One glyph, written in stages: opacity, entrance, hold, exit, colour.
+    ///
+    /// The order the stages append in is the order the commands are written,
+    /// and saved output depends on it — a stage moved is a file that diffs.
     private func sprite(
         _ glyph: PlacedGlyph,
         index: Int,
-        delay: Double,
+        plan: GlyphPlan,
         style: TextStyle,
         context: EffectContext,
         rng: inout EffectRandom,
     ) -> StoryboardSprite {
-        let birth = delay
-        let death = context.duration
         let fadeIn = max(0, context.number(Param.fadeIn))
         let fadeOut = max(0, context.number(Param.fadeOut))
-
-        // When *this* character leaves — never before it has finished
-        // arriving.
-        //
-        // `birth` carries the stagger and so differs per character, while
-        // `death` is the clip's end and is the same for all of them. Taken as
-        // `death - fadeOut` alone, every character's fade-out fired at the
-        // same moment while the late ones were still fading in — two commands
-        // fighting over opacity, which osu! settles by letting the last one
-        // written win. Measured on `cascade` over sixteen characters in a
-        // two-second clip: fade-outs at 1500 against fade-ins running to 2350.
-        //
-        // A character that cannot both arrive and leave inside the clip keeps
-        // its arrival and loses the exit: appearing and then vanishing is
-        // still the line being read, while a fade-out over an unfinished
-        // fade-in is a glyph that flickers and never lands.
-        //
-        // One place, because the fade, the travel and the exit all need the
-        // same answer — three copies of it is how one of them ends up a few
-        // hundred milliseconds off.
-        let exitStart = max(birth + fadeIn, death - fadeOut)
+        let span = Span(plan: plan, duration: context.duration, fadeIn: fadeIn, fadeOut: fadeOut)
 
         // Bottom moves the anchor down by half the box and the position with
         // it, so a glyph at rest is drawn exactly where Centre draws it: only
@@ -456,67 +508,9 @@ public struct TextEffect: Effect {
             defaultY: onBottom ? centreY + TextSprite.boxHeight(glyph.size, style: style) / 2 : centreY,
         )
 
-        // Opacity first, and always present: without a fade the sprite holds
-        // its default from the start of the file, so every character would be
-        // visible before its own stagger reached it.
-        if fadeIn > 0 {
-            sprite.commands.append(Command(
-                easing: .out, startTime: birth, endTime: birth + fadeIn,
-                payload: .fade(start: 0, end: 1),
-            ))
-            // Held to the end, or the sprite is only alive for its own fade —
-            // a character that appears and then stops existing.
-            // Held from arrival to whenever this character leaves. Without
-            // the hold a sprite lives only for its own fade — a character
-            // that appears and then stops existing — and a character whose
-            // exit was dropped for want of room needs it to reach `death`.
-            if exitStart >= death || fadeOut == 0 {
-                sprite.commands.append(Command(
-                    easing: .linear, startTime: birth + fadeIn, endTime: death,
-                    payload: .fade(start: 1, end: 1),
-                ))
-            }
-        } else {
-            // No fade still means visible: without a command the sprite holds
-            // its default opacity from the beginning of the file, so every
-            // character would be on screen before its own stagger reached it.
-            sprite.commands.append(Command(
-                easing: .linear, startTime: birth, endTime: fadeOut > 0 ? birth : death,
-                payload: .fade(start: 1, end: 1),
-            ))
-        }
-        // Only when there is room for it after the character has arrived.
-        if fadeOut > 0, exitStart < death {
-            sprite.commands.append(Command(
-                easing: .linear, startTime: exitStart, endTime: death,
-                payload: .fade(start: 1, end: 0),
-            ))
-        }
+        sprite.commands += opacity(span, fadeIn: fadeIn, fadeOut: fadeOut)
 
-        // The entrance: each character travels from wherever it was told to
-        // start to where the layout puts it.
-        let curve = Self.easing(named: context.choice(Param.easing))
-        let rise = context.number(Param.riseFrom)
-        let drift = context.number(Param.driftFrom)
         let scatter = Scatter(context: context, stream: rng.stream(Self.scatterTag))
-
-        // Both axes in one command when both move: `_M` carries the pair, and
-        // two separate commands would each fight for the same position.
-        if fadeIn > 0, rise != 0 || drift != 0 || scatter.x != nil || scatter.y != nil {
-            sprite.commands.append(Command(
-                easing: curve, startTime: birth, endTime: birth + fadeIn,
-                payload: .move(
-                    startX: Scatter.adding(scatter.x, to: sprite.defaultX + drift),
-                    startY: Scatter.adding(scatter.y, to: sprite.defaultY + rise),
-                    endX: sprite.defaultX,
-                    endY: sprite.defaultY,
-                ),
-            ))
-        }
-
-        let scaleFrom = context.number(Param.scaleFrom)
-        let stretchX = context.number(Param.stretchFromX)
-        let stretchY = context.number(Param.stretchFromY)
         // A stretched sprite speaks `_V` for its whole life, exit included.
         //
         // osu! keeps `S` and `V` as two properties that multiply, while the
@@ -525,143 +519,235 @@ public struct TextEffect: Effect {
         // vocabulary per sprite is what keeps the preview and the file in
         // agreement, and plain `_S` stays where nothing is stretched — one
         // number where a vector would cost two.
-        let usesVector = fadeIn > 0 && (stretchX != 1 || stretchY != 1)
-        if scaleFrom != 1 || scatter.scale != nil || usesVector, fadeIn > 0 {
-            // Clamped only when jittered: a glyph cannot start inside out, and
-            // an unjittered start has to stay the very number it always was.
-            let start = scatter.scale.map { max(0, scaleFrom + $0) } ?? scaleFrom
-            sprite.commands.append(Command(
-                easing: curve, startTime: birth, endTime: birth + fadeIn,
-                payload: usesVector
-                    ? .vectorScale(startX: start * stretchX, startY: start * stretchY, endX: 1, endY: 1)
-                    : .scale(start: start, end: 1),
-            ))
+        let exit = context.choice(Param.exit)
+        let stretchX = context.number(Param.stretchFromX)
+        let stretchY = context.number(Param.stretchFromY)
+        let outStretch: (x: Double, y: Double) = switch exit {
+        case "Custom": (context.number(Param.outStretchX), context.number(Param.outStretchY))
+        case "Mirror In": (stretchX, stretchY)
+        default: (1, 1)
         }
-
-        let spin = context.number(Param.spinFrom)
-        if spin != 0 || scatter.rotation != nil, fadeIn > 0 {
-            sprite.commands.append(Command(
-                easing: curve, startTime: birth, endTime: birth + fadeIn,
-                payload: .rotate(start: Scatter.adding(scatter.rotation, to: spin) * .pi / 180, end: 0),
-            ))
-        }
+        let usesVector = (fadeIn > 0 && (stretchX != 1 || stretchY != 1))
+            || (fadeOut > 0 && (outStretch.x != 1 || outStretch.y != 1))
+        sprite.commands += entrance(
+            span, at: (sprite.defaultX, sprite.defaultY), scatter: scatter, vector: usesVector, context: context,
+        )
 
         // The travel, over the span the character is actually up: after its own
         // entrance has landed and before the exit takes over. Sharing those
         // spans would have two commands writing the same position, and the
         // later one simply wins.
-        let travelX = context.number(Param.driftX)
-        let travelY = context.number(Param.driftY)
-        let travelStart = birth + fadeIn
-        if travelX != 0 || travelY != 0, exitStart > travelStart {
+        //
+        // A hold that moves the glyph carries the travel in its own steps, so
+        // there is one position command at a time.
+        let travel = (x: context.number(Param.driftX), y: context.number(Param.driftY))
+        let hold = TextHoldMotion.Settings(context: context)
+        if let steps = TextHoldMotion.position(
+            hold, unit: plan.unit, rest: (sprite.defaultX, sprite.defaultY), travel: travel,
+            start: span.landed, end: span.holdEnd, rng: plan.hold,
+        ) {
+            sprite.commands += steps
+        } else if travel.x != 0 || travel.y != 0, span.holdEnd > span.landed {
             sprite.commands.append(Command(
-                easing: .linear, startTime: travelStart, endTime: exitStart,
+                easing: .linear, startTime: span.landed, endTime: span.holdEnd,
                 payload: .move(
                     startX: sprite.defaultX,
                     startY: sprite.defaultY,
-                    endX: sprite.defaultX + travelX,
-                    endY: sprite.defaultY + travelY,
+                    endX: sprite.defaultX + travel.x,
+                    endY: sprite.defaultY + travel.y,
                 ),
             ))
         }
 
+        sprite.commands += TextHoldMotion.scale(
+            hold, unit: plan.unit, start: span.landed, end: span.holdEnd, vector: usesVector,
+        )
+
         // The exit, which mirrors whichever entrance was chosen — text that
         // arrives with character and then merely dissolves is half a move.
-        if fadeOut > 0, exitStart < death {
-            let start = exitStart
-            switch context.choice(Param.exit) {
-            case "Rise":
-                sprite.commands.append(Command(
-                    easing: .quadIn, startTime: start, endTime: death,
-                    payload: .moveY(start: sprite.defaultY, end: sprite.defaultY - 60),
-                ))
-            case "Fall":
-                sprite.commands.append(Command(
-                    easing: .quadIn, startTime: start, endTime: death,
-                    payload: .moveY(start: sprite.defaultY, end: sprite.defaultY + 60),
-                ))
-            case "Shrink":
-                sprite.commands.append(Command(
-                    easing: .quadIn, startTime: start, endTime: death,
-                    payload: usesVector
-                        ? .vectorScale(startX: 1, startY: 1, endX: 0.2, endY: 0.2)
-                        : .scale(start: 1, end: 0.2),
-                ))
-            case "Grow":
-                sprite.commands.append(Command(
-                    easing: .quadIn, startTime: start, endTime: death,
-                    payload: usesVector
-                        ? .vectorScale(startX: 1, startY: 1, endX: 2, endY: 2)
-                        : .scale(start: 1, end: 2),
-                ))
-            case "Spin":
-                sprite.commands.append(Command(
-                    easing: .quadIn, startTime: start, endTime: death,
-                    payload: .rotate(start: 0, end: .pi),
-                ))
-            case "Explode", "Drift":
-                // Each character leaves on its own heading.
-                //
-                // A shared direction is a slide, however fast: what reads as an
-                // explosion is that no two letters agree on where they are
-                // going. Explode throws them outward from the line's centre —
-                // which is what a burst does — while Drift picks a heading at
-                // random, for smoke rather than shrapnel.
-                let force = context.number(Param.exitForce)
-                let angle: Double = if context.choice(Param.exit) == "Explode" {
-                    // Outward from the centre, nudged so a character sitting on
-                    // the centre line still has somewhere to go.
-                    atan2(glyph.y, glyph.x == 0 ? 0.001 : glyph.x) + rng.symmetric(0.4)
-                } else {
-                    rng.between(0, .pi * 2)
-                }
-
-                let distance = force * rng.between(0.6, 1.4)
-                // From wherever the travel left it, or the character snaps back
-                // to its starting place before flying off.
-                let fromX = sprite.defaultX + travelX
-                let fromY = sprite.defaultY + travelY
-                sprite.commands.append(Command(
-                    easing: .quadOut, startTime: start, endTime: death,
-                    payload: .move(
-                        startX: fromX,
-                        startY: fromY,
-                        endX: fromX + cos(angle) * distance,
-                        endY: fromY + sin(angle) * distance,
-                    ),
-                ))
-                // Tumbling as it goes, each its own way — debris does not spin
-                // in unison.
-                sprite.commands.append(Command(
-                    easing: .linear, startTime: start, endTime: death,
-                    payload: .rotate(start: 0, end: rng.symmetric(.pi * 1.5)),
-                ))
-            default:
-                break
-            }
+        // From wherever the travel left it, or the character snaps back to
+        // its starting place before leaving.
+        let from = (x: sprite.defaultX + travel.x, y: sprite.defaultY + travel.y)
+        if span.hasExit, TextExit.parametricNames.contains(exit) {
+            sprite.commands += TextExit.parametric(
+                exitTarget(exit, scatter: scatter, outStretch: outStretch, context: context, rng: rng),
+                from: from, start: span.exitStart, end: span.life, vector: usesVector,
+            )
+        } else if span.hasExit {
+            sprite.commands += TextExit.legacy(
+                exit,
+                start: span.exitStart,
+                end: span.life,
+                from: from,
+                offset: (glyph.x, glyph.y),
+                force: context.number(Param.exitForce),
+                vector: usesVector,
+                rng: &rng,
+            )
         }
 
         // Tinted rather than drawn in colour: the glyph texture is white, so
         // one image serves every colour it is used in.
-        let colour = context.color(Param.color)
-        if colour != EffectColor(r: 255, g: 255, b: 255) {
-            sprite.commands.append(Command(
-                easing: .linear, startTime: birth, endTime: birth,
-                payload: .color(
-                    startR: colour.r, startG: colour.g, startB: colour.b,
-                    endR: colour.r, endG: colour.g, endB: colour.b,
-                ),
-            ))
-        }
+        sprite.commands += TextColour.commands(
+            base: plan.colour,
+            highlight: plan.highlightAt.map { (context.color(Param.colour2), $0) },
+            edge: max(0, context.number(Param.sweepEdge)),
+            flash: context.toggle(Param.flash),
+            birth: span.birth,
+            life: span.life,
+        )
 
         if context.toggle(Param.additive) {
             sprite.commands.append(Command(
-                easing: .linear, startTime: birth, endTime: death,
+                easing: .linear, startTime: span.birth, endTime: span.life,
                 payload: .parameter(.additive),
             ))
         }
 
         return sprite
+    }
+
+    /// Opacity first, and always present: without a fade the sprite holds its
+    /// default from the start of the file, so every character would be
+    /// visible before its own stagger reached it.
+    private func opacity(_ span: Span, fadeIn: Double, fadeOut: Double) -> [Command] {
+        var commands: [Command] = []
+        if fadeIn > 0 {
+            commands.append(Command(
+                easing: .out, startTime: span.birth, endTime: span.landed,
+                payload: .fade(start: 0, end: 1),
+            ))
+            // Held from arrival to whenever this character leaves. Without
+            // the hold a sprite lives only for its own fade — a character
+            // that appears and then stops existing — and a character whose
+            // exit was dropped for want of room needs it to reach its end.
+            if !span.hasExit || fadeOut == 0 {
+                commands.append(Command(
+                    easing: .linear, startTime: span.landed, endTime: span.life,
+                    payload: .fade(start: 1, end: 1),
+                ))
+            }
+        } else {
+            // No fade still means visible: without a command the sprite holds
+            // its default opacity from the beginning of the file, so every
+            // character would be on screen before its own stagger reached it.
+            commands.append(Command(
+                easing: .linear, startTime: span.birth, endTime: fadeOut > 0 ? span.birth : span.life,
+                payload: .fade(start: 1, end: 1),
+            ))
+        }
+        // Only when there is room for it after the character has arrived.
+        if span.hasExit {
+            commands.append(Command(
+                easing: .linear, startTime: span.exitStart, endTime: span.life,
+                payload: .fade(start: 1, end: 0),
+            ))
+        }
+        return commands
+    }
+
+    /// The entrance: each character travels from wherever it was told to
+    /// start to where the layout puts it, over its own fade-in.
+    private func entrance(
+        _ span: Span,
+        at rest: (x: Double, y: Double),
+        scatter: Scatter,
+        vector: Bool,
+        context: EffectContext,
+    ) -> [Command] {
+        guard span.landed > span.birth else { return [] }
+        var commands: [Command] = []
+        let curve = Self.easing(named: context.choice(Param.easing))
+        let rise = context.number(Param.riseFrom)
+        let drift = context.number(Param.driftFrom)
+
+        // Both axes in one command when both move: `_M` carries the pair, and
+        // two separate commands would each fight for the same position.
+        if rise != 0 || drift != 0 || scatter.x != nil || scatter.y != nil {
+            commands.append(Command(
+                easing: curve, startTime: span.birth, endTime: span.landed,
+                payload: .move(
+                    startX: Scatter.adding(scatter.x, to: rest.x + drift),
+                    startY: Scatter.adding(scatter.y, to: rest.y + rise),
+                    endX: rest.x,
+                    endY: rest.y,
+                ),
+            ))
+        }
+
+        let scaleFrom = context.number(Param.scaleFrom)
+        // The entrance's own stretch asks for a command; a stretch that only
+        // the exit has makes it `_V` without making it move.
+        let stretched = context.number(Param.stretchFromX) != 1 || context.number(Param.stretchFromY) != 1
+        if scaleFrom != 1 || scatter.scale != nil || stretched {
+            let start = Self.startScale(scaleFrom, scatter: scatter)
+            commands.append(Command(
+                easing: curve, startTime: span.birth, endTime: span.landed,
+                payload: vector
+                    ? .vectorScale(
+                        startX: start * context.number(Param.stretchFromX),
+                        startY: start * context.number(Param.stretchFromY),
+                        endX: 1, endY: 1,
+                    )
+                    : .scale(start: start, end: 1),
+            ))
+        }
+
+        let spin = context.number(Param.spinFrom)
+        if spin != 0 || scatter.rotation != nil {
+            commands.append(Command(
+                easing: curve, startTime: span.birth, endTime: span.landed,
+                payload: .rotate(start: Scatter.adding(scatter.rotation, to: spin) * .pi / 180, end: 0),
+            ))
+        }
+        return commands
+    }
+
+    /// Where a Custom or Mirror In exit takes this glyph.
+    ///
+    /// Mirror In is the entrance played backwards: the glyph returns to the
+    /// very place, scale and turn it arrived from — its own scatter included,
+    /// so letters that assembled out of a cloud go back into it — on the
+    /// entrance curve's mirror. Custom reads its own axes, with a scatter of
+    /// its own drawn in a fixed order from a derived stream.
+    private func exitTarget(
+        _ exit: String,
+        scatter: Scatter,
+        outStretch: (x: Double, y: Double),
+        context: EffectContext,
+        rng: EffectRandom,
+    ) -> TextExit.Target {
+        if exit == "Mirror In" {
+            return TextExit.Target(
+                dx: Scatter.adding(scatter.x, to: context.number(Param.driftFrom)),
+                dy: Scatter.adding(scatter.y, to: context.number(Param.riseFrom)),
+                scale: Self.startScale(context.number(Param.scaleFrom), scatter: scatter),
+                stretchX: outStretch.x,
+                stretchY: outStretch.y,
+                spin: Scatter.adding(scatter.rotation, to: context.number(Param.spinFrom)),
+                easing: TextExit.inEasing(named: context.choice(Param.easing)),
+            )
+        }
+        var stream = rng.stream(TextExit.scatterTag)
+        let spread = context.number(Param.outScatter)
+        let turn = context.number(Param.outScatterRotation)
+        let jitter = (x: stream.symmetric(spread), y: stream.symmetric(spread), rotation: stream.symmetric(turn))
+        return TextExit.Target(
+            dx: context.number(Param.outDrift) + jitter.x,
+            dy: context.number(Param.outRise) + jitter.y,
+            scale: context.number(Param.outScale),
+            stretchX: outStretch.x,
+            stretchY: outStretch.y,
+            spin: context.number(Param.outSpin) + jitter.rotation,
+            easing: TextExit.inEasing(named: context.choice(Param.outEasing)),
+        )
+    }
+
+    /// The scale a glyph arrives from. Clamped only when jittered: a glyph
+    /// cannot start inside out, and an unjittered start has to stay the very
+    /// number it always was.
+    private static func startScale(_ scaleFrom: Double, scatter: Scatter) -> Double {
+        scatter.scale.map { max(0, scaleFrom + $0) } ?? scaleFrom
     }
 
     // ─── In Scatter ──────────────────────────────────────────────────────────

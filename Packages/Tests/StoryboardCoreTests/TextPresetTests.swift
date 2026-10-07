@@ -57,6 +57,7 @@ struct TextPresetTests {
             P.unit, P.staggerMode, P.staggerSpread, P.waveAmount,
             P.scatterX, P.scatterY, P.scatterRotation, P.scatterScale,
             P.stretchFromX, P.stretchFromY, P.pivot, P.spinFrom, P.exit,
+            P.holdMotion, P.colourMode, P.exitStagger, P.exitOrder,
         ]
         let signatures = TextEffect.presets.map { preset in axes.map { preset.values[$0] } }
 
@@ -87,7 +88,7 @@ struct TextPresetTests {
     func animatorPresetsExist() {
         let ids = TextEffect.presets.map(\.id)
         #expect(Self.animatorIDs.allSatisfy(ids.contains))
-        #expect(TextEffect.presets.count == 25)
+        #expect(TextEffect.presets.count == 35)
     }
 
     /// S8.1: unique across every preset the editor lists, not only the text
@@ -212,6 +213,113 @@ struct TextPresetTests {
         case "unfold-up":
             #expect(drawn.allSatisfy { $0.origin == .bottomCentre })
             #expect(vectors.allSatisfy { $0 == (1, 0.05) })
+        default:
+            Issue.record("no check for \(id)")
+        }
+    }
+
+    // ─── The motion presets ──────────────────────────────────────────────────
+
+    static let motionIDs = [
+        "karaoke-sweep", "soft-float", "echo-lines", "breathing", "shake-hold",
+        "glitch-in", "scan-line", "zigzag-wave", "gradient-title", "mirror-out",
+    ]
+    /// The ones that write a hold, and so may spend its steps.
+    private static let holdIDs: Set<String> = ["soft-float", "breathing", "shake-hold", "glitch-in", "zigzag-wave"]
+
+    @Test("the motion presets are in the library, after the animator ones")
+    func motionPresetsExist() {
+        let ids = TextEffect.presets.map(\.id)
+        #expect(Array(ids.suffix(10)) == Self.motionIDs)
+    }
+
+    /// A hold is at most 48 steps on top of the ten the effect could already
+    /// write, so a hold preset is bounded at 64 commands a glyph and every
+    /// other preset stays at ten. Over a typical line: a sprite per glyph.
+    @Test("the motion presets stay inside their declared cost", arguments: motionIDs)
+    func motionCostBounded(id: String) throws {
+        let preset = try #require(TextEffect.presets.first { $0.id == id })
+        let line = "the quick brown fox jumps"
+        let drawn = sprites(preset, text: line)
+        let bound = Self.holdIDs.contains(id) ? 64 : 10
+        #expect(drawn.count == line.filter { !$0.isWhitespace }.count)
+        #expect(drawn.allSatisfy { $0.commands.count <= bound }, "\(id): \(drawn.map(\.commands.count).max() ?? 0)")
+        #expect(drawn.allSatisfy { TextOverlapGuard.violations($0).isEmpty })
+    }
+
+    /// Each preset's own move, read from what it draws.
+    @Test("each motion preset does its own move", arguments: motionIDs)
+    func motionCharacter(id: String) throws {
+        let preset = try #require(TextEffect.presets.first { $0.id == id })
+        let drawn = sprites(preset, text: "ab cd\nef gh")
+        try #require(drawn.count == 8)
+        let landed = drawn.map { sprite in sprite.commands.first { $0.kind == .fade }.map(\.endTime) ?? 0 }
+        func kinds(_ sprite: StoryboardSprite, _ kind: CommandKind) -> [Command] {
+            sprite.commands.filter { $0.kind == kind }
+        }
+        func held(_ sprite: StoryboardSprite, _ kind: CommandKind, after: Double) -> [Command] {
+            kinds(sprite, kind).filter { $0.startTime >= after && $0.endTime <= preset.duration - 200 }
+        }
+        func exitStart(_ sprite: StoryboardSprite) -> Double {
+            sprite.commands.filter { $0.kind == .fade }.last?.startTime ?? 0
+        }
+        func offset(_ sprite: StoryboardSprite, at time: Double) throws -> (x: Double, y: Double) {
+            let state = try #require(StoryboardResolver.resolve(StoryboardResolver.prepare([sprite]), at: time).first)
+            return (state.x - sprite.defaultX, state.y - sprite.defaultY)
+        }
+        let colourStarts = drawn.map { kinds($0, .color).first?.startTime ?? -1 }
+
+        switch id {
+        case "karaoke-sweep":
+            #expect(colourStarts[0] == colourStarts[1] && colourStarts[2] == colourStarts[3], "words light as one")
+            #expect(colourStarts[0] < colourStarts[2] && colourStarts[2] < colourStarts[4])
+            #expect(drawn.allSatisfy { kinds($0, .color).count == 1 })
+        case "soft-float":
+            #expect(drawn.allSatisfy { held($0, .move, after: 0).count > 2 })
+            let middle = preset.duration / 2
+            #expect(try abs(offset(drawn[0], at: middle).x) > 0.1 || abs(offset(drawn[0], at: middle + 700).x) > 0.1)
+        case "echo-lines":
+            #expect(exitStart(drawn[4]) < exitStart(drawn[0]), "the last line in is the first out")
+            #expect(Set(drawn[0...3].map(exitStart)).count == 1)
+            let exit = try #require(kinds(drawn[0], .move).last)
+            guard case let .move(sx, _, ex, _) = exit.payload else { return }
+            #expect(ex - sx == -120, "back out the way it came")
+        case "breathing":
+            #expect(drawn.allSatisfy { held($0, .scale, after: 0).count > 2 })
+            #expect(drawn.allSatisfy { kinds($0, .move).isEmpty })
+        case "shake-hold":
+            let time = preset.duration * 0.6
+            let (a, b) = (try offset(drawn[0], at: time), try offset(drawn[1], at: time))
+            #expect(abs(a.x - b.x) < 1e-6 && abs(a.y - b.y) < 1e-6, "a word shakes as one")
+            #expect(drawn.allSatisfy { held($0, .move, after: 0).count > 10 })
+        case "glitch-in":
+            let steps = held(drawn[0], .move, after: landed[0])
+            let jumps = zip(steps, steps.dropFirst()).filter { a, b in
+                guard case let .move(_, _, ax, ay) = a.payload, case let .move(bx, by, _, _) = b.payload else { return false }
+                return abs(ax - bx) > 0.5 || abs(ay - by) > 0.5
+            }
+            #expect(jumps.count > 2, "jumps, not slides")
+            #expect(landed != landed.sorted(), "out of order")
+        case "scan-line":
+            #expect(drawn.allSatisfy { kinds($0, .color).count == 2 }, "lit, then back")
+            #expect(Set(colourStarts[0...3]).count == 1 && colourStarts[4] > colourStarts[0])
+        case "zigzag-wave":
+            let time = landed[0] + 600
+            #expect(try abs(offset(drawn[0], at: time).y - offset(drawn[1], at: time).y) > 0.5)
+            #expect(drawn.allSatisfy { held($0, .move, after: 0).count > 2 })
+        case "gradient-title":
+            let ends = drawn.map { sprite -> Double in
+                guard case let .color(_, g, _, _, _, _)? = kinds(sprite, .color).first?.payload else { return 255 }
+                return g
+            }
+            #expect(ends[0] == 255 && ends[3] == 120 && ends[4] == 255 && ends[7] == 120, "per line, white to pink")
+            #expect(ends[1] > ends[3] && ends[1] < 255)
+        case "mirror-out":
+            let starts = drawn.map(exitStart)
+            #expect(starts == starts.sorted() && Set(starts).count == drawn.count, "first in, first out")
+            let exit = try #require(kinds(drawn[0], .move).last)
+            guard case let .move(_, sy, _, ey) = exit.payload else { return }
+            #expect(ey - sy == 40, "sinks back to where it rose from")
         default:
             Issue.record("no check for \(id)")
         }

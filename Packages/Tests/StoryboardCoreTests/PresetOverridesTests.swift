@@ -111,6 +111,16 @@ struct PresetOverridesTests {
         #expect(try #require(document[node.id]).values == before)
     }
 
+    /// A text preset is a move, never content: one that set the words, the
+    /// font, the size or the colour would hand them back to its own values
+    /// every time the author swapped presets.
+    @Test("text presets leave the content alone", arguments: TextEffect.presets)
+    func textPresetsLeaveContent(_ preset: EffectPreset) {
+        typealias P = TextEffect.Param
+        let content: Set<String> = [P.text, P.font, P.size, P.bold, P.italic, P.color]
+        #expect(content.isDisjoint(with: preset.overrides.keys), "\(preset.id)")
+    }
+
     // MARK: -
 
     static func allPresets() -> [EffectPreset] {

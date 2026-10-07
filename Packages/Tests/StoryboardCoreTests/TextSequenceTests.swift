@@ -223,11 +223,15 @@ struct TextSequenceTests {
     func groups() {
         let descriptor = TextEffect.descriptor
         #expect(descriptor.groups == [
-            "Content", "Layout", "Appearance", "Sequence", "Entrance", "Scatter", "Hold & Exit",
+            "Content", "Layout", "Colour", "Sequence", "Entrance", "Scatter", "Hold", "Exit",
         ])
         func members(_ group: String) -> [String] {
             descriptor.parameters.filter { $0.group == group }.map(\.id)
         }
+        #expect(members("Colour") == [
+            P.color, P.additive, P.colourMode, P.colour2, P.gradientAcross,
+            P.sweepOrder, P.sweepStart, P.sweepLength, P.sweepEdge, P.flash,
+        ])
         #expect(members("Sequence") == [
             P.unit, P.staggerFrom, P.waveAmount, P.staggerMode, P.stagger, P.staggerSpread,
         ])
@@ -236,7 +240,48 @@ struct TextSequenceTests {
             P.stretchFromX, P.stretchFromY, P.pivot,
         ])
         #expect(members("Scatter") == [P.scatterX, P.scatterY, P.scatterRotation, P.scatterScale])
-        #expect(members("Hold & Exit") == [P.driftX, P.driftY, P.fadeOut, P.exit, P.exitForce])
+        #expect(members("Hold") == [
+            P.driftX, P.driftY, P.holdMotion, P.holdAmount, P.holdBreathe, P.holdSpeed, P.holdPhase,
+        ])
+        #expect(members("Exit") == [
+            P.fadeOut, P.exit, P.exitForce, P.exitStagger, P.exitOrder,
+            P.outRise, P.outDrift, P.outScale, P.outSpin, P.outStretchX, P.outStretchY,
+            P.outScatter, P.outScatterRotation, P.outEasing,
+        ])
+    }
+
+    /// A hold control that does nothing under the chosen motion is hidden:
+    /// Amount moves, Breathe swells, Phase Spread offsets a cycle.
+    @Test("hold controls show only for the motions they drive")
+    func holdVisibility() {
+        let expected: [String: Set<String>] = [
+            "None": [],
+            "Wave": [P.holdAmount, P.holdSpeed, P.holdPhase],
+            "Float": [P.holdAmount, P.holdSpeed, P.holdPhase],
+            "Jitter": [P.holdAmount, P.holdSpeed],
+            "Shake": [P.holdAmount, P.holdSpeed],
+            "Breathe": [P.holdBreathe, P.holdSpeed, P.holdPhase],
+        ]
+        let controls: Set<String> = [P.holdAmount, P.holdBreathe, P.holdSpeed, P.holdPhase]
+        for (motion, shown) in expected {
+            #expect(visible([P.holdMotion: .choice(motion)]).intersection(controls) == shown, "\(motion)")
+        }
+    }
+
+    /// The colour controls follow the mode the same way.
+    @Test("colour controls show only for the mode they drive")
+    func colourVisibility() {
+        let controls: Set<String> = [
+            P.colour2, P.gradientAcross, P.sweepOrder, P.sweepStart, P.sweepLength, P.sweepEdge, P.flash,
+        ]
+        let expected: [String: Set<String>] = [
+            "Solid": [],
+            "Gradient": [P.colour2, P.gradientAcross],
+            "Highlight": [P.colour2, P.sweepOrder, P.sweepStart, P.sweepLength, P.sweepEdge, P.flash],
+        ]
+        for (mode, shown) in expected {
+            #expect(visible([P.colourMode: .choice(mode)]).intersection(controls) == shown, "\(mode)")
+        }
     }
 
     /// Exit Force is how far Explode and Drift throw; under any other exit it
