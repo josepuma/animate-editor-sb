@@ -78,8 +78,20 @@ let package = Package(
         // startup. See MetalStoryboardRenderer.makeLibrary(device:).
         .target(
             name: "StoryboardRendering",
-            dependencies: ["StoryboardCore", "StoryboardShaderTypes"],
+            dependencies: ["StoryboardCore", "StoryboardShaderTypes", "PixelKernels"],
             resources: [.copy("Shaders.metal"), .copy("Particles")],
+        ),
+        // Per-pixel loops for the derived Look textures, optimised even in a
+        // debug build: unoptimised Swift ran Ink on a full-HD image in 3.2s
+        // against 70ms, on the main thread. Depends on nothing, so turning
+        // the optimiser on here touches nothing else's debugging.
+        .target(
+            name: "PixelKernels",
+            swiftSettings: [.unsafeFlags(["-O"], .when(configuration: .debug))],
+        ),
+        .testTarget(
+            name: "PixelKernelsTests",
+            dependencies: ["PixelKernels"],
         ),
         .testTarget(
             name: "StoryboardRenderingTests",
