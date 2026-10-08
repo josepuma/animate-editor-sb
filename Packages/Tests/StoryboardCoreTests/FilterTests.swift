@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import StoryboardCore
+import StoryboardTestSupport
 
 /// Filters transform what a track produced rather than producing anything, and
 /// they run during evaluation — not at export. That is the property everything
@@ -733,18 +734,9 @@ struct LoopFilterTests {
         document.setKeyframe(400, for: .y, at: 2000, on: node.id)
         let filter = document.addFilter(descriptor, to: node.id)!
 
-        // Every numeric parameter turned up.
-        //
-        // Defaults are the wrong setting to audit with: Chromatic's jitter is
-        // off by default and writes movement only when it is on, so a sweep at
-        // the defaults declared it clean while it was the second offender. A
-        // guard has to exercise the thing it guards.
-        for parameter in descriptor.parameters {
-            guard case .number = parameter.defaultValue, let range = parameter.range else { continue }
-            document.setFilterValue(
-                .number(min(range.upperBound, 1)),
-                for: parameter.id, on: filter.id, in: node.id,
-            )
+        // Every numeric parameter turned up: see `FilterExercise`.
+        for (id, value) in FilterExercise.exercised(descriptor) {
+            document.setFilterValue(value, for: id, on: filter.id, in: node.id)
         }
 
         for sprite in evaluator.evaluate(document) {

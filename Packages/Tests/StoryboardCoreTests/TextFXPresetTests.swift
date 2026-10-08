@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import StoryboardCore
+import StoryboardTestSupport
 
 /// The Text FX pack: titles with a look, a scene, or particles of their own.
 ///

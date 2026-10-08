@@ -18,9 +18,11 @@ public extension EmitterEffect {
         chevronMarch, hazardStripes, vectorNodes, arrowBurst, crossField, triangleShards,
         spectrumFountain, bassBurst, trebleSparkles, beatDots, kickConfetti,
         dustMotes, fogLayers, lightShafts, cloudScroll,
+        godRays, sunFan, sunRays, stageLights, spotlightPulse,
+        seedDrift, seedGust,
     ]
 
-    private static func preset(
+    internal static func preset(
         _ id: String,
         _ name: String,
         _ summary: String,
@@ -1549,7 +1551,8 @@ public extension EmitterEffect {
     /// reads as none of them.
     static let compoundPresets: [EffectPreset] = [
         fireRing, portal, tunnel, impact, stormCell, energyOrb, arcReactor, firework, shapeDrift,
-        splash, blackHole, starfieldParallax, hudSweep,
+        splash, blackHole, starfieldParallax, hudSweep, sunbeam, dandelionBlow, dandelionSway,
+        hudLoader, hudTargetLock, hudDataSpinner, hudWarpCore,
     ]
 
     /// Builds a layer with the emitter's own defaults underneath.
@@ -1557,7 +1560,7 @@ public extension EmitterEffect {
     /// Without the merge a layer would carry only what it names, and every
     /// parameter it left out would be missing rather than default — the
     /// evaluator reads them all.
-    private static func layer(_ name: String, _ values: [String: EffectValue]) -> EffectPreset.Layer {
+    internal static func layer(_ name: String, _ values: [String: EffectValue]) -> EffectPreset.Layer {
         EffectPreset.Layer(
             effectType: descriptor.type,
             name: name,
@@ -1565,7 +1568,7 @@ public extension EmitterEffect {
         )
     }
 
-    private static func compound(
+    internal static func compound(
         _ id: String,
         _ name: String,
         _ summary: String,
@@ -1573,6 +1576,7 @@ public extension EmitterEffect {
         _ values: [String: EffectValue],
         pack: String,
         layers: [EffectPreset.Layer],
+        filters: [EffectPreset.Filter] = [],
     ) -> EffectPreset {
         EffectPreset(
             id: id,
@@ -1584,6 +1588,7 @@ public extension EmitterEffect {
             overrides: values,
             layers: layers,
             pack: pack,
+            filters: filters,
         )
     }
 

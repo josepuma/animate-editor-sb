@@ -1417,6 +1417,46 @@ public final class EditorShellModel {
 
     public var previewImage: ((PreviewSubject) -> [CGImage])?
 
+    // ─── Sprite thumbnails ───────────────────────────────────────────────────
+
+    /// Draws a small picture of a built-in sprite, for the sprite picker.
+    ///
+    /// A seam like `previewImage`: the pictures are the renderer's, and a
+    /// feature does not import another. Called off the main thread, so it has
+    /// to be safe there — the app's is a decode from a locked cache.
+    public var spriteThumbnail: (@Sendable (String) -> CGImage?)?
+
+    /// The thumbnails that have landed, by path. Observed, so a tile redraws
+    /// when its picture arrives; written only when one does.
+    public private(set) var spriteThumbnails: [String: CGImage] = [:]
+
+    /// Paths already asked for, landed or not — so a tile scrolled back into
+    /// view does not decode again, and one with no picture is not retried on
+    /// every appearance.
+    @ObservationIgnored private var requestedSpriteThumbnails: Set<String> = []
+
+    /// Asks for a thumbnail, decoded off the main thread.
+    ///
+    /// Sixty decodes in a row on the main thread are a visible hitch when the
+    /// picker opens, so each tile asks as it appears and the picture lands
+    /// when it is ready.
+    public func requestSpriteThumbnail(_ path: String) {
+        guard !requestedSpriteThumbnails.contains(path), let make = spriteThumbnail else { return }
+        requestedSpriteThumbnails.insert(path)
+        Task.detached(priority: .utility) { [weak self] in
+            guard let image = make(path) else { return }
+            await MainActor.run { self?.spriteThumbnails[path] = image }
+        }
+    }
+
+    /// The picker's view of the thumbnails: read and request, nothing else.
+    package var spriteThumbnailSource: SpriteThumbnails {
+        SpriteThumbnails(
+            image: { [weak self] in self?.spriteThumbnails[$0] },
+            request: { [weak self] in self?.requestSpriteThumbnail($0) },
+        )
+    }
+
     // ─── Library previews ────────────────────────────────────────────────────
 
     /// The previews the library's cards have been given, by `PreviewSubject.key`.

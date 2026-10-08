@@ -70,14 +70,14 @@ public extension SpriteFilter {
 public struct FilterDescriptor: Sendable, Equatable {
     public let type: String
     public var name: String
-    public var category: LibraryCategory
+    public var category: FilterCategory
     public var systemImage: String
     public var parameters: [EffectParameter]
 
     public init(
         type: String,
         name: String,
-        category: LibraryCategory,
+        category: FilterCategory,
         systemImage: String,
         parameters: [EffectParameter],
     ) {
@@ -448,10 +448,10 @@ public struct FilterLibrary: Sendable {
     public var descriptors: [FilterDescriptor] {
         filters.values
             .map { Swift.type(of: $0).descriptor }
-            // By the declared order, not alphabetically: the categories are
-            // listed roughly in the order they are reached for — something has
-            // to exist before it can be styled.
-            .sorted { LibraryCategory.precedes(($0.category, $0.name), ($1.category, $1.name)) }
+            // By the declared order, not alphabetically: Look first because it
+            // is what most people reach for, Audio last because it is the
+            // narrowest.
+            .sorted { FilterCategory.precedes(($0.category, $0.name), ($1.category, $1.name)) }
     }
 
     /// The built-in library.
@@ -461,5 +461,11 @@ public struct FilterLibrary: Sendable {
         TimeFilter(), EaseFilter(), RadialFilter(),
         MirrorFilter(), ChromaticFilter(), PathFilter(), PulseFilter(), AudioDriveFilter(), GridFilter(),
         FadeFilter(), LEDFilter(),
+        OutlineFilter(), HueCycleFilter(), HalftoneFilter(), DuotoneFilter(), InkFilter(),
+        InertialBounceFilter(), SquashStretchFilter(), TurbulenceFilter(), VortexFilter(), AttractorFilter(),
+        StaggerFilter(), PosterizeTimeFilter(),
+        CardFlipFilter(), CarouselFilter(), ExtrudeFilter(),
+        ShatterFilter(), SliceGlitchFilter(), DisintegrateFilter(), SparkTrailFilter(), ImpactRingFilter(),
+        LensFlareFilter(),
     ])
 }

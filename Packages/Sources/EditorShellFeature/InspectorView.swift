@@ -367,6 +367,7 @@ struct InspectorView: View {
                         onEditingChanged: { isEditing in
                             isEditing ? shell.beginGesture() : shell.endGesture()
                         },
+                        thumbnails: shell.spriteThumbnailSource,
                     )
                 }
             }
@@ -396,6 +397,7 @@ struct InspectorView: View {
                             value, for: parameter, onLayer: layer.id, in: node.id,
                         )
                     },
+                    thumbnails: shell.spriteThumbnailSource,
                 )
             }
         }
@@ -1267,6 +1269,9 @@ private struct ParameterControl: View {
     var trailing: AnyView?
     /// Drawn before the label — the stopwatch's column, as in a transform row.
     var leading: AnyView?
+    /// Pictures for the sprite picker. Only an emitter's sprite row uses it,
+    /// so it is defaulted rather than threaded through every call site.
+    var thumbnails: SpriteThumbnails = .none
 
     var body: some View {
         PropertyRow(parameter.name, leading: {
@@ -1355,20 +1360,7 @@ private struct ParameterControl: View {
             // stay typeable.
             VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
                 if parameter.id == EmitterEffect.Param.sprite {
-                    let choice = SpriteChoice(path: string)
-                    MenuField(
-                        items: SpriteChoice.all,
-                        selection: Binding(
-                            get: { choice },
-                            // "Custom" has no path of its own — it means "let
-                            // me type one". Picking it used to `return` and do
-                            // nothing at all, so the entry looked broken.
-                            // Seeding a placeholder puts a path in the field to
-                            // edit, which is the whole point of choosing it.
-                            set: { onChange(.text($0.path ?? customPlaceholder)) },
-                        ),
-                        label: \.title,
-                    )
+                    SpritePicker(path: string, thumbnails: thumbnails) { onChange(.text($0)) }
 
                     // The field only where there is a path to edit.
                     //
@@ -1392,111 +1384,6 @@ private struct ParameterControl: View {
     }
 }
 
-/// What picking "Custom" puts in the field.
-///
-/// A path rather than an empty string: empty *is* the built particle, so
-/// clearing the field would silently bounce the menu back to it. A visible
-/// stand-in says "replace this" and keeps the choice where it was put.
-///
-/// Named after the folder a beatmap's own images live in, so it reads as an
-/// example of the shape a path takes rather than as a file anyone expects to
-/// find. A path that resolves to nothing draws a plain quad, which is the same
-/// thing any mistyped path already does.
-private let customPlaceholder = "sb/your-image.png"
-
-/// The built-in shapes, plus an entry standing in for a path typed by hand.
-private struct SpriteChoice: Hashable, Identifiable {
-    let id: String
-    let title: String
-    /// `nil` for the custom entry, which is a label rather than a choice.
-    let path: String?
-
-    init(id: String, title: String, path: String?) {
-        self.id = id
-        self.title = title
-        self.path = path
-    }
-
-    /// What the menu shows for a stored path.
-    ///
-    /// A path the shapes do not cover displays as "Custom" rather than falling
-    /// back to a shape, which would silently claim the sprite is something it
-    /// is not.
-    init(path: String) {
-        if path.isEmpty {
-            self = Self.built
-        } else if let known = Self.known.first(where: { $0.path == path }) {
-            self = known
-        } else {
-            self = SpriteChoice(id: "custom", title: "Custom", path: nil)
-        }
-    }
-
-    /// The particle built from the three shape numbers.
-    ///
-    /// An entry of its own rather than the *absence* of a sprite: it is the
-    /// first thing in the list, it says what the group below is for, and it is
-    /// the only way back once a file has been picked. Stored as an empty path,
-    /// which is what "nothing overrides the numbers" means.
-    ///
-    /// Named for what it *is* and what sets it apart, not for the machinery
-    /// behind it. "Built from Shape" promised any shape while it only ever
-    /// draws a radial gradient — and "Circle" would sit directly above Soft
-    /// Dot, Glow and Ring, which are circles too, saying nothing about the
-    /// difference. The difference is that this one is yours to dial.
-    static let built = SpriteChoice(id: "built", title: "Adjustable Dot", path: "")
-
-    /// Drawn in code: soft, generic, tinted by the effect.
-    private static let shapes: [SpriteChoice] = [
-        SpriteChoice(id: "soft", title: "Soft Dot", path: BuiltInSprite.soft),
-        SpriteChoice(id: "glow", title: "Glow", path: BuiltInSprite.glow),
-        SpriteChoice(id: "smoke", title: "Smoke Puff", path: BuiltInSprite.smoke),
-        SpriteChoice(id: "star", title: "Star", path: BuiltInSprite.star),
-        SpriteChoice(id: "square", title: "Square", path: BuiltInSprite.square),
-        SpriteChoice(id: "streak", title: "Streak", path: BuiltInSprite.streak),
-        SpriteChoice(id: "ring", title: "Ring", path: BuiltInSprite.ring),
-    ]
-
-    /// Shipped as files: the shapes code cannot draw.
-    ///
-    /// Ordered by what they are for rather than alphabetically — someone
-    /// reaching for lightning is not looking under "s" for "spark".
-    private static let textures: [SpriteChoice] = [
-        SpriteChoice(id: "lightning", title: "Lightning", path: BuiltInSprite.lightning),
-        SpriteChoice(id: "lightningWide", title: "Lightning Wide", path: BuiltInSprite.lightningWide),
-        SpriteChoice(id: "bolt", title: "Bolt", path: BuiltInSprite.bolt),
-        SpriteChoice(id: "boltThin", title: "Bolt Thin", path: BuiltInSprite.boltThin),
-        SpriteChoice(id: "flame", title: "Flame", path: BuiltInSprite.flame),
-        SpriteChoice(id: "flameTall", title: "Flame Tall", path: BuiltInSprite.flameTall),
-        SpriteChoice(id: "flameWisp", title: "Flame Wisp", path: BuiltInSprite.flameWisp),
-        SpriteChoice(id: "ember", title: "Embers", path: BuiltInSprite.ember),
-        SpriteChoice(id: "muzzle", title: "Muzzle Flash", path: BuiltInSprite.muzzle),
-        SpriteChoice(id: "muzzleWide", title: "Muzzle Wide", path: BuiltInSprite.muzzleWide),
-        SpriteChoice(id: "arc", title: "Arc", path: BuiltInSprite.arc),
-        SpriteChoice(id: "crescent", title: "Crescent", path: BuiltInSprite.crescent),
-        SpriteChoice(id: "scratch", title: "Scratch", path: BuiltInSprite.scratch),
-        SpriteChoice(id: "slash", title: "Slash", path: BuiltInSprite.slash),
-        SpriteChoice(id: "flare", title: "Flare", path: BuiltInSprite.flare),
-        SpriteChoice(id: "flareSoft", title: "Flare Soft", path: BuiltInSprite.flareSoft),
-        SpriteChoice(id: "runeRing", title: "Rune Ring", path: BuiltInSprite.runeRing),
-        SpriteChoice(id: "cloud", title: "Cloud", path: BuiltInSprite.cloud),
-        SpriteChoice(id: "cloudWisp", title: "Cloud Wisp", path: BuiltInSprite.cloudWisp),
-        SpriteChoice(id: "sparkle", title: "Sparkle", path: BuiltInSprite.sparkle),
-        SpriteChoice(id: "debris", title: "Debris", path: BuiltInSprite.debris),
-        SpriteChoice(id: "pane", title: "Pane", path: BuiltInSprite.pane),
-        SpriteChoice(id: "strobe", title: "Spotlight", path: BuiltInSprite.strobe),
-    ]
-
-    private static let known = shapes + textures
-
-    /// The parametric particle first, then the drawn shapes and the files.
-    ///
-    /// "Custom" stays last and keeps its `nil` path — it is a *label* for a
-    /// path typed into the field below, not something to choose. Every other
-    /// entry sets a path, including the built one, so the menu can always be
-    /// used to get back.
-    static let all = [built] + known + [SpriteChoice(id: "custom", title: "Custom", path: nil)]
-}
 
 // ─── Colour bridging ─────────────────────────────────────────────────────────
 
@@ -1587,6 +1474,7 @@ private struct LayerSection: View {
     let descriptor: EffectDescriptor
     let toggle: () -> Void
     let onChange: (String, EffectValue) -> Void
+    var thumbnails: SpriteThumbnails = .none
 
     /// Collapsed by default.
     ///
@@ -1609,6 +1497,7 @@ private struct LayerSection: View {
                             parameter: parameter,
                             value: layer.values[parameter.id] ?? parameter.defaultValue,
                             onChange: { onChange(parameter.id, $0) },
+                            thumbnails: thumbnails,
                         )
                     }
                 }

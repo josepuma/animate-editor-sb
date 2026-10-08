@@ -54,7 +54,7 @@ public struct FadeFilter: SpriteFilter {
     public static let descriptor = FilterDescriptor(
         type: "fade",
         name: "Fade",
-        category: .stylise,
+        category: .time,
         systemImage: "circle.lefthalf.filled",
         parameters: [
             EffectParameter(

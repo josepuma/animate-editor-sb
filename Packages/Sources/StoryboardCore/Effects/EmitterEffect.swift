@@ -56,12 +56,16 @@ public struct EmitterEffect: Effect {
         public static let drag = "drag"
 
         public static let life = "life"
+        public static let lifeMode = "lifeMode"
+        public static let lifeFraction = "lifeFraction"
         public static let lifeRandom = "lifeRandom"
         public static let scaleStart = "scaleStart"
         public static let scaleEnd = "scaleEnd"
         public static let scaleRandom = "scaleRandom"
         public static let stretch = "stretch"
         public static let rotation = "rotation"
+        public static let angle = "angle"
+        public static let origin = "origin"
         public static let alignToMotion = "alignToMotion"
         public static let spin = "spin"
 
@@ -100,6 +104,19 @@ public struct EmitterEffect: Effect {
     /// faked — and a preset that promises a ring and emits a bar is a preset
     /// whose name lies. Width and height stay the extents in every case, so
     /// the same two numbers describe all four.
+    /// How a particle's life is measured.
+    ///
+    /// In milliseconds it is a property of the particle: a spark lives 600ms
+    /// whatever clip it is in. As a share of the clip it is a property of the
+    /// clip: a ring held for the whole clip, or copies of a light shaft
+    /// cross-fading, keep doing so when the clip is stretched — in
+    /// milliseconds the ring died at its old length and the copies thinned
+    /// into gaps.
+    public enum LifeMode: String, CaseIterable {
+        case milliseconds = "Milliseconds"
+        case clip = "Clip"
+    }
+
     public enum Shape: String, CaseIterable {
         /// Anywhere inside the box.
         case rectangle = "Rectangle"
@@ -650,6 +667,13 @@ public struct EmitterEffect: Effect {
 
             // ── Particle ────────────────────────────────────────────────────
             EffectParameter(
+                id: Param.lifeMode,
+                name: "Life Mode",
+                group: "Particle",
+                defaultValue: .choice(LifeMode.milliseconds.rawValue),
+                options: LifeMode.allCases.map(\.rawValue),
+            ),
+            EffectParameter(
                 id: Param.life,
                 name: "Life",
                 group: "Particle",
@@ -657,6 +681,19 @@ public struct EmitterEffect: Effect {
                 range: 50...20_000,
                 step: 50,
                 unit: "ms",
+                shownWhen: .init(parameter: Param.lifeMode, isAnyOf: [LifeMode.milliseconds.rawValue]),
+            ),
+            // 1 is the whole clip: with a burst at the start, a particle held
+            // for exactly as long as the clip runs, stretched or not.
+            EffectParameter(
+                id: Param.lifeFraction,
+                name: "Life (Clip %)",
+                group: "Particle",
+                defaultValue: .number(1),
+                range: 0.02...1,
+                step: 0.01,
+                presentation: .slider,
+                shownWhen: .init(parameter: Param.lifeMode, isAnyOf: [LifeMode.clip.rawValue]),
             ),
             EffectParameter(
                 id: Param.lifeRandom,
@@ -715,6 +752,37 @@ public struct EmitterEffect: Effect {
                 step: 1,
                 unit: "°",
                 presentation: .slider,
+            ),
+            // One tilt for every particle, on top of the random one.
+            //
+            // A drawn shape has a direction baked in — a shaft of light falls
+            // the way its brush was painted — and without this the only way
+            // to lean it was a random tilt, which leans every copy a different
+            // way. Zero by default, so nothing already placed moves.
+            EffectParameter(
+                id: Param.angle,
+                name: "Angle",
+                group: "Particle",
+                defaultValue: .number(0),
+                range: -180...180,
+                step: 1,
+                unit: "°",
+                presentation: .slider,
+            ),
+            // Where on the sprite its position is, and what it turns and grows
+            // about.
+            //
+            // osu! rotates and scales a sprite about its origin. Centred, a
+            // shaft of light tilted by `Angle` swings its source sideways;
+            // anchored `TopCentre`, the position *is* the source and the light
+            // pivots there, the way light does. Centre by default — the only
+            // origin the emitter had.
+            EffectParameter(
+                id: Param.origin,
+                name: "Origin",
+                group: "Particle",
+                defaultValue: .choice(Origin.centre.rawValue),
+                options: Origin.allCases.map(\.rawValue),
             ),
             // Point the sprite where the particle is going.
             //
@@ -830,7 +898,12 @@ public struct EmitterEffect: Effect {
 
     public func evaluate(in context: EffectContext, rng: inout EffectRandom) -> [StoryboardSprite] {
         let count = min(max(context.integer(Param.count), 0), Self.maximumCount)
-        guard count > 0, context.duration > 0 else { return [] }
+        // At zero opacity every particle is invisible for its whole life, so
+        // writing them is file lines for nothing — the same rule `Shape`
+        // follows. It is also what lets a compound's parent be an anchor that
+        // draws nothing: the parent's position carries every layer, so it has
+        // to sit at the stage centre whatever its layers are doing.
+        guard count > 0, context.duration > 0, context.number(Param.opacity) > 0 else { return [] }
 
         let emission = Emission(rawValue: context.choice(Param.emission)) ?? .continuous
         let burstCount = max(1, context.integer(Param.burstCount))
@@ -879,7 +952,10 @@ public struct EmitterEffect: Effect {
         let gravity = context.number(Param.gravity)
         let drag = context.number(Param.drag)
 
-        let life = context.number(Param.life)
+        let lifeMode = LifeMode(rawValue: context.choice(Param.lifeMode)) ?? .milliseconds
+        let life = lifeMode == .clip
+            ? context.number(Param.lifeFraction) * context.duration
+            : context.number(Param.life)
         let lifeRandom = context.number(Param.lifeRandom)
 
         let scaleStart = context.number(Param.scaleStart)
@@ -887,6 +963,8 @@ public struct EmitterEffect: Effect {
         let scaleRandom = context.number(Param.scaleRandom)
         let stretch = context.number(Param.stretch)
         let rotationRandom = context.number(Param.rotation)
+        let fixedAngle = context.number(Param.angle) * .pi / 180
+        let origin = Origin(osbName: context.choice(Param.origin))
         let alignToMotion = context.toggle(Param.alignToMotion)
         let spin = context.number(Param.spin)
 
@@ -1033,7 +1111,7 @@ public struct EmitterEffect: Effect {
             // chevron marching backwards. `Placement.rotation` has the same
             // derivation.
             let alignment = alignToMotion ? angle + .pi / 2 : 0
-            let startAngle = alignment + particle.symmetric(rotationRandom) * .pi / 180
+            let startAngle = alignment + fixedAngle + particle.symmetric(rotationRandom) * .pi / 180
 
             var commands: [Command] = []
 
@@ -1221,7 +1299,7 @@ public struct EmitterEffect: Effect {
             sprites.append(StoryboardSprite(
                 id: "\(context.idPrefix)/p\(index)",
                 layer: context.node.layer,
-                origin: .centre,
+                origin: origin,
                 filePath: filePath,
                 defaultX: startX,
                 defaultY: startY,

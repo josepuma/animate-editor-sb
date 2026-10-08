@@ -36,13 +36,10 @@ struct SidePanelView: View {
     /// What is typed into the search box.
     @State private var query = ""
 
-    /// Categories the user has folded away.
+    /// Which filter category the grid is narrowed to, or nothing for all.
     ///
-    /// Held as what is *closed* rather than what is open, so the default —
-    /// nothing in the set — is everything visible. A new category added later
-    /// appears rather than hiding, which is the right way round for a list that
-    /// is still growing.
-    @State private var collapsed: Set<LibraryCategory> = []
+    /// Not persisted: it is a way of looking through the list, not a setting.
+    @State private var filterCategory: FilterCategory?
 
     /// What the preset list is narrowed to, or nothing for everything.
     @State private var selectedFilter: PresetFilter?
@@ -433,14 +430,6 @@ struct SidePanelView: View {
         }
     }
 
-    private func toggle(_ category: LibraryCategory) {
-        if collapsed.contains(category) {
-            collapsed.remove(category)
-        } else {
-            collapsed.insert(category)
-        }
-    }
-
     /// Two columns: at the panel's width a card is still wide enough to read
     /// a preview, and three would shrink each to a thumbnail of a thumbnail.
     private static let cardColumns = [
@@ -523,47 +512,61 @@ struct SidePanelView: View {
 
             search
 
+            filterCategoryChips
+
+            let visible = FilterCategory.visible(
+                in: shell.filterDescriptors,
+                chip: filterCategory,
+                query: query,
+            )
+
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: Theme.Spacing.tight) {
-                    // Grouped by what a filter does, not by the order they were
-                    // written. Nine in a flat list was already past the point
-                    // where anyone reads it as a list rather than as a wall.
-                    //
-                    // Headings are dropped while searching: with the list cut
-                    // to two matches, six headings above them are the noise the
-                    // search was meant to remove.
-                    ForEach(LibraryCategory.displayOrder, id: \.self) { category in
-                        let inCategory = shell.filterDescriptors.filter {
-                            $0.category == category && matches($0.name)
-                        }
-
-                        if !inCategory.isEmpty {
-                            if query.isEmpty {
-                                CategoryHeader(
-                                    title: category.rawValue,
-                                    systemImage: category.systemImage,
-                                    count: inCategory.count,
-                                    isExpanded: !collapsed.contains(category),
-                                    toggle: { toggle(category) },
-                                )
-                            }
-
-                            if query.isEmpty ? !collapsed.contains(category) : true {
-                                LazyVGrid(
-                                    columns: Self.cardColumns,
-                                    alignment: .leading,
-                                    spacing: Theme.Spacing.snug,
-                                ) {
-                                    ForEach(inCategory, id: \.type) { descriptor in
-                                        filterCard(descriptor)
-                                    }
-                                }
-                            }
+                if visible.isEmpty {
+                    Text("Nothing matches")
+                        .font(Theme.Typography.micro)
+                        .foregroundStyle(Theme.Palette.tertiary)
+                        .padding(.top, Theme.Spacing.compact)
+                } else {
+                    LazyVGrid(
+                        columns: Self.cardColumns,
+                        alignment: .leading,
+                        spacing: Theme.Spacing.snug,
+                    ) {
+                        ForEach(visible, id: \.type) { descriptor in
+                            filterCard(descriptor)
                         }
                     }
                 }
             }
+            // Changing the chip or the query swaps the whole grid; a scroll
+            // offset from the old one would land past the end of the new.
+            .id("filters-\(String(describing: filterCategory))-\(query)")
         }
+    }
+
+    /// The filter categories as chips: what a filter does to a clip.
+    ///
+    /// These replaced collapsible headers. Folding sections away served a list
+    /// long enough to need it; with eighteen filters, one tap to narrow to a
+    /// category beats scrolling past six headers. Categories with nothing in
+    /// them have no chip, and the row never reacts to the search box.
+    private var filterCategoryChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Spacing.tight) {
+                FilterChip("All", isSelected: query.isEmpty && filterCategory == nil) {
+                    filterCategory = nil
+                }
+
+                ForEach(FilterCategory.visibleChips(in: shell.filterDescriptors), id: \.self) { category in
+                    FilterChip(category.rawValue, isSelected: query.isEmpty && filterCategory == category) {
+                        filterCategory = category
+                    }
+                }
+            }
+        }
+        // A chip row, not a scrolling region: without this it asks for all the
+        // height there is.
+        .frame(height: Theme.Size.controlSmall)
     }
 
     /// One filter as a card, its preview drawn over the same fixed subject as

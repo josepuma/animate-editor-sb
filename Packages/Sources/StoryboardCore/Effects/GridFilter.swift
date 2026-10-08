@@ -44,7 +44,7 @@ public struct GridFilter: SpriteFilter {
     public static let descriptor = FilterDescriptor(
         type: "grid",
         name: "Grid",
-        category: .stylise,
+        category: .repetition,
         systemImage: "square.grid.3x3",
         parameters: [
             EffectParameter(

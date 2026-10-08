@@ -132,9 +132,11 @@ struct EmitterPresetTests {
         )
         let prepared = StoryboardResolver.prepare(evaluator.evaluate(node))
 
-        // The frame, in the source resolution the built-in textures use.
+        // The frame, in the source resolution the built-in textures use —
+        // 512 square unless `fileSizes` says the file is another size.
         let frameArea = 854.0 * 480.0
-        let sourceSize = 512.0
+        let sprite: String = if case let .text(path) = preset.values[EmitterEffect.Param.sprite] { path } else { "" }
+        let source = BuiltInSprite.fileSizes[sprite] ?? (width: 512, height: 512)
         // Rain and snow are fields by definition; the rest are events in a
         // scene and have no business covering it more than once.
         let ceiling: Double = ["rain", "storm", "snow"].contains(preset.id) ? 6 : 2.5
@@ -146,7 +148,7 @@ struct EmitterPresetTests {
 
             let covered = states
                 .filter { $0.visible && $0.opacity > 0.03 }
-                .reduce(0.0) { $0 + pow($1.scaleX * sourceSize, 2) * $1.opacity }
+                .reduce(0.0) { $0 + pow(Double($1.scaleX), 2) * source.width * source.height * $1.opacity }
             worst = max(worst, covered / frameArea)
         }
 

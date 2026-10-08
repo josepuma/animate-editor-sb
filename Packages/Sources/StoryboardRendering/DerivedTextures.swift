@@ -36,6 +36,21 @@ public enum DerivedTextures {
                     original, pitch: pitch, dotSize: Double(dotPercent) / 100,
                     shape: shape, threshold: Double(thresholdPercent) / 100,
                 )
+            case let .outline(width):
+                guard let original = source(derived.source) else { return nil }
+                return LookTextures.outline(original, width: width)
+            case let .halftone(cell, shape):
+                guard let original = source(derived.source) else { return nil }
+                return LookTextures.halftone(original, cell: cell, shape: shape)
+            case let .duotone(dark, light):
+                guard let original = source(derived.source) else { return nil }
+                return LookTextures.duotone(original, dark: dark, light: light)
+            case let .tile(columns, rows, index):
+                guard let original = source(derived.source) else { return nil }
+                return LookTextures.tile(original, columns: columns, rows: rows, index: index)
+            case let .ink(width, detailPercent):
+                guard let original = source(derived.source) else { return nil }
+                return LookTextures.ink(original, width: width, detail: Double(detailPercent) / 100)
             }
         }
     }
@@ -140,7 +155,7 @@ public enum DerivedTextures {
 
     /// A premultiplied RGBA canvas, matching everything else that reaches the
     /// atlas.
-    private static func bitmap(width: Int, height: Int) -> CGContext? {
+    static func bitmap(width: Int, height: Int) -> CGContext? {
         CGContext(
             data: nil, width: width, height: height,
             bitsPerComponent: 8, bytesPerRow: width * 4,
@@ -238,7 +253,7 @@ public enum DerivedTextures {
         lock.unlock()
     }
 
-    private static func encode(_ image: CGImage) -> Data? {
+    static func encode(_ image: CGImage) -> Data? {
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(
             data, UTType.png.identifier as CFString, 1, nil,

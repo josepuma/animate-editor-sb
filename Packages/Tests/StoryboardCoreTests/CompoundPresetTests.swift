@@ -420,9 +420,11 @@ struct CompoundPresetTests {
             guard case let .text(path) = layer.values[EmitterEffect.Param.sprite] else { continue }
 
             // The shapes the app draws are 64px; the files it ships are 512,
-            // and so is the flat vocabulary.
-            let texture: Double = BuiltInSprite.shapes.contains(path)
-                && !BuiltInSprite.flatShapes.contains(path) ? 64 : 512
+            // and so is the flat vocabulary — except the files that say
+            // otherwise in `fileSizes`, measured on their long side.
+            let texture: Double = BuiltInSprite.fileSizes[path].map { max($0.width, $0.height) }
+                ?? (BuiltInSprite.shapes.contains(path) && !BuiltInSprite.flatShapes.contains(path)
+                    && !BuiltInSprite.hudShapes.contains(path) ? 64 : 512)
 
             let node = EffectNode(
                 id: "sized", type: layer.effectType, name: layer.name,

@@ -1,7 +1,18 @@
 import DesignSystem
 import EditorShellFeature
 import ProjectBrowserFeature
+import StoryboardCore
+import StoryboardRendering
 import SwiftUI
+
+/// Real pictures for the sprite picker, decoded once: the same thumbnails the
+/// app feeds it, so the specimen is judged against what the editor shows.
+@MainActor private let galleryThumbnails: SpriteThumbnails = {
+    let pictures = Dictionary(uniqueKeysWithValues: BuiltInSprite.catalogue.compactMap { entry in
+        BuiltInTextures.thumbnail(for: entry.path).map { (entry.path, $0) }
+    })
+    return SpriteThumbnails(image: { pictures[$0] }, request: { _ in })
+}()
 
 /// Components that name something in the domain — a clip, a playhead, a
 /// beatmap's poster — shown with the same tokens as everything else.
@@ -55,6 +66,23 @@ struct CompositesPage: View {
             }
             .padding(Theme.Spacing.snug)
             .background(Theme.Tone.panel, in: .rect(cornerRadius: Theme.Radius.control))
+        }
+
+        Specimen(
+            "SpritePicker",
+            note: "Choosing a particle's image: the field shows the current one beside its name — the adjustable dot, a built-in, a beatmap's own path — and opens a grid of every built-in, grouped and searchable. White shapes on the dark well they were drawn for; the chosen one outlined in the accent. Entries come from Core's catalogue, so nothing that exists is missing.",
+        ) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.snug) {
+                SpritePicker(path: "", thumbnails: galleryThumbnails) { _ in }
+                SpritePicker(path: BuiltInSprite.hudSegments, thumbnails: galleryThumbnails) { _ in }
+                SpritePicker(path: "sb/my-own.png", thumbnails: galleryThumbnails) { _ in }
+            }
+            .frame(width: 240)
+            .padding(Theme.Spacing.snug)
+            .background(Theme.Tone.panel, in: .rect(cornerRadius: Theme.Radius.control))
+
+            SpritePickerPanel(selection: BuiltInSprite.flame, thumbnails: galleryThumbnails) { _ in }
+                .clipShape(.rect(cornerRadius: Theme.Radius.control))
         }
 
         Specimen("BlockBadge", note: "A clip's type indicator, at the trailing edge of its block.") {

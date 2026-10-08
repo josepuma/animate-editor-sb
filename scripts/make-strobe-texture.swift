@@ -3,7 +3,7 @@
 // texture: white, with the light carried in alpha.
 //
 //   swift scripts/make-strobe-texture.swift ~/Documents/strobe.png \
-//       Packages/Sources/StoryboardRendering/Particles/strobe.png
+//       Packages/Sources/StoryboardRendering/Particles/Custom/strobe.png
 //
 // Every built-in is white with an alpha profile so `_C` decides the colour. The
 // source is fully opaque — grey light over solid black — and dropped in as-is

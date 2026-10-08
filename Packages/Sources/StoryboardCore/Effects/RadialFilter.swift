@@ -23,7 +23,7 @@ public struct RadialFilter: SpriteFilter {
     public static let descriptor = FilterDescriptor(
         type: "radial",
         name: "Radial Repeat",
-        category: .stylise,
+        category: .repetition,
         systemImage: "circle.hexagongrid",
         parameters: [
             EffectParameter(

@@ -166,6 +166,18 @@ public enum Theme {
         /// take its height from its own contents leaves a ragged row, since a
         /// ringed button is taller than a line of text.
         public static let pill: CGFloat = 44
+
+        /// 60 — one image in a picker grid: big enough to tell a flame from
+        /// a wisp, small enough for five across a popover.
+        public static let pickerTile: CGFloat = 60
+
+        /// 18 — an image shown inside a field, beside its name.
+        public static let fieldThumbnail: CGFloat = 18
+
+        /// 380 × 440 — a picker popover: a search, a row of chips and a grid
+        /// that scrolls, without covering the inspector it opens from.
+        public static let pickerWidth: CGFloat = 380
+        public static let pickerHeight: CGFloat = 440
     }
 
     // ─── Typography ──────────────────────────────────────────────────────────

@@ -426,6 +426,10 @@ struct EditorWindow: View {
                 ] as CFDictionary)
             }
 
+            // The sprite picker's tiles: a built-in's own image, scaled down.
+            // Called off the main thread; the decode reads a locked cache.
+            shell.spriteThumbnail = { path in BuiltInTextures.thumbnail(for: path) }
+
             shell.previewImage = { subject in
                 switch subject {
                 case let .effect(descriptor): EffectThumbnails.frames(for: descriptor)

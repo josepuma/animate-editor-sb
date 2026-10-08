@@ -3,10 +3,9 @@ import SwiftUI
 
 /// One collapsible heading in the keyframe editor: Transform, or a filter.
 ///
-/// Shaped like the library panel's `CategoryHeader` deliberately — the same
-/// chevron, icon, title and trailing count. Two things that behave alike must
-/// not look unrelated, and this is the second place in the app where a list of
-/// rows folds away.
+/// The only place in the app where a list of rows folds away: chevron, icon,
+/// title and trailing count. (The library's filters used to fold too, with a
+/// header of the same shape; they are category chips now.)
 ///
 /// The grouping is what lets a filter show *every* parameter it can animate
 /// rather than only the ones already animated. Flat, a clip with three filters

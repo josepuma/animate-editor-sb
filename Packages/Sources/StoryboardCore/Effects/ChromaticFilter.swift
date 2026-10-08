@@ -26,7 +26,7 @@ public struct ChromaticFilter: SpriteFilter {
     public static let descriptor = FilterDescriptor(
         type: "chromatic",
         name: "Chromatic",
-        category: .stylise,
+        category: .destroy,
         systemImage: "circle.lefthalf.filled.righthalf.striped.horizontal",
         parameters: [
             EffectParameter(

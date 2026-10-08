@@ -134,10 +134,13 @@ public struct EffectEvaluator: Sendable {
             // last frame.
             guard delay == 0 || delay < node.duration else { continue }
             nested.startTime = delay
-            // And it lasts as long as what is left of the clip. A layer keeps
-            // the duration it was placed with, and resizing touches only the
-            // clip — so a stretched compound's layers would otherwise still
-            // think the clip was its old length.
+            // And it lasts as long as the clip does. A layer keeps the
+            // duration it was placed with, and resizing touches only the
+            // clip — so a stretched compound's layers still thought the clip
+            // was its old length: a continuous layer stopped emitting
+            // part-way through, and a life measured against the clip ended
+            // at the old length ("life mode does nothing").
+            // A waiting layer ends with the clip rather than `delay` past it.
             nested.duration = node.duration - delay
             produced += evaluate(nested)
         }

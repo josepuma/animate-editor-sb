@@ -48,20 +48,28 @@ public enum LibraryCategory: String, CaseIterable, Sendable, Codable {
     }
 }
 
-public extension LibraryCategory {
+/// A closed list of categories with a declared (not alphabetical) order.
+///
+/// Shared by the effect and the filter libraries: both sort their descriptors
+/// the same way, and two copies of one comparison drift the moment one is
+/// edited.
+public protocol DisplayOrdered: CaseIterable, Equatable {
+    static var displayOrder: [Self] { get }
+}
+
+public extension DisplayOrdered {
     /// Where this sits in the panel.
     var order: Int { Self.displayOrder.firstIndex(of: self) ?? Self.displayOrder.count }
 
     /// Orders anything that declares a category and a name.
-    ///
-    /// Shared because both libraries sort their own descriptors, and two copies
-    /// of the same comparison drift the moment one is edited.
     static func precedes(
-        _ first: (category: LibraryCategory, name: String),
-        _ second: (category: LibraryCategory, name: String),
+        _ first: (category: Self, name: String),
+        _ second: (category: Self, name: String),
     ) -> Bool {
         first.category.order == second.category.order
             ? first.name < second.name
             : first.category.order < second.category.order
     }
 }
+
+extension LibraryCategory: DisplayOrdered {}

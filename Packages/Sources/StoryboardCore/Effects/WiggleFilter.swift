@@ -113,10 +113,22 @@ public struct WiggleFilter: SpriteFilter {
         var result = sprite
         var position = (x: 0.0, y: 0.0)
         var moves: [Command] = []
+        // The sway and the size wobble walk the same way the position does:
+        // each step starts where the last one ended. Drawn fresh per step,
+        // the angle snapped to a new lean every step — swaying flowers
+        // jerking to a new angle every second and a half.
+        var lean = 0.0
+        var swell = 0.0
+        var turns: [Command] = []
+        var sizes: [Command] = []
+        let perAxis = sprite.scalesPerAxis
 
         for index in 0..<steps {
             let start = birth + step * Double(index)
-            let end = min(start + step, death)
+            // By index, like the start: `start + step` can land a hair past
+            // where the next step begins, and two moves overlapping by 1e-13
+            // are two commands fighting over the sprite's position.
+            let end = min(birth + step * Double(index + 1), death)
             guard end > start else { break }
 
             // Each step travels to a new offset rather than to a fresh random
@@ -156,25 +168,38 @@ public struct WiggleFilter: SpriteFilter {
             }
             // Each end read at its own moment, so a wobble that grows keeps
             // growing across the step rather than holding its opening value.
-            let spinFrom = spin(start), spinTo = spin(end)
-            if spinFrom > 0 || spinTo > 0 {
-                result.commands.append(Command(
+            //
+            // On top of the sprite's own angle, not instead of it: a seed
+            // tilted by its emitter sways about that tilt, and a spin keeps
+            // spinning underneath. Kept within the reach, and eased back
+            // toward the rest angle so it rocks rather than drifts.
+            let spinTo = spin(end)
+            if spin(start) > 0 || spinTo > 0 {
+                let reach = spinTo * .pi / 180
+                let nextLean = min(max(lean * 0.5 + rng.symmetric(reach) * 0.75, -reach), reach)
+                turns.append(Command(
                     easing: .sineInOut, startTime: start, endTime: end,
                     payload: .rotate(
-                        start: rng.symmetric(spinFrom) * .pi / 180,
-                        end: rng.symmetric(spinTo) * .pi / 180,
+                        start: sprite.restingRotation(at: start) + lean,
+                        end: sprite.restingRotation(at: end) + nextLean,
                     ),
                 ))
+                lean = nextLean
             }
-            let scaleFrom = scale(start), scaleTo = scale(end)
-            if scaleFrom > 0 || scaleTo > 0 {
-                result.commands.append(Command(
+            // A factor on the size the sprite already has — a bar stretched
+            // by `_V` stays stretched — walking like the lean.
+            let scaleTo = scale(end)
+            if scale(start) > 0 || scaleTo > 0 {
+                let nextSwell = min(max(swell * 0.5 + rng.symmetric(scaleTo) * 0.75, -scaleTo), scaleTo)
+                let from = sprite.restingScale(at: start), to = sprite.restingScale(at: end)
+                let a = 1 + swell, b = 1 + nextSwell
+                sizes.append(Command(
                     easing: .sineInOut, startTime: start, endTime: end,
-                    payload: .scale(
-                        start: 1 + rng.symmetric(scaleFrom),
-                        end: 1 + rng.symmetric(scaleTo),
-                    ),
+                    payload: perAxis
+                        ? .vectorScale(startX: from.x * a, startY: from.y * a, endX: to.x * b, endY: to.y * b)
+                        : .scale(start: from.x * a, end: to.x * b),
                 ))
+                swell = nextSwell
             }
 
             position = settled
@@ -191,6 +216,17 @@ public struct WiggleFilter: SpriteFilter {
                 $0.kind == .move || $0.kind == .moveX || $0.kind == .moveY
             }
             result.commands += moves
+        }
+        // The same rule for the angle and the size: the steps fold the
+        // sprite's own rotation and scale in, so the originals go — left
+        // beside them, two commands describe one property and fight.
+        if !turns.isEmpty {
+            result.commands.removeAll { $0.kind == .rotate }
+            result.commands += turns
+        }
+        if !sizes.isEmpty {
+            result.commands.removeAll { $0.kind == .scale || $0.kind == .vectorScale }
+            result.commands += sizes
         }
 
         return result

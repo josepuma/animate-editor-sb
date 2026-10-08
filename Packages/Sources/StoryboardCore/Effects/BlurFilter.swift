@@ -23,7 +23,7 @@ public struct BlurFilter: SpriteFilter {
     public static let descriptor = FilterDescriptor(
         type: "blur",
         name: "Blur",
-        category: .stylise,
+        category: .look,
         systemImage: "drop.halffull",
         parameters: [
             EffectParameter(

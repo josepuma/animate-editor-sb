@@ -1,6 +1,5 @@
 import Foundation
-
-@testable import StoryboardCore
+import StoryboardCore
 
 /// A preset placed the way the editor's `addPreset` places it: values, then
 /// its layers as child nodes — positions on the transform, a seed each, and
@@ -9,8 +8,12 @@ import Foundation
 /// A test that evaluates only the parent's values measures something the
 /// editor never builds: a compound would lose its layers, a filter preset its
 /// look, and two presets apart only in those would compare equal.
-enum PlacedPreset {
-    static func node(_ preset: EffectPreset, text: String? = nil, at start: Double = 0) -> EffectNode {
+///
+/// Lives here, not in a test target, because both Core's and Scripting's
+/// tests need the same placement and two copies are how they drift. Public API
+/// only: it must not reach into Core's internals.
+public enum PlacedPreset {
+    public static func node(_ preset: EffectPreset, text: String? = nil, at start: Double = 0) -> EffectNode {
         let library = EffectLibrary.standard
         var document = EffectDocument()
         guard let descriptor = library.descriptor(for: preset.effectType) else {
@@ -43,7 +46,7 @@ enum PlacedPreset {
         return node
     }
 
-    static func sprites(_ preset: EffectPreset, text: String? = nil) -> [StoryboardSprite] {
+    public static func sprites(_ preset: EffectPreset, text: String? = nil) -> [StoryboardSprite] {
         EffectEvaluator().evaluate(node(preset, text: text))
     }
 }

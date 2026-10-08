@@ -55,15 +55,7 @@ enum TextGlyphParticles {
     /// The images on offer, by what they look like, and how wide each is
     /// drawn — `Size` is in pixels, and the same scale draws a 512 texture
     /// eight times the size of a 64 one.
-    static let images: [(name: String, path: String, source: Double)] = [
-        ("Spark", BuiltInSprite.glow, 64),
-        ("Dot", BuiltInSprite.soft, 64),
-        ("Dust", BuiltInSprite.smoke, 64),
-        ("Star", BuiltInSprite.star, 64),
-        ("Square", BuiltInSprite.fill, 64),
-        ("Sparkle", BuiltInSprite.sparkle, 512),
-        ("Ember", BuiltInSprite.ember, 512),
-    ]
+    static let images = ParticleBurst.images
 
     static let parameters: [EffectParameter] = {
         let on = Mode.allCases.filter { $0 != .none }.map(\.rawValue)
@@ -156,7 +148,7 @@ enum TextGlyphParticles {
         guard perGlyph > 0 else { return [] }
 
         let image = images.first { $0.name == context.choice(Param.sprite) } ?? images[0]
-        let settings = Settings(context: context, scale: max(0, context.number(Param.size)) / image.source)
+        let settings = ParticleBurst(text: context, scale: max(0, context.number(Param.size)) / image.source)
         let root = rng.stream(tag)
 
         return glyphs.flatMap { glyph -> [StoryboardSprite] in
@@ -172,37 +164,15 @@ enum TextGlyphParticles {
                     origin.x += stream.symmetric(glyph.halfWidth * abs(source.scaleX))
                     origin.y += stream.symmetric(glyph.halfHeight * abs(source.scaleY))
                 }
-                return particle(
+                return settings.particle(
                     id: "\(glyph.sprite.id)/p\(k)", path: image.path,
-                    origin: origin, at: at, settings: settings, rng: &stream,
+                    origin: origin, at: at, rng: &stream,
                 )
             }
         }
     }
 
     // ─── One particle ────────────────────────────────────────────────────────
-
-    private struct Settings {
-        var scale: Double
-        var speed: Double
-        var direction: Double
-        var spread: Double
-        var life: Double
-        var gravity: Double
-        var colour: EffectColor
-        var additive: Bool
-
-        init(context: EffectContext, scale: Double) {
-            self.scale = scale
-            speed = max(0, context.number(Param.speed))
-            direction = context.number(Param.direction)
-            spread = min(max(context.number(Param.spread), 0), 360)
-            life = max(1, context.number(Param.life))
-            gravity = context.number(Param.gravity)
-            colour = context.color(Param.colour)
-            additive = context.toggle(Param.additive)
-        }
-    }
 
     /// When particle `k` of `count` leaves its glyph, or `nil` if the glyph
     /// never has that moment.
@@ -230,74 +200,20 @@ enum TextGlyphParticles {
             return start + (glyph.life - start) * along
         }
     }
+}
 
-    private static func particle(
-        id: String,
-        path: String,
-        origin: (x: Double, y: Double),
-        at birth: Double,
-        settings: Settings,
-        rng: inout EffectRandom,
-    ) -> StoryboardSprite {
-        // A burst of identical particles is a ring, not a burst: speed and
-        // life vary so the field has depth.
-        let angle = (settings.direction + rng.symmetric(settings.spread / 2)) * .pi / 180
-        let speed = settings.speed * (0.5 + rng.unit())
-        let life = settings.life * (0.7 + 0.6 * rng.unit())
-        let seconds = life / 1000
-        let velocity = (x: cos(angle) * speed, y: sin(angle) * speed)
-
-        func position(_ fraction: Double) -> (x: Double, y: Double) {
-            let t = seconds * fraction
-            return (
-                origin.x + velocity.x * t,
-                origin.y + velocity.y * t + 0.5 * settings.gravity * t * t,
-            )
-        }
-
-        var sprite = StoryboardSprite(
-            id: id, layer: .foreground, origin: .centre, filePath: path,
-            defaultX: origin.x, defaultY: origin.y,
+extension ParticleBurst {
+    /// Read from the text effect's own particle parameters.
+    init(text context: EffectContext, scale: Double) {
+        self.init(
+            scale: scale,
+            speed: max(0, context.number(TextGlyphParticles.Param.speed)),
+            direction: context.number(TextGlyphParticles.Param.direction),
+            spread: min(max(context.number(TextGlyphParticles.Param.spread), 0), 360),
+            life: max(1, context.number(TextGlyphParticles.Param.life)),
+            gravity: context.number(TextGlyphParticles.Param.gravity),
+            colour: context.color(TextGlyphParticles.Param.colour),
+            additive: context.toggle(TextGlyphParticles.Param.additive),
         )
-        let end = birth + life
-
-        // A straight path is one command; a falling one is a curve, and `_M`
-        // only draws lines, so it goes as a few chords.
-        let segments = settings.gravity == 0 ? 1 : 4
-        for segment in 0 ..< segments {
-            let from = position(Double(segment) / Double(segments))
-            let to = position(Double(segment + 1) / Double(segments))
-            sprite.commands.append(Command(
-                easing: .linear,
-                startTime: birth + life * Double(segment) / Double(segments),
-                endTime: birth + life * Double(segment + 1) / Double(segments),
-                payload: .move(startX: from.x, startY: from.y, endX: to.x, endY: to.y),
-            ))
-        }
-        // Holds bright, then goes: a linear fade spends half its life looking
-        // half there.
-        sprite.commands.append(Command(
-            easing: .quadIn, startTime: birth, endTime: end, payload: .fade(start: 1, end: 0),
-        ))
-        sprite.commands.append(Command(
-            easing: .linear, startTime: birth, endTime: end,
-            payload: .scale(start: settings.scale, end: settings.scale * 0.3),
-        ))
-        let colour = settings.colour
-        if colour.r != 255 || colour.g != 255 || colour.b != 255 {
-            sprite.commands.append(Command(
-                easing: .linear, startTime: birth, endTime: birth,
-                payload: .color(
-                    startR: colour.r, startG: colour.g, startB: colour.b,
-                    endR: colour.r, endG: colour.g, endB: colour.b,
-                ),
-            ))
-        }
-        if settings.additive {
-            sprite.commands.append(Command(
-                easing: .linear, startTime: birth, endTime: end, payload: .parameter(.additive),
-            ))
-        }
-        return sprite
     }
 }

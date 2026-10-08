@@ -52,6 +52,7 @@ struct BuiltInShapeTests {
         arguments: BuiltInTextures.Shape.allCases.filter {
             $0 != .square && $0 != .fill && $0 != .disc && $0 != .hoop
                 && !BuiltInTextures.Shape.flat.contains($0)
+                && !BuiltInTextures.Shape.hud.contains($0)
         },
     )
     func shapesFadeAtTheirEdge(shape: BuiltInTextures.Shape) throws {

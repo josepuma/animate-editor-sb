@@ -94,7 +94,7 @@ struct LEDFilterTests {
     @Test("the filter is in the library, under Stylise")
     func registered() throws {
         #expect(FilterLibrary.standard.filter(for: LEDFilter.descriptor.type) != nil)
-        #expect(LEDFilter.descriptor.category == .stylise)
+        #expect(LEDFilter.descriptor.category == .look)
     }
 
     // ─── Building a clip ─────────────────────────────────────────────────────

@@ -2,6 +2,7 @@ import Foundation
 import Testing
 
 @testable import StoryboardCore
+import StoryboardTestSupport
 
 @Suite("Text presets")
 struct TextPresetTests {

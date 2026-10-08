@@ -86,10 +86,10 @@ struct PanelsPage: View {
     private var composed: some View {
         Specimen(
             "A library panel, assembled",
-            note: "Heading, effect, presets with previews, and the next heading — on the panel tone. Hover a preset to play it.",
+            note: "Chips, effect, presets with previews, and the next effect — on the panel tone. Hover a preset to play it.",
         ) {
             VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
-                CategoryHeader(title: "Generate", systemImage: "sparkles", count: 4, isExpanded: true, toggle: {})
+                chipRow(["All", "Emitter", "Text", "Audio"], selected: "Emitter")
                 EffectHeaderRow(
                     name: "Emitter",
                     systemImage: "sparkles",
@@ -114,7 +114,6 @@ struct PanelsPage: View {
                     add: {},
                     tint: Theme.TrackPalette.teal,
                 )
-                CategoryHeader(title: "Audio", systemImage: "waveform", count: 15, isExpanded: false, toggle: {})
             }
             .padding(Theme.Spacing.snug)
             .frame(width: Self.columnWidth + Theme.Spacing.loose)
@@ -194,22 +193,30 @@ struct PanelsPage: View {
 
     // ─── Filters ─────────────────────────────────────────────────────────────
 
+    /// The chip row of the Filters tab, at specimen size.
+    private func chipRow(_ labels: [String], selected: String) -> some View {
+        HStack(spacing: Theme.Spacing.tight) {
+            ForEach(labels, id: \.self) { label in
+                FilterChip(label, isSelected: label == selected) {}
+            }
+        }
+    }
+
     @ViewBuilder
     private var filters: some View {
         Specimen(
-            "CategoryHeader + FilterLibraryRow",
-            note: "A folding group heading with its count, and the draggable filter rows under it. The row's indent matches the heading's chevron exactly. Rows dim their grip when nothing is selected to apply to (hover to see the grip light).",
+            "Filter chips + FilterLibraryRow",
+            note: "The category chips the Filters tab narrows by, and the draggable filter rows under them. Rows dim their grip when nothing is selected to apply to (hover to see the grip light).",
         ) {
             HStack(alignment: .top, spacing: Theme.Spacing.section) {
                 VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
                     Text("can apply")
                         .font(Theme.Typography.readout)
                         .foregroundStyle(Theme.Palette.tertiary)
-                    CategoryHeader(title: "Stylise", systemImage: "paintbrush", count: 3, isExpanded: true, toggle: {})
+                    chipRow(["All", "Look", "Light", "Motion"], selected: "Light")
                     filterRow("Glow", "sun.max", canApply: true)
                     filterRow("Blur", "circle.dotted", canApply: true)
                     filterRow("Shadow", "shadow", canApply: true)
-                    CategoryHeader(title: "Motion", systemImage: "arrow.triangle.turn.up.right.diamond", count: 2, isExpanded: false, toggle: {})
                 }
                 .frame(width: Self.columnWidth)
 
@@ -217,11 +224,10 @@ struct PanelsPage: View {
                     Text("nothing selected")
                         .font(Theme.Typography.readout)
                         .foregroundStyle(Theme.Palette.tertiary)
-                    CategoryHeader(title: "Stylise", systemImage: "paintbrush", count: 3, isExpanded: true, toggle: {})
+                    chipRow(["All", "Look", "Light", "Motion"], selected: "Light")
                     filterRow("Glow", "sun.max", canApply: false)
                     filterRow("Blur", "circle.dotted", canApply: false)
                     filterRow("Shadow", "shadow", canApply: false)
-                    CategoryHeader(title: "Motion", systemImage: "arrow.triangle.turn.up.right.diamond", count: 2, isExpanded: false, toggle: {})
                 }
                 .frame(width: Self.columnWidth)
             }

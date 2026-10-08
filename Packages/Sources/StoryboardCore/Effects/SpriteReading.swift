@@ -39,6 +39,29 @@ extension StoryboardSprite {
         return scale
     }
 
+    /// The rotation at `time`, in radians.
+    ///
+    /// What a sway leans away from: a seed tilted by its emitter, a spin
+    /// carrying on underneath. Read rather than assumed zero, or the sway
+    /// becomes an absolute angle that overwrites the lean it was meant to rock.
+    func restingRotation(at time: Double) -> Double {
+        var rotation = 0.0
+
+        for command in commands {
+            guard command.startTime <= time, case let .rotate(start, end) = command.payload else { continue }
+            let span = command.endTime - command.startTime
+            let progress = span > 0 ? min(1, (time - command.startTime) / span) : 1
+            rotation = start + (end - start) * progress
+        }
+
+        return rotation
+    }
+
+    /// Whether the sprite's size is stretched (`_V`) rather than uniform.
+    var scalesPerAxis: Bool {
+        commands.contains { $0.kind == .vectorScale }
+    }
+
     /// The opacity at `time`.
     func restingOpacity(at time: Double) -> Double {
         var opacity = 1.0

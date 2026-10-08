@@ -48,9 +48,20 @@ let package = Package(
         .target(
             name: "StoryboardCore",
         ),
+
+        // Helpers two test targets need and neither can own: placing a preset
+        // the way the editor does, and the overlap guard. A target rather than
+        // a copy in each, because two copies drift; and not inside
+        // `StoryboardCore`, which ships. Depends on Core alone — a Core test
+        // reaching `StoryboardScripting` would invert the rule `Package.swift`
+        // exists to enforce.
+        .target(
+            name: "StoryboardTestSupport",
+            dependencies: ["StoryboardCore"],
+        ),
         .testTarget(
             name: "StoryboardCoreTests",
-            dependencies: ["StoryboardCore"],
+            dependencies: ["StoryboardCore", "StoryboardTestSupport"],
             resources: [.copy("Fixtures")],
         ),
 
@@ -100,7 +111,7 @@ let package = Package(
         ),
         .testTarget(
             name: "StoryboardScriptingTests",
-            dependencies: ["StoryboardScripting", "StoryboardCore"],
+            dependencies: ["StoryboardScripting", "StoryboardCore", "StoryboardTestSupport"],
         ),
 
         .target(

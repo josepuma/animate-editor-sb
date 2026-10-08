@@ -51,7 +51,7 @@ public struct EaseFilter: SpriteFilter {
     public static let descriptor = FilterDescriptor(
         type: "ease",
         name: "Ease",
-        category: .motion,
+        category: .time,
         systemImage: "point.topleft.down.to.point.bottomright.curvepath",
         parameters: [
             EffectParameter(

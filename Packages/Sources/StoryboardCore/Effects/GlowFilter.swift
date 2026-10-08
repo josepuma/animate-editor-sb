@@ -29,7 +29,7 @@ public struct GlowFilter: SpriteFilter {
     public static let descriptor = FilterDescriptor(
         type: "glow",
         name: "Glow",
-        category: .stylise,
+        category: .light,
         systemImage: "sun.max",
         parameters: [
             EffectParameter(
@@ -292,7 +292,7 @@ public struct EchoFilter: SpriteFilter {
     public static let descriptor = FilterDescriptor(
         type: "echo",
         name: "Echo",
-        category: .stylise,
+        category: .repetition,
         systemImage: "wind",
         parameters: [
             EffectParameter(

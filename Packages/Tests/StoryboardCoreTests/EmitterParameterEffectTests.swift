@@ -44,7 +44,7 @@ struct EmitterParameterEffectTests {
             let commands = sprite.commands.map { command in
                 "\(command.kind.rawValue):\(command.startTime):\(command.endTime):\(payload(command))"
             }.joined(separator: "|")
-            return "\(sprite.filePath);\(sprite.defaultX);\(sprite.defaultY);\(commands)"
+            return "\(sprite.filePath);\(sprite.origin.rawValue);\(sprite.defaultX);\(sprite.defaultY);\(commands)"
         }.joined(separator: "\n")
     }
 
@@ -133,6 +133,11 @@ struct EmitterParameterEffectTests {
         (EmitterEffect.Param.stretch, .number(6), [:]),
         (EmitterEffect.Param.alignToMotion, .toggle(true), [:]),
         (EmitterEffect.Param.rotation, .number(180), [:]),
+        (EmitterEffect.Param.angle, .number(30), [:]),
+        (EmitterEffect.Param.lifeMode, .choice(EmitterEffect.LifeMode.clip.rawValue), [:]),
+        (EmitterEffect.Param.lifeFraction, .number(0.3),
+         [EmitterEffect.Param.lifeMode: .choice(EmitterEffect.LifeMode.clip.rawValue)]),
+        (EmitterEffect.Param.origin, .choice(Origin.topCentre.rawValue), [:]),
         (EmitterEffect.Param.spin, .number(720), [:]),
 
         (EmitterEffect.Param.color, .color(EffectColor(r: 0, g: 40, b: 255)), [:]),

@@ -203,6 +203,18 @@ public enum BuiltInSprite {
     /// The Flat vocabulary, all of it 512px and hard-edged.
     public static let flatShapes = [chevron, arrow, triangle, stripe, node, cross]
 
+    /// The HUD vocabulary: rings, arcs, dashes and ticks, drawn in code at
+    /// 512 and centred, so a spinning one turns in place.
+    public static let hudSegments = "__builtin__/hudSegments.png"
+    public static let hudArcs = "__builtin__/hudArcs.png"
+    public static let hudDashes = "__builtin__/hudDashes.png"
+    public static let hudTicks = "__builtin__/hudTicks.png"
+    public static let hudArc = "__builtin__/hudArc.png"
+    /// A 60° bracket centred on the top of its circle: one corner of a lock.
+    public static let hudBracket = "__builtin__/hudBracket.png"
+
+    public static let hudShapes = [hudSegments, hudArcs, hudDashes, hudTicks, hudArc, hudBracket]
+
     /// A hard-edged outline.
     /// A hoop of a given thickness, as a fraction of its diameter.
     ///
@@ -377,6 +389,7 @@ public enum BuiltInSprite {
 
     public static let shapes = [soft, glow, smoke, star, square, streak, ring, fill, disc]
         + flatShapes
+        + hudShapes
 
     /// Textures shipped as files, for the shapes code cannot draw — a branching
     /// bolt, a flame with a real silhouette, a directional flash.
@@ -418,6 +431,21 @@ public enum BuiltInSprite {
     /// A spotlight cone, 255×248, source at the top centre. Not from the
     /// Kenney pack: white-with-alpha from the mapper's own picture.
     public static let strobe = "__builtin__/strobe.png"
+    /// Light shafts from a brush pack, each with its source at the top edge.
+    /// 1024 on the long side — see `fileSizes`.
+    public static let sunRay = "__builtin__/sunshine_01.png"
+    public static let godRays = "__builtin__/sunshine_11.png"
+    public static let stageLights = "__builtin__/sunshine_12.png"
+    public static let sunFan = "__builtin__/sunshine_13.png"
+    public static let spotCone = "__builtin__/sunshine_15.png"
+    /// Dandelions, shipped unmodified at their own small sizes — see
+    /// `fileSizes`. Stems point down.
+    public static let dandelion = "__builtin__/dandelion_01.png"
+    public static let dandelionDroop = "__builtin__/dandelion_02.png"
+    public static let dandelionHalf = "__builtin__/dandelion_03.png"
+    public static let dandelionSeed = "__builtin__/dandelion_04.png"
+    public static let dandelionSeeds = "__builtin__/dandelion_05.png"
+    public static let dandelionTall = "__builtin__/dandelion_06.png"
 
     public static let textures = [
         lightning, lightningWide, bolt, boltThin,
@@ -427,6 +455,29 @@ public enum BuiltInSprite {
         beam, beamThin, scorch, rune,
         flare, flareSoft, runeRing,
         cloud, cloudWisp, sparkle, debris, pane, strobe,
+        sunRay, godRays, stageLights, sunFan, spotCone,
+        dandelion, dandelionDroop, dandelionHalf, dandelionSeed, dandelionSeeds, dandelionTall,
+    ]
+
+    /// Shipped files that are **not** 512px square, in pixels.
+    ///
+    /// `Scale` multiplies whatever the image measures, and nothing in the
+    /// inspector says what that is — so the same number draws a pack texture
+    /// at 512 and a sunshine shaft at 1024. Core cannot open the files, so it
+    /// states their sizes here; a test decodes each one and checks.
+    public static let fileSizes: [String: (width: Double, height: Double)] = [
+        strobe: (255, 248),
+        sunRay: (401, 1024),
+        godRays: (1024, 1009),
+        stageLights: (1024, 1024),
+        sunFan: (1024, 1024),
+        spotCone: (971, 1024),
+        dandelion: (280, 257),
+        dandelionDroop: (251, 207),
+        dandelionHalf: (256, 128),
+        dandelionSeed: (83, 65),
+        dandelionSeeds: (238, 146),
+        dandelionTall: (201, 268),
     ]
 
     public static let all = shapes + textures

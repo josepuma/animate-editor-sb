@@ -81,6 +81,27 @@ public enum BuiltInTextures {
         /// A plus sign.
         case cross
 
+        // ── HUD vocabulary ──────────────────────────────────────────────────
+        //
+        // The pieces of a sci-fi interface: segmented rings, arcs, dashes and
+        // ticks. Pure geometry, so drawn in code rather than shipped — sharp at
+        // any size, and no licence to answer to. Every one is centred on its
+        // canvas, so a spinning sprite turns the ring in place.
+
+        /// A ring broken into eight thick segments: the loader ring.
+        case hudSegments
+        /// Three arcs of 70°, spaced around a circle.
+        case hudArcs
+        /// A ring of 48 short dashes.
+        case hudDashes
+        /// A ring of radial tick marks, every sixth one long: a dial.
+        case hudTicks
+        /// One thick arc of 100°.
+        case hudArc
+        /// A thin 60° arc with ticks at both ends and a notch at its middle,
+        /// opening downward from the top: one corner of a target lock.
+        case hudBracket
+
         /// The shapes of the Flat vocabulary, drawn large and hard-edged.
         ///
         /// Named as a group because they share every rule that the soft
@@ -88,29 +109,17 @@ public enum BuiltInTextures {
         /// their own.
         public static let flat: [Shape] = [.chevron, .arrow, .triangle, .stripe, .node, .cross]
 
+        /// The HUD vocabulary, drawn large and hard-edged like the flat one.
+        public static let hud: [Shape] = [.hudSegments, .hudArcs, .hudDashes, .hudTicks, .hudArc, .hudBracket]
+
         /// The path an effect stores for this shape.
         public var path: String { "\(prefix)\(rawValue).png" }
 
-        /// Human-readable name for the inspector's menu.
+        /// Human-readable name, read from Core's catalogue — the one list of
+        /// names, so the picker and the renderer cannot disagree. The hoop is
+        /// a family drawn on demand and has no entry of its own.
         public var title: String {
-            switch self {
-            case .soft: "Soft Dot"
-            case .glow: "Glow"
-            case .smoke: "Smoke Puff"
-            case .star: "Star"
-            case .square: "Square"
-            case .streak: "Streak"
-            case .ring: "Ring"
-            case .fill: "Fill"
-            case .disc: "Disc"
-            case .hoop: "Hoop"
-            case .chevron: "Chevron"
-            case .arrow: "Arrow"
-            case .triangle: "Triangle"
-            case .stripe: "Stripe"
-            case .node: "Node"
-            case .cross: "Cross"
-            }
+            BuiltInSprite.entry(for: path)?.title ?? (self == .hoop ? "Hoop" : rawValue)
         }
 
         public init?(path: String) {
@@ -127,7 +136,12 @@ public enum BuiltInTextures {
     /// and code that tried to approximate them would produce a worse version of
     /// a file that already exists.
     ///
-    /// From the Kenney Particle Pack (CC0) — see `Particles/CREDITS.md`.
+    /// Images shipped as files, grouped on disk by where they came from —
+    /// each folder under `Particles/` carries its own `CREDITS.md`.
+    ///
+    /// The folder is a loader detail and never part of the path: projects
+    /// and scripts already store `__builtin__/<name>.png`, so moving a file
+    /// between folders must not change what anything saved refers to.
     public enum Texture: String, CaseIterable, Sendable {
         case lightning = "spark_01"
         case lightningWide = "spark_03"
@@ -170,46 +184,40 @@ public enum BuiltInTextures {
         /// sits a few pixels below the top edge. Draw it additive: the light
         /// adds, and in normal blend the soft fall-off reads as a grey wedge.
         case strobe
+        /// Light shafts from a brush pack, extracted with
+        /// `scripts/abr-to-png.swift` and scaled to 1024 on the long side.
+        /// Each one's source sits at its top edge; draw them additive.
+        case sunRay = "sunshine_01"
+        case godRays = "sunshine_11"
+        case stageLights = "sunshine_12"
+        case sunFan = "sunshine_13"
+        case spotCone = "sunshine_15"
+        /// Dandelions by Amaranta-G, CC BY-NC-ND 3.0 — shipped unmodified, so
+        /// at the sizes they came in (see `Dandelion/CREDITS.md`). Their
+        /// stems point down: anchor `BottomCentre` and a sway pivots there.
+        case dandelion = "dandelion_01"
+        case dandelionDroop = "dandelion_02"
+        case dandelionHalf = "dandelion_03"
+        case dandelionSeed = "dandelion_04"
+        case dandelionSeeds = "dandelion_05"
+        case dandelionTall = "dandelion_06"
+
+        /// The folder under `Particles/` the file lives in.
+        public var folder: String {
+            switch self {
+            case .strobe: "Custom"
+            case .sunRay, .godRays, .stageLights, .sunFan, .spotCone: "Sunshine"
+            case .dandelion, .dandelionDroop, .dandelionHalf, .dandelionSeed, .dandelionSeeds,
+                 .dandelionTall: "Dandelion"
+            default: "Kenney"
+            }
+        }
 
         public var path: String { "\(prefix)\(rawValue).png" }
 
+        /// Read from Core's catalogue, like the shapes' titles.
         public var title: String {
-            switch self {
-            case .lightning: "Lightning"
-            case .lightningWide: "Lightning Wide"
-            case .bolt: "Bolt"
-            case .boltThin: "Bolt Thin"
-            case .flame: "Flame"
-            case .flameTall: "Flame Tall"
-            case .flameWisp: "Flame Wisp"
-            case .ember: "Embers"
-            case .muzzle: "Muzzle Flash"
-            case .muzzleWide: "Muzzle Wide"
-            case .arc: "Arc"
-            case .crescent: "Crescent"
-            case .scratch: "Scratch"
-            case .slash: "Slash"
-            case .slashWide: "Wave"
-            case .slashDeep: "Slash Deep"
-            case .slashThin: "Slash Thin"
-            case .beam: "Beam"
-            case .beamThin: "Beam Thin"
-            case .scorch: "Scorch"
-            case .rune: "Rune"
-            case .flare: "Flare"
-            case .flareSoft: "Flare Soft"
-            case .runeRing: "Rune Ring"
-            case .cloud: "Cloud"
-            case .cloudWisp: "Cloud Wisp"
-            case .sparkle: "Sparkle"
-            case .debris: "Debris"
-            case .pane: "Pane"
-            // Named for what it is, not for the raw value: "Strobe" describes
-            // a flashing, which is what a script does with it, while the
-            // menu is for someone looking for a cone of light. `slashWide`
-            // is "Wave" for the same reason.
-            case .strobe: "Spotlight"
-            }
+            BuiltInSprite.entry(for: path)?.title ?? rawValue
         }
 
         public init?(path: String) {
@@ -225,6 +233,24 @@ public enum BuiltInTextures {
     /// the beatmap does not have.
     public static var allPaths: [String] {
         Shape.allCases.filter { $0 != .hoop }.map(\.path) + Texture.allCases.map(\.path)
+    }
+
+    /// A small picture of a built-in, for a picker.
+    ///
+    /// Decoded and scaled down with ImageIO rather than drawn by the GPU: a
+    /// grid of sixty of these is opened from the inspector, and one renderer
+    /// set-up per tile is what the library's previews already showed costs
+    /// tens of milliseconds each. Safe off the main thread — the data comes
+    /// from the locked cache.
+    public static func thumbnail(for path: String, maxPixel: Int = 128) -> CGImage? {
+        guard let data = data(for: path),
+              let source = CGImageSourceCreateWithData(data as CFData, nil)
+        else { return nil }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ] as CFDictionary)
     }
 
     /// The emitter's default particle.
@@ -302,7 +328,7 @@ public enum BuiltInTextures {
         guard let url = Bundle.module.url(
             forResource: texture.rawValue,
             withExtension: "png",
-            subdirectory: "Particles",
+            subdirectory: "Particles/\(texture.folder)",
         ) else { return nil }
         return try? Data(contentsOf: url)
     }
@@ -329,6 +355,8 @@ public enum BuiltInTextures {
         // drawn a few hundred pixels tall. At 512 a `Scale` of 1 is 512px, so
         // a 24px chevron is 0.047, not the 0.375 a 64px shape would need.
         case .chevron, .arrow, .triangle, .stripe, .node, .cross: 512
+        // HUD rings are curves drawn thin: at 64 a dashed ring is mush.
+        case .hudSegments, .hudArcs, .hudDashes, .hudTicks, .hudArc, .hudBracket: 512
         default: 64
         }
     }
@@ -373,6 +401,12 @@ public enum BuiltInTextures {
         case .stripe: drawStripe(in: context, extent: extent)
         case .node: drawNode(in: context, extent: extent)
         case .cross: drawCross(in: context, extent: extent)
+        case .hudSegments: drawHUDSegments(in: context, extent: extent)
+        case .hudArcs: drawHUDArcs(in: context, extent: extent)
+        case .hudDashes: drawHUDDashes(in: context, extent: extent)
+        case .hudTicks: drawHUDTicks(in: context, extent: extent)
+        case .hudArc: drawHUDArc(in: context, extent: extent)
+        case .hudBracket: drawHUDBracket(in: context, extent: extent)
         }
 
         return context.makeImage()
@@ -794,6 +828,94 @@ public enum BuiltInTextures {
         context.addRect(CGRect(x: 8, y: 8, width: extent - 16, height: extent - 16))
         context.addRect(CGRect(x: 72, y: 72, width: extent - 144, height: extent - 144))
         context.fillPath(using: .evenOdd)
+    }
+
+    // ─── HUD vocabulary ──────────────────────────────────────────────────────
+    //
+    // Rings on a 512 canvas, centred, outer edge at 246 so the antialiased
+    // texel keeps its 8-texel margin. Angles are in degrees from +x,
+    // counter-clockwise in Core Graphics' y-up space; every ring here is
+    // symmetric enough that the direction does not matter, except the
+    // bracket, which is placed explicitly.
+
+    private static let hudOuter: CGFloat = 246
+
+    /// A band of a ring between two radii, from one angle to another.
+    private static func addBand(
+        _ context: CGContext, inner: CGFloat, outer: CGFloat, from: CGFloat, to: CGFloat,
+    ) {
+        let centre = CGPoint(x: 256, y: 256)
+        let a = from * .pi / 180, b = to * .pi / 180
+        context.move(to: CGPoint(x: centre.x + outer * cos(a), y: centre.y + outer * sin(a)))
+        context.addArc(center: centre, radius: outer, startAngle: a, endAngle: b, clockwise: false)
+        context.addLine(to: CGPoint(x: centre.x + inner * cos(b), y: centre.y + inner * sin(b)))
+        context.addArc(center: centre, radius: inner, startAngle: b, endAngle: a, clockwise: true)
+        context.closePath()
+    }
+
+    /// Fills bands spaced evenly around the circle: `count` of them, each
+    /// `span` degrees, starting at `offset`.
+    private static func fillBands(
+        _ context: CGContext, count: Int, span: CGFloat, inner: CGFloat, outer: CGFloat, offset: CGFloat = 0,
+    ) {
+        context.setFillColor(white(1))
+        context.beginPath()
+        let step = 360 / CGFloat(count)
+        for index in 0 ..< count {
+            let start = offset + step * CGFloat(index)
+            addBand(context, inner: inner, outer: outer, from: start, to: start + span)
+        }
+        context.fillPath()
+    }
+
+    private static func drawHUDSegments(in context: CGContext, extent: CGFloat) {
+        fillBands(context, count: 8, span: 34, inner: hudOuter - 40, outer: hudOuter, offset: 5.5)
+    }
+
+    private static func drawHUDArcs(in context: CGContext, extent: CGFloat) {
+        fillBands(context, count: 3, span: 70, inner: hudOuter - 22, outer: hudOuter, offset: 25)
+    }
+
+    private static func drawHUDDashes(in context: CGContext, extent: CGFloat) {
+        fillBands(context, count: 48, span: 4, inner: hudOuter - 14, outer: hudOuter)
+    }
+
+    /// Ticks as very short bands, so each one is a true radial wedge rather
+    /// than a rectangle rotated into place. ~8px wide (11 the long ones): at
+    /// 5px nearly a third of every tick was antialiasing, which drawn smaller
+    /// on screen is a blur, not a mark.
+    private static func drawHUDTicks(in context: CGContext, extent: CGFloat) {
+        context.setFillColor(white(1))
+        context.beginPath()
+        for index in 0 ..< 72 {
+            let angle = CGFloat(index) * 5
+            let long = index % 6 == 0
+            addBand(context, inner: hudOuter - (long ? 52 : 26), outer: hudOuter,
+                    from: angle - (long ? 1.4 : 1.0), to: angle + (long ? 1.4 : 1.0))
+        }
+        context.fillPath()
+    }
+
+    private static func drawHUDArc(in context: CGContext, extent: CGFloat) {
+        fillBands(context, count: 1, span: 100, inner: hudOuter - 30, outer: hudOuter, offset: 40)
+    }
+
+    /// Centred on the top of the circle (90° in y-up space) so a lock built
+    /// from four of them turns each one a quarter round.
+    private static func drawHUDBracket(in context: CGContext, extent: CGFloat) {
+        context.setFillColor(white(1))
+        context.beginPath()
+        addBand(context, inner: hudOuter - 10, outer: hudOuter, from: 60, to: 120)
+        // A tick at each end, pointing inward.
+        addBand(context, inner: hudOuter - 46, outer: hudOuter, from: 59, to: 61.5)
+        addBand(context, inner: hudOuter - 46, outer: hudOuter, from: 118.5, to: 121)
+        context.fillPath()
+        // A notch at the middle: a small triangle pointing at the centre.
+        fillPolygon(context, [
+            CGPoint(x: 256, y: 256 + hudOuter - 50),
+            CGPoint(x: 240, y: 256 + hudOuter - 12),
+            CGPoint(x: 272, y: 256 + hudOuter - 12),
+        ])
     }
 
     private static func drawCross(in context: CGContext, extent: CGFloat) {

@@ -49,6 +49,7 @@ public enum DerivedSprite {
             return (.blur(radius: radius), source)
         }
         if let kind = parseDots(descriptor) { return (kind, source) }
+        if let kind = parseLook(descriptor) { return (kind, source) }
         if let kind = parsePanel(descriptor, extent: source) { return (kind, source) }
         return nil
     }
@@ -61,6 +62,19 @@ public enum DerivedSprite {
         case dotMatrix(pitch: Int, dotPercent: Int, shape: DotShape, thresholdPercent: Int)
         /// A lattice of dots with no source: the unlit ones behind an LED sign.
         case dotPanel(columns: Int, rows: Int, pitch: Int, dotPercent: Int, shape: DotShape)
+        /// The source's silhouette grown by `width` pixels, on a canvas grown
+        /// by ``DerivedSprite/outlineMargin(width:)`` each side.
+        case outline(width: Int)
+        /// The source re-drawn as dots sized by how much ink each cell holds.
+        case halftone(cell: Int, shape: DotShape)
+        /// The source's luminance mapped from one colour to another, as
+        /// `0xRRGGBB`.
+        case duotone(dark: Int, light: Int)
+        /// The source's edges as lines `width` pixels wide.
+        case ink(width: Int, detailPercent: Int)
+        /// One cell of a `columns × rows` grid over the source, on a canvas
+        /// the source's own size with everything else cleared.
+        case tile(columns: Int, rows: Int, index: Int)
     }
 
     public static func isDerived(_ path: String) -> Bool {
@@ -169,6 +183,116 @@ public enum DerivedSprite {
     public static func cells(covering length: Double, pitch: Int) -> Int {
         let needed = max(1, Int((max(0, length) / Double(max(1, pitch))).rounded(.up)))
         return needed % 2 == 0 ? needed : needed + 1
+    }
+
+    // ─── Look ────────────────────────────────────────────────────────────────
+
+    /// Bounds on an outline's width, in source pixels.
+    public static let outlineWidthRange: ClosedRange<Int> = 1...32
+
+    /// The source with an outline `width` pixels wide around its silhouette.
+    ///
+    /// Whole pixels, for the reason blur radii are quantised: a slider would
+    /// otherwise mint a texture at every position it passes through.
+    public static func outlined(_ source: String, width: Double) -> String {
+        "\(prefix)outline\(quantiseOutline(width))/\(source)"
+    }
+
+    /// How far the outlined canvas reaches past its source on every side.
+    ///
+    /// Public because the filter has to undo it: osu! anchors a sprite to its
+    /// *canvas*, so a canvas grown on all sides moves everything not hung from
+    /// its centre. One pixel more than the width, for the antialiased edge.
+    public static func outlineMargin(width: Double) -> Int {
+        quantiseOutline(width) + 1
+    }
+
+    /// The source as halftone dots, one per `cell` pixels.
+    ///
+    /// Same size as the source, so the anchor stays exactly where it was.
+    public static func halftone(_ source: String, cell: Double, shape: DotShape) -> String {
+        "\(prefix)halftone\(quantisePitch(cell))-\(shape.rawValue)/\(source)"
+    }
+
+    /// The source's luminance mapped from `dark` to `light`.
+    ///
+    /// The colours go into the path whole: a colour well picks discrete
+    /// values, so there is no slider to sweep a texture into existence per
+    /// step.
+    public static func duotone(_ source: String, dark: EffectColor, light: EffectColor) -> String {
+        "\(prefix)duo\(hex(dark))-\(hex(light))/\(source)"
+    }
+
+    /// Bounds on an ink line's width, in source pixels.
+    public static let inkWidthRange: ClosedRange<Int> = 1...12
+
+    /// The source's edges as lines.
+    ///
+    /// - Parameter detail: how faint an edge inside the silhouette can be and
+    ///   still be drawn — 0 draws only the outer contour.
+    public static func inked(_ source: String, width: Double, detail: Double) -> String {
+        let w = min(inkWidthRange.upperBound, max(inkWidthRange.lowerBound, Int(width.rounded())))
+        let d = min(100, max(0, Int((detail * 100).rounded())))
+        return "\(prefix)ink\(w)-\(d)/\(source)"
+    }
+
+    /// Bounds on a grid of pieces, per axis.
+    public static let tileRange: ClosedRange<Int> = 1...16
+
+    /// Cell `index` of a `columns × rows` grid over `source`, counted row by
+    /// row from the top left.
+    ///
+    /// The canvas stays the source's size with only the cell left in it, so
+    /// every piece shares the original's anchor: placed where the sprite is,
+    /// the pieces assemble into it exactly, and Core never needs to know how
+    /// big the image is — which it cannot. The cost is memory: a piece is a
+    /// whole canvas, mostly empty.
+    public static func tiled(_ source: String, columns: Int, rows: Int, index: Int) -> String {
+        let c = min(tileRange.upperBound, max(tileRange.lowerBound, columns))
+        let r = min(tileRange.upperBound, max(tileRange.lowerBound, rows))
+        return "\(prefix)tile\(c)x\(r)-\(min(max(index, 0), c * r - 1))/\(source)"
+    }
+
+    private static func quantiseOutline(_ width: Double) -> Int {
+        min(outlineWidthRange.upperBound, max(outlineWidthRange.lowerBound, Int(width.rounded())))
+    }
+
+    private static func hex(_ colour: EffectColor) -> String {
+        let channel = { (value: Double) in min(255, max(0, Int(value.rounded()))) }
+        return String(format: "%02x%02x%02x", channel(colour.r), channel(colour.g), channel(colour.b))
+    }
+
+    private static func parseLook(_ descriptor: String) -> Kind? {
+        if descriptor.hasPrefix("outline"), let width = Int(descriptor.dropFirst(7)) {
+            return .outline(width: width)
+        }
+        if descriptor.hasPrefix("halftone") {
+            let parts = descriptor.dropFirst(8).split(separator: "-")
+            guard parts.count == 2, let cell = Int(parts[0]), let shape = DotShape(rawValue: String(parts[1]))
+            else { return nil }
+            return .halftone(cell: cell, shape: shape)
+        }
+        if descriptor.hasPrefix("duo") {
+            let parts = descriptor.dropFirst(3).split(separator: "-")
+            guard parts.count == 2, parts.allSatisfy({ $0.count == 6 }),
+                  let dark = Int(parts[0], radix: 16), let light = Int(parts[1], radix: 16)
+            else { return nil }
+            return .duotone(dark: dark, light: light)
+        }
+        if descriptor.hasPrefix("tile") {
+            let parts = descriptor.dropFirst(4).split(separator: "-")
+            let grid = parts.first?.split(separator: "x") ?? []
+            guard parts.count == 2, grid.count == 2,
+                  let columns = Int(grid[0]), let rows = Int(grid[1]), let index = Int(parts[1])
+            else { return nil }
+            return .tile(columns: columns, rows: rows, index: index)
+        }
+        if descriptor.hasPrefix("ink") {
+            let parts = descriptor.dropFirst(3).split(separator: "-")
+            guard parts.count == 2, let width = Int(parts[0]), let detail = Int(parts[1]) else { return nil }
+            return .ink(width: width, detailPercent: detail)
+        }
+        return nil
     }
 
     private static func quantisePitch(_ pitch: Double) -> Int {

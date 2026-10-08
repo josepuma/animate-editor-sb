@@ -91,7 +91,7 @@ public struct LEDFilter: SpriteFilter {
     public static let descriptor = FilterDescriptor(
         type: "led",
         name: "LED",
-        category: .stylise,
+        category: .look,
         systemImage: "circle.grid.3x3.fill",
         parameters: [
             EffectParameter(
