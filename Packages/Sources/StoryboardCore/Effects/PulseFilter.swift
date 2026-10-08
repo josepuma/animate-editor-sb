@@ -312,6 +312,16 @@ public struct PulseFilter: SpriteFilter {
         release: Double,
         expand: Bool,
     ) -> StoryboardSprite {
+        // Only the beats inside this sprite's own life, and nothing written
+        // past it. The hits are worked out over the clip; written whole on a
+        // spark that lives half a second they made it alive from the clip's
+        // start, drawn there with its first command's opening values — full
+        // opacity at `1 + punch` on a texture meant to be an eighth of that
+        // size. Reported as Spark Trail and Beat Pulse "colliding".
+        let born = sprite.commands.map(\.startTime).min() ?? 0
+        let death = min(sprite.commands.map(\.endTime).max() ?? born, death)
+        let hits = hits.filter { $0 >= born && $0 < death }
+
         var result = sprite
         var beats: [Command] = []
         var fades: [Command] = []

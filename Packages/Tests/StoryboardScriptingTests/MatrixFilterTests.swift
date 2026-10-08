@@ -113,6 +113,65 @@ struct MatrixFilterTests {
         #expect(changed, "\(filter.name) changed nothing on any clip")
     }
 
+    /// Filters that move a sprite's life on purpose, each with its reason:
+    ///
+    /// - Time, Stagger: changing when things happen is the job.
+    /// - Loop: its body repeats past the original span by design.
+    /// - Shatter: the pieces fly on past the sprite's own end.
+    static let movesLife: Set<String> = ["time", "stagger", "loop", "shatter"]
+
+    /// A filter must not make a sprite alive before it was born, or keep it
+    /// after it died. osu! draws a sprite across its whole command span and,
+    /// before its first command, with that command's opening values — so an
+    /// earlier start is a sprite showing up where nothing put it. Beat Pulse
+    /// wrote clip-wide beats on every sprite, and a spark born at second 3
+    /// was drawn from second 0 as a full-size blob; this guard is what would
+    /// have caught it, because no single-filter check was looking at life.
+    @Test("no filter stretches a sprite's life", arguments: ClipMatrix.clips, filters)
+    func keepsLives(_ clip: ClipMatrix.Clip, _ type: String) {
+        guard !Self.movesLife.contains(type) else { return }
+        let filter = Self.descriptor(type)
+        let before = Dictionary(
+            ClipMatrix.evaluate(clip).map { ($0.id, Self.life($0)) }, uniquingKeysWith: { a, _ in a },
+        )
+        for node in [ClipMatrix.filterNode(filter), ClipMatrix.exercised(filter)] {
+            for sprite in ClipMatrix.evaluate(clip, with: node) {
+                guard let was = before[sprite.id] else { continue }
+                let now = Self.life(sprite)
+                #expect(now.start >= was.start - 1e-6 && now.end <= was.end + 1e-6,
+                        "\(filter.name) on \(clip.name): \(sprite.id) \(was) → \(now)")
+            }
+        }
+    }
+
+    private static func life(_ sprite: StoryboardSprite) -> (start: Double, end: Double) {
+        let prepared = StoryboardResolver.prepare([sprite])[0]
+        return (prepared.activeStart, prepared.activeEnd)
+    }
+
+    /// Two filters together, in the order the report had them: one that adds
+    /// short-lived sprites, then each other filter over the result. A filter
+    /// that is fine alone can still mishandle sprites another one made.
+    static let adders: [String] = ["spark-trail", "disintegrate", "echo"]
+
+    @Test("a filter after one that adds sprites keeps their lives too", arguments: adders, filters)
+    func keepsAddedLives(_ adder: String, _ type: String) {
+        guard !Self.movesLife.contains(type), adder != type,
+              let clip = ClipMatrix.clips.first(where: { $0.name == "text" })
+        else { return }
+        let first = ClipMatrix.filterNode(Self.descriptor(adder))
+        let alone = ClipMatrix.evaluate(clip, with: [first])
+        let before = Dictionary(alone.map { ($0.id, Self.life($0)) }, uniquingKeysWith: { a, _ in a })
+        let together = ClipMatrix.evaluate(clip, with: [first, ClipMatrix.filterNode(Self.descriptor(type))])
+        for sprite in together {
+            guard let was = before[sprite.id] else { continue }
+            let now = Self.life(sprite)
+            #expect(now.start >= was.start - 1e-6 && now.end <= was.end + 1e-6,
+                    "\(adder) then \(type): \(sprite.id) \(was) → \(now)")
+        }
+        #expect(together.flatMap(CommandOverlapGuard.violations).isEmpty, "\(adder) then \(type)")
+    }
+
     /// osu! does not add two commands on one property: the last one written
     /// wins, so a filter that writes its movement beside the clip's own makes
     /// the sprite tug between two paths. Checked with the numbers turned up,

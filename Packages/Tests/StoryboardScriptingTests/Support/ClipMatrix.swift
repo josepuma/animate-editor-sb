@@ -41,8 +41,20 @@ enum ClipMatrix {
 
     /// The clip with only `filter` on it, evaluated as the editor would.
     static func evaluate(_ clip: Clip, with filter: FilterNode? = nil) -> [StoryboardSprite] {
+        evaluate(clip, with: filter.map { [$0] } ?? [])
+    }
+
+    /// The clip with a chain of filters on it, in order.
+    static func evaluate(_ clip: Clip, with filters: [FilterNode]) -> [StoryboardSprite] {
         var node = clip.node
-        node.filters = filter.map { [$0] } ?? []
+        // Two of one type share an id otherwise, and the id prefixes the
+        // sprites a filter adds.
+        node.filters = filters.enumerated().map { index, filter in
+            FilterNode(
+                id: "\(filter.id)-\(index)", type: filter.type, isEnabled: filter.isEnabled,
+                values: filter.values, animations: filter.animations,
+            )
+        }
         return evaluator.evaluate(node)
     }
 
