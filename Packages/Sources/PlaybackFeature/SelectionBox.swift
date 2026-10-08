@@ -213,9 +213,20 @@ struct SelectionBox: View {
     /// box after it: no clip ever showed a frame again. Under a gesture the
     /// frame is kept instead, centred where the clip is and held on stage;
     /// an axis that is not shrinking keeps its size.
+    ///
+    /// At rest too, as long as the clip is on the stage: a clip squashed to a
+    /// sliver still needs a frame to be grabbed and given its size back. Only
+    /// a clip off the stage goes undrawn at rest — what the minimum was for,
+    /// since held to the stage it measures as nothing and a frame there is a
+    /// dot.
     static func shown(_ raw: CGRect, rotation: Double, in viewSize: CGSize, isDragging: Bool) -> CGRect? {
         if let held = held(raw, rotation: rotation, in: viewSize) { return held }
-        guard isDragging else { return nil }
+        // Compared edge by edge rather than with `intersects`, which calls a
+        // box of zero height — exactly a squashed clip — empty and never on
+        // anything.
+        let onStage = raw.maxX >= 0 && raw.minX <= viewSize.width
+            && raw.maxY >= 0 && raw.minY <= viewSize.height
+        guard isDragging || onStage else { return nil }
         let inset = edgeInset
         let width = min(max(raw.width, minimumDraggedSize), viewSize.width - inset * 2)
         let height = min(max(raw.height, minimumDraggedSize), viewSize.height - inset * 2)

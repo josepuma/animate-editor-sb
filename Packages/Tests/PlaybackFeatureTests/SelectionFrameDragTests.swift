@@ -14,9 +14,21 @@ import Testing
 struct SelectionFrameDragTests {
     private let view = CGSize(width: 800, height: 600)
 
-    @Test("at rest, a box too small to draw is not drawn")
-    func restingTinyIsHidden() {
-        #expect(SelectionBox.shown(CGRect(x: 100, y: 100, width: 3, height: 200), rotation: 0, in: view, isDragging: false) == nil)
+    /// Reported next: the frame came back for other clips, but the squashed
+    /// one stayed without a frame — nothing to grab to give it its size back.
+    @Test("at rest, a tiny clip on the stage still gets a frame to grab")
+    func restingTinyIsShown() throws {
+        let raw = CGRect(x: 100, y: 300, width: 900, height: 2)
+        let shown = try #require(SelectionBox.shown(raw, rotation: 0, in: view, isDragging: false))
+        #expect(shown.height >= SelectionBox.minimumDraggedSize)
+        #expect(abs(shown.midY - raw.midY) < 0.5)
+    }
+
+    /// What the minimum was for: a clip whose sprites are off the stage
+    /// measures as nothing once held to it, and a frame there is a dot.
+    @Test("at rest, a clip off the stage is not drawn")
+    func restingOffStageIsHidden() {
+        #expect(SelectionBox.shown(CGRect(x: 900, y: 100, width: 50, height: 50), rotation: 0, in: view, isDragging: false) == nil)
     }
 
     @Test("under a gesture, the box stays — at least its minimum, where the clip is")
