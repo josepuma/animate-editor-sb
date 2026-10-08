@@ -195,4 +195,117 @@ struct LookTextureTests {
         // Cell 0 is the top-left third by half.
         #expect(tiles[0].alpha(2, 2) > 0.5 && tiles[0].alpha(12, 2) < 0.5 && tiles[0].alpha(2, 17) < 0.5)
     }
+
+    // MARK: - Antialiasing
+
+    /// A white disc of radius `radius`, antialiased, centred on a `size`² canvas.
+    private func disc(size: Int, radius: Double) throws -> Data {
+        let context = try #require(CGContext(
+            data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: size * 4,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
+        ))
+        context.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        let c = Double(size) / 2
+        context.fillEllipse(in: CGRect(x: c - radius, y: c - radius, width: radius * 2, height: radius * 2))
+        let image = try #require(context.makeImage())
+        let data = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        #expect(CGImageDestinationFinalize(destination))
+        return data as Data
+    }
+
+    /// How much a ring's position wobbles around the circle — the staircase,
+    /// in pixels. Along rays from the centre, either the alpha-weighted
+    /// middle of a line or where an edge falls through half alpha; the worst
+    /// gap from their mean. Against the mean, not the radius, so a constant
+    /// offset is not counted as a step.
+    private func stray(_ picture: Picture, centre: Double, radius: Double, edge: Bool = false) -> Double {
+        var found: [Double] = []
+        for step in 0..<180 {
+            let angle = Double(step) * .pi / 90
+            // Bilinear, as the GPU samples it: read pixel by pixel, even a
+            // perfectly smooth edge would show half-pixel steps.
+            func alpha(_ r: Double) -> Double {
+                let fx = centre + r * cos(angle) - 0.5
+                let fy = centre + r * sin(angle) - 0.5
+                let x0 = Int(fx.rounded(.down)), y0 = Int(fy.rounded(.down))
+                let tx = fx - Double(x0), ty = fy - Double(y0)
+                func at(_ x: Int, _ y: Int) -> Double {
+                    guard x >= 0, y >= 0, x < picture.width, y < picture.height else { return 0 }
+                    return picture.alpha(x, y)
+                }
+                let top = at(x0, y0) * (1 - tx) + at(x0 + 1, y0) * tx
+                let bottom = at(x0, y0 + 1) * (1 - tx) + at(x0 + 1, y0 + 1) * tx
+                return top * (1 - ty) + bottom * ty
+            }
+            let radii = stride(from: radius - 6, through: radius + 6, by: 0.05)
+            if edge {
+                // Outward, the first fall through one half.
+                if let r = radii.first(where: { alpha($0) < 0.5 }) { found.append(r) }
+            } else {
+                let weight = radii.reduce(0) { $0 + alpha($1) }
+                if weight > 0 { found.append(radii.reduce(0) { $0 + alpha($1) * $1 } / weight) }
+            }
+        }
+        let mean = found.reduce(0, +) / Double(max(found.count, 1))
+        return found.map { abs($0 - mean) }.max() ?? .infinity
+    }
+
+    /// Even a bitmap — which can only be enlarged, not redrawn — follows a
+    /// curve more closely worked out three times larger than at its own size.
+    @Test("ink drawn larger follows a curve more closely")
+    func inkIsSmooth() throws {
+        let source = try disc(size: 120, radius: 40)
+        let large = try render(DerivedSprite.inked(key(), width: 1, detail: 0, resolution: 3), source: source)
+        let small = try render(DerivedSprite.inked(key(), width: 1, detail: 0), source: source)
+        #expect(large.width == 360)
+        // Both in source pixels: the 3× texture measured, then divided back.
+        let enlarged = stray(large, centre: 180, radius: 120) / 3
+        let native = stray(small, centre: 60, radius: 40)
+        #expect(enlarged < native * 0.75, "\(enlarged) at 3× against \(native) at 1×")
+    }
+
+    /// `Width` means what it says: a 1px line is one source pixel thick — three
+    /// texture pixels at 3× — not smeared across two.
+    @Test("a 1px line is one source pixel thick")
+    func inkWidthHolds() throws {
+        let picture = try render(DerivedSprite.inked(key(), width: 1, detail: 0, resolution: 3), source: square(size: 40, inset: 10))
+        // Across the square's left edge, on a middle row.
+        let row = picture.height / 2
+        let thickness = (0..<picture.width / 2).reduce(0.0) { $0 + picture.alpha($1, row) }
+        #expect(abs(thickness - 3) < 0.75, "the line is \(thickness) texture px thick, 3 wanted")
+    }
+
+    @Test("an outline drawn larger keeps its proportions")
+    func outlineLarger() throws {
+        let margin = DerivedSprite.outlineMargin(width: 4)
+        let picture = try render(DerivedSprite.outlined(key(), width: 4, resolution: 3), source: square(size: 40, inset: 10))
+        #expect(picture.width == (40 + margin * 2) * 3)
+        let row = picture.height / 2
+        let edge = (margin + 10) * 3
+        #expect(picture.alpha(edge - 6, row) > 0.95, "inside the ring")
+        #expect(picture.alpha(edge - 21, row) < 0.05, "past four source pixels")
+    }
+
+    /// Text is drawn again from the font at the line's resolution — what
+    /// Photoshop does with type — rather than enlarged from its 1× bitmap,
+    /// whose curves were decided at the small size.
+    @Test("ink on text is redrawn from the font, three times the box exactly")
+    func inkRedrawsText() throws {
+        let style = TextStyle(font: "Helvetica", size: 48)
+        let character: Character = "O"
+        TextTextures.register(character, style: style)
+        let glyph = TextSprite.path(for: character, style: style)
+        let oneX = try #require(TextTextures.data(for: glyph))
+        let small = try Picture(oneX)
+
+        let path = DerivedSprite.inked(glyph, width: 1, detail: 0, resolution: 3)
+        let redrawn = try #require(DerivedTextures.data(for: path) { TextTextures.data(for: $0) })
+        let enlarged = try #require(LookTextures.ink(oneX, width: 1, detail: 0, resolution: 3))
+
+        let picture = try Picture(redrawn)
+        #expect(picture.width == small.width * 3 && picture.height == small.height * 3)
+        #expect(redrawn != enlarged, "drawn from the 1× bitmap, not the font")
+    }
 }

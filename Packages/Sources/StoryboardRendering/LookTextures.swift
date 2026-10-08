@@ -17,14 +17,20 @@ enum LookTextures {
     ///
     /// Grown by true distance, so corners round: a box-shaped dilation reads
     /// as a chunky offset rather than a line drawn around the shape.
-    static func outline(_ data: Data, width: Int) -> Data? {
+    /// - Parameter drawnAt: how many times larger than 1× `data` already is —
+    ///   text comes redrawn from the font; anything else is enlarged here.
+    static func outline(_ data: Data, width: Int, resolution: Int = 1, drawnAt: Int = 1) -> Data? {
         guard let image = decode(data) else { return nil }
         let margin = DerivedSprite.outlineMargin(width: Double(width))
-        guard var pixels = Pixels(image: image, padding: margin) else { return nil }
-
-        // One pixel of falloff past the width, for an antialiased edge; the
-        // silhouette itself stays filled.
-        PixelKernels.outline(&pixels.bytes, width: pixels.width, height: pixels.height, reach: Double(width) + 0.5)
+        guard var pixels = Pixels(image: image, padding: margin * drawnAt, scale: resolution / drawnAt)
+        else { return nil }
+        // Half a texture pixel of falloff past the width, for an antialiased
+        // edge; drawn `resolution` times larger, which the filter undoes on
+        // the sprite.
+        PixelKernels.outline(
+            &pixels.bytes, width: pixels.width, height: pixels.height,
+            reach: Double(width * resolution) + 0.5,
+        )
         return pixels.encoded()
     }
 
@@ -82,13 +88,18 @@ enum LookTextures {
     /// The canvas stays the source's size, so the anchor stays put; a line on
     /// the very border of the picture loses its outer half, which only matters
     /// for an image whose ink touches its own edge.
-    static func ink(_ data: Data, width: Int, detail: Double) -> Data? {
-        guard let image = decode(data), var pixels = Pixels(image: image, padding: 0) else { return nil }
+    static func ink(_ data: Data, width: Int, detail: Double, resolution: Int = 1, drawnAt: Int = 1) -> Data? {
+        guard let image = decode(data),
+              var pixels = Pixels(image: image, padding: 0, scale: resolution / drawnAt)
+        else { return nil }
         // Sobel peaks at 4 on a 0–1 step; full detail draws faint edges, a
-        // little detail only the strong ones, none the contour alone.
+        // little detail only the strong ones, none the contour alone. Drawn
+        // larger, a step spreads over `resolution` pixels and its gradient
+        // falls by the same, so the threshold does too.
         PixelKernels.ink(
             &pixels.bytes, width: pixels.width, height: pixels.height,
-            reach: Double(width) / 2 + 0.5, threshold: detail > 0 ? 0.2 + (1 - detail) * 3.6 : nil,
+            reach: Double(width * resolution) / 2 + 0.5,
+            threshold: detail > 0 ? (0.2 + (1 - detail) * 3.6) / Double(resolution) : nil,
         )
         return pixels.encoded()
     }
@@ -130,11 +141,12 @@ private struct Pixels {
     let height: Int
     var bytes: [UInt8]
 
-    init?(image: CGImage, padding: Int) {
+    /// Drawn `scale` times larger, interpolated; padding in source pixels.
+    init?(image: CGImage, padding: Int, scale: Int = 1) {
         // Locals, not `self`: the closure below runs before every property
         // is set, and Swift will not let it capture a half-built value.
-        let w = image.width + padding * 2
-        let h = image.height + padding * 2
+        let w = (image.width + padding * 2) * scale
+        let h = (image.height + padding * 2) * scale
         guard w > 0, h > 0 else { return nil }
         width = w
         height = h
@@ -146,7 +158,10 @@ private struct Pixels {
                 space: CGColorSpaceCreateDeviceRGB(),
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
             ) else { return false }
-            context.draw(image, in: CGRect(x: padding, y: padding, width: image.width, height: image.height))
+            context.interpolationQuality = .high
+            context.draw(image, in: CGRect(
+                x: padding * scale, y: padding * scale, width: image.width * scale, height: image.height * scale,
+            ))
             return true
         }
         guard drawn else { return nil }

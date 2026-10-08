@@ -16,7 +16,7 @@ struct LookFilterPathTests {
         let path = DerivedSprite.outlined("sb/a.png", width: 4.4)
         #expect(path == "__derived__/outline4/sb/a.png")
         let parsed = try #require(DerivedSprite.parse(path))
-        #expect(parsed.kind == .outline(width: 4))
+        #expect(parsed.kind == .outline(width: 4, resolution: 1))
         #expect(parsed.source == "sb/a.png")
     }
 
@@ -57,7 +57,28 @@ struct LookFilterPathTests {
         let path = DerivedSprite.inked("a.png", width: 2.2, detail: 0.35)
         #expect(path == "__derived__/ink2-35/a.png")
         let parsed = try #require(DerivedSprite.parse(path))
-        #expect(parsed.kind == .ink(width: 2, detailPercent: 35))
+        #expect(parsed.kind == .ink(width: 2, detailPercent: 35, resolution: 1))
+    }
+
+    @Test("a line texture drawn larger carries its resolution in the path")
+    func resolutionPaths() throws {
+        let outline = DerivedSprite.outlined("a.png", width: 4, resolution: 3)
+        #expect(outline == "__derived__/outline4x3/a.png")
+        #expect(try #require(DerivedSprite.parse(outline)).kind == .outline(width: 4, resolution: 3))
+        let ink = DerivedSprite.inked("a.png", width: 2, detail: 0.35, resolution: 3)
+        #expect(ink == "__derived__/ink2-35x3/a.png")
+        #expect(try #require(DerivedSprite.parse(ink)).kind == .ink(width: 2, detailPercent: 35, resolution: 3))
+    }
+
+    /// Larger only where Core knows the size, so the texture stays under
+    /// osu!'s 2048: text and built-ins yes, a beatmap's own image no.
+    @Test("line resolution follows what Core knows of the image's size")
+    func lineResolution() {
+        #expect(DerivedSprite.lineResolution(for: "__text__/abc.png") == 3)
+        #expect(DerivedSprite.lineResolution(for: BuiltInSprite.soft) == 3)
+        #expect(DerivedSprite.lineResolution(for: "sb/bg.jpg") == 1)
+        // 1024 a side and the widest outline: only one fits.
+        #expect(DerivedSprite.lineResolution(for: BuiltInSprite.godRays) == 1)
     }
 
     /// Derivations stack: a glow over an outline names the outline as its
@@ -184,6 +205,64 @@ struct LookFilterTests {
             in: context(OutlineFilter.descriptor, [OutlineFilter.Param.opacity: .number(0)]),
         )
         #expect(out.count == 1)
+    }
+
+    // MARK: - Resolution
+
+    private func glyph() -> StoryboardSprite {
+        StoryboardSprite(
+            id: "g", layer: .foreground, origin: .centre, filePath: "__text__/abc.png",
+            defaultX: 320, defaultY: 240,
+            commands: [
+                Command(easing: .linear, startTime: 0, endTime: 1000, payload: .fade(start: 0, end: 1)),
+                Command(easing: .linear, startTime: 0, endTime: 1000, payload: .scale(start: 1, end: 2)),
+            ],
+        )
+    }
+
+    private func scale(_ sprite: StoryboardSprite, _ time: Double) -> Double {
+        StoryboardResolver.state(of: StoryboardResolver.prepare([sprite])[0], at: time).scaleX
+    }
+
+    /// Drawn three times larger and shown at a third: the same size on
+    /// screen, with lines finer than a storyboard pixel.
+    @Test("ink on text is drawn larger and shown smaller, the same size on screen")
+    func inkOnText() {
+        let out = InkFilter().apply(to: [glyph()], in: context(InkFilter.descriptor))[0]
+        #expect(out.filePath.hasPrefix("__derived__/ink2-30x3/"))
+        #expect(abs(scale(out, 500) - 1.5 / 3) < 1e-9)
+        #expect(abs(scale(out, 1000) - 2.0 / 3) < 1e-9)
+    }
+
+    @Test("a beatmap image keeps its scale")
+    func inkOnImage() {
+        let out = InkFilter().apply(to: [sprite()], in: context(InkFilter.descriptor))[0]
+        #expect(!out.filePath.contains("x3"))
+        #expect(!out.commands.contains { $0.kind == .scale })
+    }
+
+    @Test("a sprite with no scale of its own gets one, held its whole life")
+    func inkHoldsScale() {
+        var bare = glyph()
+        bare.commands.removeAll { $0.kind == .scale }
+        let out = InkFilter().apply(to: [bare], in: context(InkFilter.descriptor))[0]
+        #expect(abs(scale(out, 0) - 1.0 / 3) < 1e-9)
+        #expect(abs(scale(out, 900) - 1.0 / 3) < 1e-9)
+    }
+
+    @Test("an outline on text is drawn larger too, and stays anchored")
+    func outlineOnText() {
+        var anchored = glyph()
+        anchored.origin = .topLeft
+        let out = OutlineFilter().apply(
+            to: [anchored], in: context(OutlineFilter.descriptor, [OutlineFilter.Param.width: .number(4)]),
+        )
+        #expect(out[0].filePath.hasPrefix("__derived__/outline4x3/"))
+        #expect(abs(scale(out[0], 1000) - 2.0 / 3) < 1e-9)
+        // Margin in source pixels, at the original's scale: the correction
+        // does not change with the resolution.
+        let margin = Double(DerivedSprite.outlineMargin(width: 4))
+        #expect(abs(out[0].defaultX - (320 - margin)) < 1e-9)
     }
 
     // MARK: - Image swaps

@@ -53,6 +53,31 @@ public enum TextTextures {
         return made
     }
 
+    /// The same glyph drawn `scale` times larger, from the font.
+    ///
+    /// What Photoshop does with type, and the only way to a sharp line at a
+    /// size the 1× texture does not have: re-rasterise the outlines rather
+    /// than enlarge a bitmap, whose curves were already decided at the small
+    /// size. The box is the 1× box times `scale` exactly, so a sprite shown at
+    /// `1 / scale` lands where the 1× one does.
+    static func data(for path: String, scale: Int) -> Data? {
+        guard scale > 1 else { return data(for: path) }
+        guard TextSprite.isText(path) else { return nil }
+        let key = "\(path)@\(scale)"
+
+        lock.lock()
+        let cached = cache[key]
+        let entry = known[path]
+        lock.unlock()
+
+        if let cached { return cached }
+        guard let entry, let made = draw(entry.0, style: entry.1, scale: scale) else { return nil }
+        lock.lock()
+        cache[key] = made
+        lock.unlock()
+        return made
+    }
+
     public static func clearCache() {
         lock.lock()
         cache.removeAll()
@@ -61,7 +86,7 @@ public enum TextTextures {
 
     // ─── Drawing ─────────────────────────────────────────────────────────────
 
-    private static func draw(_ character: Character, style: TextStyle) -> Data? {
+    private static func draw(_ character: Character, style: TextStyle, scale: Int = 1) -> Data? {
         let font = font(for: style)
         let attributed = NSAttributedString(
             string: String(character),
@@ -99,14 +124,17 @@ public enum TextTextures {
 
         guard let context = CGContext(
             data: nil,
-            width: width,
-            height: height,
+            width: width * scale,
+            height: height * scale,
             bitsPerComponent: 8,
-            bytesPerRow: width * 4,
+            bytesPerRow: width * scale * 4,
             space: CGColorSpaceCreateDeviceRGB(),
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
         ) else { return nil }
 
+        // Larger by scaling the drawing, not the box: the 1× box rounded once
+        // and multiplied, so the two textures stay exactly proportional.
+        context.scaleBy(x: CGFloat(scale), y: CGFloat(scale))
         context.setAllowsAntialiasing(true)
         context.setShouldSmoothFonts(true)
         // The baseline sits `descent` up from the bottom in every texture, which

@@ -36,9 +36,10 @@ public enum DerivedTextures {
                     original, pitch: pitch, dotSize: Double(dotPercent) / 100,
                     shape: shape, threshold: Double(thresholdPercent) / 100,
                 )
-            case let .outline(width):
-                guard let original = source(derived.source) else { return nil }
-                return LookTextures.outline(original, width: width)
+            case let .outline(width, resolution):
+                guard let (original, drawn) = lineSource(derived.source, resolution: resolution, source: source)
+                else { return nil }
+                return LookTextures.outline(original, width: width, resolution: resolution, drawnAt: drawn)
             case let .halftone(cell, shape):
                 guard let original = source(derived.source) else { return nil }
                 return LookTextures.halftone(original, cell: cell, shape: shape)
@@ -48,11 +49,29 @@ public enum DerivedTextures {
             case let .tile(columns, rows, index):
                 guard let original = source(derived.source) else { return nil }
                 return LookTextures.tile(original, columns: columns, rows: rows, index: index)
-            case let .ink(width, detailPercent):
-                guard let original = source(derived.source) else { return nil }
-                return LookTextures.ink(original, width: width, detail: Double(detailPercent) / 100)
+            case let .ink(width, detailPercent, resolution):
+                guard let (original, drawn) = lineSource(derived.source, resolution: resolution, source: source)
+                else { return nil }
+                return LookTextures.ink(
+                    original, width: width, detail: Double(detailPercent) / 100, resolution: resolution, drawnAt: drawn,
+                )
             }
         }
+    }
+
+    /// The image a line texture is worked out from, and how many times
+    /// larger than its 1× size it already is.
+    ///
+    /// Text is drawn again from the font at the full resolution — vector, so
+    /// its curves are decided at that size. Anything else is a bitmap and
+    /// can only be enlarged.
+    private static func lineSource(
+        _ path: String, resolution: Int, source: (String) -> Data?,
+    ) -> (data: Data, drawnAt: Int)? {
+        if resolution > 1, let sharp = TextTextures.data(for: path, scale: resolution) {
+            return (sharp, resolution)
+        }
+        return source(path).map { ($0, 1) }
     }
 
     // ─── Dot matrix ──────────────────────────────────────────────────────────

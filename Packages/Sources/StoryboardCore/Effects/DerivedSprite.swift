@@ -63,15 +63,16 @@ public enum DerivedSprite {
         /// A lattice of dots with no source: the unlit ones behind an LED sign.
         case dotPanel(columns: Int, rows: Int, pitch: Int, dotPercent: Int, shape: DotShape)
         /// The source's silhouette grown by `width` pixels, on a canvas grown
-        /// by ``DerivedSprite/outlineMargin(width:)`` each side.
-        case outline(width: Int)
+        /// by ``DerivedSprite/outlineMargin(width:)`` each side — all of it
+        /// drawn `resolution` times larger.
+        case outline(width: Int, resolution: Int)
         /// The source re-drawn as dots sized by how much ink each cell holds.
         case halftone(cell: Int, shape: DotShape)
         /// The source's luminance mapped from one colour to another, as
         /// `0xRRGGBB`.
         case duotone(dark: Int, light: Int)
         /// The source's edges as lines `width` pixels wide.
-        case ink(width: Int, detailPercent: Int)
+        case ink(width: Int, detailPercent: Int, resolution: Int)
         /// One cell of a `columns × rows` grid over the source, on a canvas
         /// the source's own size with everything else cleared.
         case tile(columns: Int, rows: Int, index: Int)
@@ -194,8 +195,8 @@ public enum DerivedSprite {
     ///
     /// Whole pixels, for the reason blur radii are quantised: a slider would
     /// otherwise mint a texture at every position it passes through.
-    public static func outlined(_ source: String, width: Double) -> String {
-        "\(prefix)outline\(quantiseOutline(width))/\(source)"
+    public static func outlined(_ source: String, width: Double, resolution: Int = 1) -> String {
+        "\(prefix)outline\(quantiseOutline(width))\(resolutionSuffix(resolution))/\(source)"
     }
 
     /// How far the outlined canvas reaches past its source on every side.
@@ -230,10 +231,56 @@ public enum DerivedSprite {
     ///
     /// - Parameter detail: how faint an edge inside the silhouette can be and
     ///   still be drawn — 0 draws only the outer contour.
-    public static func inked(_ source: String, width: Double, detail: Double) -> String {
+    public static func inked(_ source: String, width: Double, detail: Double, resolution: Int = 1) -> String {
         let w = min(inkWidthRange.upperBound, max(inkWidthRange.lowerBound, Int(width.rounded())))
         let d = min(100, max(0, Int((detail * 100).rounded())))
-        return "\(prefix)ink\(w)-\(d)/\(source)"
+        return "\(prefix)ink\(w)-\(d)\(resolutionSuffix(resolution))/\(source)"
+    }
+
+    // ─── Line resolution ─────────────────────────────────────────────────────
+
+    /// The most a line texture is drawn larger than its source.
+    public static let maximumLineResolution = 3
+
+    /// How many times larger to draw Outline and Ink for a sprite drawing
+    /// `path`, which the filter then draws at that fraction of its scale.
+    ///
+    /// A line is pixel-sized in its texture, and a texture pixel is a
+    /// storyboard unit — about 2¼ screen pixels at 1080p. Drawn at the
+    /// source's own resolution, every step of a curve is a visible block:
+    /// Ink on a 56px kanji read as pixelated, and averaging it smoother only
+    /// smeared a 1px line across two. Drawn three times larger and shown at a
+    /// third, the steps are under a screen pixel and `Width` means what it
+    /// says.
+    ///
+    /// Capped so the texture stays within osu!'s 2048: text and built-ins
+    /// have sizes Core knows (a 400px glyph with the widest outline is under
+    /// 600). A beatmap's own image does not — Core cannot open it — so it
+    /// stays at 1, which is what it always was.
+    public static func lineResolution(for path: String) -> Int {
+        let side: Double
+        if path.hasPrefix(TextSprite.prefix) {
+            side = 600
+        } else if BuiltInSprite.isKnown(path) {
+            let size = BuiltInSprite.fileSizes[path] ?? (512, 512)
+            side = max(size.width, size.height) + Double(outlineMargin(width: Double(outlineWidthRange.upperBound)) * 2)
+        } else {
+            return 1
+        }
+        return max(1, min(maximumLineResolution, Int(2048 / side)))
+    }
+
+    private static func resolutionSuffix(_ resolution: Int) -> String {
+        resolution > 1 ? "x\(min(resolution, maximumLineResolution))" : ""
+    }
+
+    /// `"35x3"` → (35, 3); `"35"` → (35, 1).
+    private static func withResolution(_ part: Substring) -> (value: Int, resolution: Int)? {
+        let pieces = part.split(separator: "x")
+        guard let value = pieces.first.flatMap({ Int($0) }) else { return nil }
+        guard pieces.count == 2 else { return pieces.count == 1 ? (value, 1) : nil }
+        guard let resolution = Int(pieces[1]), resolution >= 1 else { return nil }
+        return (value, resolution)
     }
 
     /// Bounds on a grid of pieces, per axis.
@@ -263,8 +310,8 @@ public enum DerivedSprite {
     }
 
     private static func parseLook(_ descriptor: String) -> Kind? {
-        if descriptor.hasPrefix("outline"), let width = Int(descriptor.dropFirst(7)) {
-            return .outline(width: width)
+        if descriptor.hasPrefix("outline"), let parsed = withResolution(descriptor.dropFirst(7)) {
+            return .outline(width: parsed.value, resolution: parsed.resolution)
         }
         if descriptor.hasPrefix("halftone") {
             let parts = descriptor.dropFirst(8).split(separator: "-")
@@ -289,8 +336,8 @@ public enum DerivedSprite {
         }
         if descriptor.hasPrefix("ink") {
             let parts = descriptor.dropFirst(3).split(separator: "-")
-            guard parts.count == 2, let width = Int(parts[0]), let detail = Int(parts[1]) else { return nil }
-            return .ink(width: width, detailPercent: detail)
+            guard parts.count == 2, let width = Int(parts[0]), let detail = withResolution(parts[1]) else { return nil }
+            return .ink(width: width, detailPercent: detail.value, resolution: detail.resolution)
         }
         return nil
     }

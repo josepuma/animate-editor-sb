@@ -61,9 +61,12 @@ public struct InkFilter: SpriteFilter {
 
         guard context.choice(Param.mode) == Mode.over.rawValue else {
             return sprites.map { sprite in
+                let resolution = DerivedSprite.lineResolution(for: sprite.filePath)
                 var swapped = sprite
-                swapped.filePath = DerivedSprite.inked(sprite.filePath, width: width, detail: detail)
-                return swapped
+                swapped.filePath = DerivedSprite.inked(sprite.filePath, width: width, detail: detail, resolution: resolution)
+                // Drawn larger, shown smaller: the same size on screen, with
+                // the lines finer than a storyboard pixel.
+                return swapped.scaled(by: 1 / Double(resolution))
             }
         }
 
@@ -71,7 +74,8 @@ public struct InkFilter: SpriteFilter {
         let lines = sprites.enumerated().map { index, sprite in
             var copy = sprite
             copy.id = "\(context.idPrefix)/i\(index)"
-            copy.filePath = DerivedSprite.inked(sprite.filePath, width: width, detail: detail)
+            let resolution = DerivedSprite.lineResolution(for: sprite.filePath)
+            copy.filePath = DerivedSprite.inked(sprite.filePath, width: width, detail: detail, resolution: resolution)
             // Ink is paint: its own colour, never added as light.
             copy.commands.removeAll { $0.kind == .color || $0.payload.isAdditive }
             let birth = sprite.commands.map(\.startTime).min() ?? 0
@@ -82,7 +86,7 @@ public struct InkFilter: SpriteFilter {
                     endR: colour.r, endG: colour.g, endB: colour.b,
                 ),
             ))
-            return copy
+            return copy.scaled(by: 1 / Double(resolution))
         }
         // On top: lines under their own fill would be covered by it.
         return sprites + lines

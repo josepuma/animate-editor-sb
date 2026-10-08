@@ -83,7 +83,8 @@ public struct OutlineFilter: SpriteFilter {
     ) -> StoryboardSprite {
         var copy = sprite
         copy.id = id
-        copy.filePath = DerivedSprite.outlined(sprite.filePath, width: width)
+        let resolution = DerivedSprite.lineResolution(for: sprite.filePath)
+        copy.filePath = DerivedSprite.outlined(sprite.filePath, width: width, resolution: resolution)
 
         let birth = sprite.commands.map(\.startTime).min() ?? 0
         let death = sprite.commands.map(\.endTime).max() ?? birth
@@ -119,7 +120,11 @@ public struct OutlineFilter: SpriteFilter {
             ))
         }
 
-        return anchored(copy, original: sprite, margin: margin)
+        // Drawn larger, shown smaller — see `DerivedSprite.lineResolution`.
+        // The margin stays in source pixels: the texture's is `resolution`
+        // times that and the sprite a `resolution`th the size, so on stage it
+        // comes to the same, and the anchor correction holds.
+        return anchored(copy.scaled(by: 1 / Double(resolution)), original: sprite, margin: margin)
     }
 
     /// Moves the outline back onto its sprite.
