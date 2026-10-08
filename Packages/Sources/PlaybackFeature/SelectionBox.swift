@@ -36,6 +36,9 @@ public struct ClipDrag: Sendable, Equatable {
 
     /// Whether the gesture has finished, so a caller can commit once.
     public var isFinished = false
+    /// The drag was abandoned, not finished: nothing to commit, and whatever
+    /// it was previewing is to be dropped.
+    public var isCancelled = false
 }
 
 /// The frame drawn around the selected clip.
@@ -133,6 +136,11 @@ struct SelectionBox: View {
     /// drag goes with it.
     @State private var awaitingCommit = false
 
+    /// Whether a gesture on the frame is under way. A `@GestureState`, so it
+    /// goes back to false however the gesture ends — including when it never
+    /// reaches `onEnded`, which is how a drag got stranded.
+    @GestureState private var isDragging = false
+
     /// Where the box sits in view coordinates, pulled back to the stage.
     ///
     /// A background is deliberately larger than the frame it fills, so its true
@@ -189,7 +197,49 @@ struct SelectionBox: View {
         // screen. Its four borders sit far outside the canvas, so what is
         // drawn inside the stage is its empty middle: the frame is there and
         // reads as gone, taking the resize handles with it.
-        return Self.held(raw, rotation: bounds.rotation, in: viewSize)
+        return Self.shown(raw, rotation: bounds.rotation, in: viewSize, isDragging: isDragging)
+    }
+
+    /// The smallest a frame is drawn while a gesture is carrying it.
+    static let minimumDraggedSize: CGFloat = 16
+
+    /// What is drawn: the held frame — or, while a gesture is under way, at
+    /// least a small box where the clip is.
+    ///
+    /// The handles carrying a gesture live inside the frame. Drawn as nothing
+    /// mid-drag — a side shrunk below the minimum, a clip moved off the
+    /// stage — the frame unmounted them, the gesture never reached its end,
+    /// the drag was never committed, and its shrink stayed applied to every
+    /// box after it: no clip ever showed a frame again. Under a gesture the
+    /// frame is kept instead, centred where the clip is and held on stage;
+    /// an axis that is not shrinking keeps its size.
+    static func shown(_ raw: CGRect, rotation: Double, in viewSize: CGSize, isDragging: Bool) -> CGRect? {
+        if let held = held(raw, rotation: rotation, in: viewSize) { return held }
+        guard isDragging else { return nil }
+        let inset = edgeInset
+        let width = min(max(raw.width, minimumDraggedSize), viewSize.width - inset * 2)
+        let height = min(max(raw.height, minimumDraggedSize), viewSize.height - inset * 2)
+        let midX = min(max(raw.midX, inset + width / 2), viewSize.width - inset - width / 2)
+        let midY = min(max(raw.midY, inset + height / 2), viewSize.height - inset - height / 2)
+        return CGRect(x: midX - width / 2, y: midY - height / 2, width: width, height: height)
+    }
+
+    /// Whether drag state is left over with nothing to account for it: no
+    /// gesture under way and no commit on its way.
+    static func isStranded(isDragging: Bool, awaitingCommit: Bool, moved: Bool) -> Bool {
+        moved && !isDragging && !awaitingCommit
+    }
+
+    private var moved: Bool {
+        liveOffset != .zero || liveScaleX != 1 || liveScaleY != 1 || liveRotation != 0
+    }
+
+    private func resetLive() {
+        awaitingCommit = false
+        liveOffset = .zero
+        liveScaleX = 1
+        liveScaleY = 1
+        liveRotation = 0
     }
 
     /// The frame held to the stage — while it is upright.
@@ -223,10 +273,10 @@ struct SelectionBox: View {
     }
 
     /// How far the box is held off the stage edge.
-    private static let edgeInset: CGFloat = 6
+    static let edgeInset: CGFloat = 6
 
     /// Below this the frame is not worth drawing.
-    private static let minimumSize: CGFloat = 8
+    static let minimumSize: CGFloat = 8
 
     var body: some View {
         // A stack that is always there, so the change below is watched even
@@ -238,26 +288,25 @@ struct SelectionBox: View {
             }
         }
         .onChange(of: bounds) { _, _ in
-            guard awaitingCommit else { return }
-            awaitingCommit = false
-            liveOffset = .zero
-            liveScaleX = 1
-            liveScaleY = 1
-            liveRotation = 0
+            if awaitingCommit {
+                resetLive()
+            } else if Self.isStranded(isDragging: isDragging, awaitingCommit: awaitingCommit, moved: moved) {
+                // A drag that never ended, dropped the moment anything else
+                // is measured — and the canvas told, so it stops drawing the
+                // clip where the abandoned drag had taken it.
+                resetLive()
+                onDrag(ClipDrag(isCancelled: true))
+            }
         }
     }
 
     /// Keeps a released drag on screen until the committed clip is measured —
     /// or drops it at once when it moved nothing, since nothing is coming.
     private func holdUntilCommitted() {
-        let moved = liveOffset != .zero || liveScaleX != 1 || liveScaleY != 1 || liveRotation != 0
         if moved {
             awaitingCommit = true
         } else {
-            liveOffset = .zero
-            liveScaleX = 1
-            liveScaleY = 1
-            liveRotation = 0
+            resetLive()
         }
     }
 
@@ -500,6 +549,7 @@ struct SelectionBox: View {
     /// in its own space the pointer would be measured from a moving place.
     private func rotateGesture(about pivot: CGPoint) -> some Gesture {
         DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.dragSpace))
+            .updating($isDragging) { _, dragging, _ in dragging = true }
             .onChanged { value in
                 awaitingCommit = false
                 liveRotation = turn(value, about: pivot)
@@ -552,6 +602,7 @@ struct SelectionBox: View {
 
     private var moveGesture: some Gesture {
         DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.dragSpace))
+            .updating($isDragging) { _, dragging, _ in dragging = true }
             .onChanged { value in
                 awaitingCommit = false
                 // Converted through the stage scale, not tracked in points: at
@@ -704,6 +755,7 @@ struct SelectionBox: View {
 
     private func stretchGesture(_ side: Side) -> some Gesture {
         DragGesture(minimumDistance: 1)
+            .updating($isDragging) { _, dragging, _ in dragging = true }
             .onChanged {
                 awaitingCommit = false
                 let drag = stretchDrag(side, $0.translation)
@@ -856,6 +908,7 @@ struct SelectionBox: View {
 
     private func resizeGesture(_ corner: Corner) -> some Gesture {
         DragGesture(minimumDistance: 1)
+            .updating($isDragging) { _, dragging, _ in dragging = true }
             .onChanged {
                 awaitingCommit = false
                 let drag = scaleDrag(corner, $0.translation)

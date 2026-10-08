@@ -49,6 +49,12 @@ struct EditorWindow: View {
             isClipLocked: { shell.isSelectionLocked },
             clipOrigin: { shell.clipOrigin },
             onClipDrag: { drag in
+                // Abandoned mid-gesture: nothing to write, and the clip goes
+                // back to where it was drawn.
+                guard !drag.isCancelled else {
+                    playback.cancelPreview()
+                    return
+                }
                 let taken = shell.applyCanvasDrag(
                     dx: drag.dx, dy: drag.dy,
                     scaleX: drag.scaleX, scaleY: drag.scaleY,
