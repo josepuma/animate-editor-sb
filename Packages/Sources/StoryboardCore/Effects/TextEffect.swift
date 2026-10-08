@@ -21,6 +21,8 @@ public struct TextEffect: Effect {
         public static let italic = "italic"
         public static let tracking = "tracking"
         public static let lineHeight = "lineHeight"
+        public static let orientation = "orientation"
+        public static let latin = "latin"
         public static let color = "color"
         public static let additive = "additive"
         public static let stagger = "stagger"
@@ -114,6 +116,18 @@ public struct TextEffect: Effect {
             EffectParameter(
                 id: Param.lineHeight, name: "Line Height", group: "Layout",
                 defaultValue: .number(1.2), range: 0.5...4, step: 0.05,
+            ),
+            EffectParameter(
+                id: Param.orientation, name: "Orientation", group: "Layout",
+                defaultValue: .choice(Orientation.horizontal.rawValue),
+                options: Orientation.allCases.map(\.rawValue),
+            ),
+            EffectParameter(
+                id: Param.latin, name: "Latin", group: "Layout",
+                defaultValue: .choice(Latin.rotated.rawValue),
+                options: Latin.allCases.map(\.rawValue),
+                // Only a vertical line has a choice to make about it.
+                shownWhen: .init(parameter: Param.orientation, isAnyOf: [Orientation.vertical.rawValue]),
             ),
             // Colour sits with the content rather than the animation: what
             // colour the words are is a property of the words.
@@ -239,6 +253,21 @@ public struct TextEffect: Effect {
         ] + TextHoldMotion.parameters + TextExit.parameters + TextGlyphParticles.parameters,
     )
 
+    /// Which way a line runs.
+    public enum Orientation: String, CaseIterable, Sendable {
+        case horizontal = "Horizontal"
+        /// 縦書き: top to bottom, each line a column, columns right to left.
+        case vertical = "Vertical"
+    }
+
+    /// How Latin letters and digits stand in a vertical line.
+    public enum Latin: String, CaseIterable, Sendable {
+        /// On their side, as vertical Japanese sets running Latin.
+        case rotated = "Rotated"
+        /// Standing, drawn as horizontal text — a short acronym or a number.
+        case upright = "Upright"
+    }
+
     public func evaluate(in context: EffectContext, rng: inout EffectRandom) -> [StoryboardSprite] {
         let content = context.text(Param.text)
         guard !content.isEmpty, context.duration > 0 else { return [] }
@@ -350,6 +379,9 @@ public struct TextEffect: Effect {
         var line: Int
         /// The glyph's own metrics, which size its texture box.
         var size: TextMetrics.Glyph
+        /// The style it is drawn in: in a vertical line, upright Latin is
+        /// drawn as horizontal text while everything else uses vertical forms.
+        var style: TextStyle
     }
 
     /// Lays the text out around its own centre.
@@ -362,6 +394,9 @@ public struct TextEffect: Effect {
         style: TextStyle,
         context: EffectContext,
     ) -> [PlacedGlyph] {
+        if context.choice(Param.orientation) == Orientation.vertical.rawValue {
+            return layoutVertical(content, style: style, context: context)
+        }
         let tracking = context.number(Param.tracking)
         let lineHeight = style.size * context.number(Param.lineHeight)
 
@@ -407,12 +442,83 @@ public struct TextEffect: Effect {
                         word: word,
                         line: lineIndex,
                         size: glyph,
+                        style: style,
                     ))
                 }
                 cursor += glyph.width + tracking
             }
         }
 
+        return placed
+    }
+
+    /// Lays the text out in columns (縦書き): each line top to bottom, the
+    /// lines right to left, the block centred on the clip like horizontal
+    /// text so the transform still turns it about its middle.
+    ///
+    /// The font does the hard part: a vertical style draws `、` and small kana
+    /// in their corner, `ー` and brackets turned and Latin on its side, all
+    /// inside each glyph's own texture. A glyph's box is measured down the
+    /// column — `width` across it, `height` the advance — so the same
+    /// `TextSprite.boxHeight` still says where the bottom of a texture is.
+    private func layoutVertical(
+        _ content: String,
+        style: TextStyle,
+        context: EffectContext,
+    ) -> [PlacedGlyph] {
+        let tracking = context.number(Param.tracking)
+        let columnPitch = style.size * context.number(Param.lineHeight)
+        var vertical = style
+        vertical.isVertical = true
+        let upright = context.choice(Param.latin) == Latin.upright.rawValue
+
+        // Kana, kanji and full-width punctuation have vertical forms; a
+        // character entirely below the CJK blocks is Latin-like.
+        func glyphStyle(_ character: Character) -> TextStyle {
+            let latin = character.unicodeScalars.allSatisfy { $0.value < 0x2E80 }
+            return upright && latin ? style : vertical
+        }
+        // Down the column: a vertical box's height is its advance; an
+        // upright Latin glyph, set horizontally, takes its own height.
+        func advance(_ character: Character) -> Double {
+            TextMetrics.glyph(character, style: glyphStyle(character)).height
+        }
+
+        let lines = content.components(separatedBy: "\n")
+        let lengths = lines.map { line in
+            line.reduce(0.0) { $0 + advance($1) + tracking } - (line.isEmpty ? 0 : tracking)
+        }
+        // The first column is the rightmost.
+        let firstX = columnPitch * Double(lines.count - 1) / 2
+
+        var placed: [PlacedGlyph] = []
+        var word = -1
+        var lineIndex = -1
+        for (column, line) in lines.enumerated() {
+            var cursor = -lengths[column] / 2
+            var inWord = false
+            var lineStarted = false
+            for character in line {
+                let glyphStyle = glyphStyle(character)
+                let glyph = TextMetrics.glyph(character, style: glyphStyle)
+                if character.isWhitespace {
+                    inWord = false
+                } else {
+                    if !inWord { word += 1; inWord = true }
+                    if !lineStarted { lineIndex += 1; lineStarted = true }
+                    placed.append(PlacedGlyph(
+                        character: character,
+                        x: firstX - columnPitch * Double(column),
+                        y: cursor + glyph.height / 2,
+                        word: word,
+                        line: lineIndex,
+                        size: glyph,
+                        style: glyphStyle,
+                    ))
+                }
+                cursor += glyph.height + tracking
+            }
+        }
         return placed
     }
 
@@ -521,9 +627,9 @@ public struct TextEffect: Effect {
             id: "\(context.idPrefix)/c\(index)",
             layer: .foreground,
             origin: onBottom ? .bottomCentre : .centre,
-            filePath: TextSprite.path(for: glyph.character, style: style),
+            filePath: TextSprite.path(for: glyph.character, style: glyph.style),
             defaultX: TransformProperty.x.defaultValue + glyph.x,
-            defaultY: onBottom ? centreY + TextSprite.boxHeight(glyph.size, style: style) / 2 : centreY,
+            defaultY: onBottom ? centreY + TextSprite.boxHeight(glyph.size, style: glyph.style) / 2 : centreY,
         )
 
         sprite.commands += opacity(span, fadeIn: fadeIn, fadeOut: fadeOut)

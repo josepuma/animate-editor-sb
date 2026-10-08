@@ -12,6 +12,11 @@ public struct TextStyle: Sendable, Equatable, Codable {
     public var isItalic: Bool
     /// Outline thickness in points. Zero draws no outline.
     public var strokeWidth: Double
+    /// Set in a vertical line (縦書き): drawn in the font's vertical forms —
+    /// kana and kanji upright, `、` and small kana moved up and right, `ー` and
+    /// brackets turned, Latin on its side — with the box measured down the
+    /// column. A different image from the same character set horizontally.
+    public var isVertical: Bool
 
     public init(
         font: String = "Helvetica",
@@ -19,12 +24,30 @@ public struct TextStyle: Sendable, Equatable, Codable {
         isBold: Bool = false,
         isItalic: Bool = false,
         strokeWidth: Double = 0,
+        isVertical: Bool = false,
     ) {
         self.font = font
         self.size = size
         self.isBold = isBold
         self.isItalic = isItalic
         self.strokeWidth = strokeWidth
+        self.isVertical = isVertical
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case font, size, isBold, isItalic, strokeWidth, isVertical
+    }
+
+    // A style written before vertical text existed has no such key, and
+    // synthesised decoding treats a missing non-optional as a failure.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        font = try container.decode(String.self, forKey: .font)
+        size = try container.decode(Double.self, forKey: .size)
+        isBold = try container.decode(Bool.self, forKey: .isBold)
+        isItalic = try container.decode(Bool.self, forKey: .isItalic)
+        strokeWidth = try container.decode(Double.self, forKey: .strokeWidth)
+        isVertical = try container.decodeIfPresent(Bool.self, forKey: .isVertical) ?? false
     }
 }
 
@@ -60,8 +83,11 @@ public enum TextSprite {
         // Hashed rather than spelled out: a path holding the character itself
         // would need escaping for slashes, quotes and spaces, and a storyboard
         // path is written into a text file where those are all significant.
+        // Vertical only when it is: every horizontal path keeps the hash it
+        // always had, so no saved storyboard points at a different image.
         let descriptor = "\(character)|\(style.font)|\(style.size)"
             + "|\(style.isBold)|\(style.isItalic)|\(style.strokeWidth)"
+            + (style.isVertical ? "|v" : "")
         return "\(prefix)\(hash(descriptor)).png"
     }
 
@@ -127,7 +153,10 @@ public enum TextMetrics {
 
     public static func glyph(_ character: Character, style: TextStyle) -> Glyph {
         if let measure { return measure(character, style) }
-        // Rough, but ordered and animatable.
+        // Rough, but ordered and animatable. Vertical boxes are measured down
+        // the column: as wide as the line and one em of advance, which is
+        // what a CJK font gives.
+        if style.isVertical { return Glyph(width: style.size, height: style.size) }
         return Glyph(width: style.size * 0.55, height: style.size)
     }
 }

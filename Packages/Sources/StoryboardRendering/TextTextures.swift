@@ -88,15 +88,12 @@ public enum TextTextures {
 
     private static func draw(_ character: Character, style: TextStyle, scale: Int = 1) -> Data? {
         let font = font(for: style)
-        let attributed = NSAttributedString(
-            string: String(character),
-            attributes: [
-                .font: font,
-                .foregroundColor: CGColor(red: 1, green: 1, blue: 1, alpha: 1),
-            ],
-        )
-
-        let line = CTLineCreateWithAttributedString(attributed)
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: CGColor(red: 1, green: 1, blue: 1, alpha: 1),
+        ]
+        if style.isVertical { attributes[Self.verticalForms] = true }
+        let line = CTLineCreateWithAttributedString(NSAttributedString(string: String(character), attributes: attributes))
 
         // Every glyph gets the same box, sized from the font rather than from
         // its own ink.
@@ -111,15 +108,24 @@ public enum TextTextures {
         // Sized to the font's own metrics, every texture is the same height and
         // the baseline lands in the same place in all of them, so centring each
         // sprite lines them up.
-        let ascent = CTFontGetAscent(font)
-        let descent = CTFontGetDescent(font)
-        let advance = CTLineGetTypographicBounds(line, nil, nil, nil)
+        //
+        // In a vertical line the same box is measured down the column: across
+        // it the line's ascent and descent, down it the glyph's advance.
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        let advance = CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+        if !style.isVertical {
+            ascent = CTFontGetAscent(font)
+            descent = CTFontGetDescent(font)
+        }
 
         // Padded, because ink can reach past the box. The amount comes from
         // Core, which predicts this texture's height without opening it.
         let padding = TextSprite.padding(for: style)
-        let width = Int((advance + padding * 2).rounded(.up))
-        let height = Int((ascent + descent + padding * 2).rounded(.up))
+        let across = style.isVertical ? ascent + descent : advance
+        let down = style.isVertical ? advance : ascent + descent
+        let width = Int((across + padding * 2).rounded(.up))
+        let height = Int((down + padding * 2).rounded(.up))
         guard width > 0, height > 0 else { return nil }
 
         guard let context = CGContext(
@@ -137,14 +143,25 @@ public enum TextTextures {
         context.scaleBy(x: CGFloat(scale), y: CGFloat(scale))
         context.setAllowsAntialiasing(true)
         context.setShouldSmoothFonts(true)
-        // The baseline sits `descent` up from the bottom in every texture, which
-        // is what makes them line up once each sprite is centred.
-        context.textPosition = CGPoint(x: padding, y: padding + descent)
+        if style.isVertical {
+            // The line runs down from the top of the box with its "up"
+            // pointing right; vertical forms come out upright once turned.
+            context.translateBy(x: padding + descent, y: CGFloat(height) - padding)
+            context.rotate(by: -.pi / 2)
+            context.textPosition = .zero
+        } else {
+            // The baseline sits `descent` up from the bottom in every texture,
+            // which is what makes them line up once each sprite is centred.
+            context.textPosition = CGPoint(x: padding, y: padding + descent)
+        }
         CTLineDraw(line, context)
 
         guard let image = context.makeImage() else { return nil }
         return encode(image)
     }
+
+    /// Asks Core Text for the font's vertical glyph forms.
+    private static let verticalForms = NSAttributedString.Key(kCTVerticalFormsAttributeName as String)
 
     private static func font(for style: TextStyle) -> CTFont {
         var traits: CTFontSymbolicTraits = []
@@ -188,6 +205,18 @@ public enum TextTextures {
     /// reads — alone.
     public static func metrics(_ character: Character, style: TextStyle) -> TextMetrics.Glyph {
         let font = font(for: style)
+        if style.isVertical {
+            // Down the column: across, the vertical line's ascent and
+            // descent; down, the glyph's vertical advance — the box `draw`
+            // makes, padding aside.
+            let line = CTLineCreateWithAttributedString(NSAttributedString(
+                string: String(character), attributes: [.font: font, verticalForms: true],
+            ))
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            let advance = CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+            return TextMetrics.Glyph(width: ascent + descent, height: advance)
+        }
         let attributed = NSAttributedString(
             string: String(character), attributes: [.font: font],
         )
