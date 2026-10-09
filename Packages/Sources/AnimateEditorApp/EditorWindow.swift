@@ -312,6 +312,26 @@ struct EditorWindow: View {
                 )
             }
 
+            // The storyboard's sounds, for the preview.
+            //
+            // The schedule is the model's and the decoding is the player's; the
+            // app stands between them because decoding needs this folder and
+            // `PlaybackFeature` knows nothing about one. Sent whenever the list
+            // changes, and once on install, so a project that was already open
+            // catches up. The decode runs off the main thread; the unplayable
+            // paths come back for the "can't preview" badge.
+            shell.onSamplesChanged = { [weak playback, weak shell] samples in
+                guard let playback else { return }
+                playback.samplesChanged(samples)
+                guard let folderAssets else { return }
+                Task { @MainActor in
+                    let unplayable = await playback.loadSampleFiles(samples) {
+                        folderAssets.fileURL(forRelativePath: $0)
+                    }
+                    shell?.unplayableSamplePaths = unplayable
+                }
+            }
+
             // Bringing an image into the project.
             //
             // Copied rather than referenced, because osu! reads only what sits
@@ -374,12 +394,19 @@ struct EditorWindow: View {
             // bug read as "the effect is broken until you poke it".
             playback.onTrackLoaded = { [weak shell] url in
                 audioURL.url = url
+                // The song as the loader resolved it from the `.osu`, never a
+                // guess: it is hidden from the audio assets, where placing it
+                // as a sample would play it twice.
+                shell?.songPath = folderAssets?.relativePath(of: url)
                 shell?.lyricAudioURL = url
                 shell?.beat = playback.timing.map { BeatGrid(timing: $0) }
                 shell?.inputsChanged()
             }
             audioURL.url = playback.trackURL
             shell.lyricAudioURL = playback.trackURL
+            if let known = playback.trackURL {
+                shell.songPath = folderAssets?.relativePath(of: known)
+            }
 
             // Reads the song for its words. Installed here for the reason the
             // spectrum analyser is: `StoryboardPersistence` talks to the

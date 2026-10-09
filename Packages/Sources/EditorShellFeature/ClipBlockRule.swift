@@ -20,8 +20,15 @@ enum ClipBlockRule {
     ///
     /// A sound wears its own speaker; the sparkles stand for "an effect", which
     /// a sound is not.
-    static func badges(filterIcons: [String], descriptor: EffectDescriptor?) -> [String] {
-        if let descriptor, !descriptor.drawsSprites { return [descriptor.systemImage] }
+    ///
+    /// A sound this machine cannot decode wears a muted one instead: the
+    /// preview will be silent for it, and the block is where that is noticed.
+    static func badges(
+        filterIcons: [String], descriptor: EffectDescriptor?, cannotPreview: Bool = false,
+    ) -> [String] {
+        if let descriptor, !descriptor.drawsSprites {
+            return [cannotPreview ? "speaker.slash" : descriptor.systemImage]
+        }
         return filterIcons.isEmpty ? ["sparkles"] : filterIcons
     }
 }

@@ -134,6 +134,20 @@ public struct BeatmapFolder: Sendable {
         return candidate
     }
 
+    /// Where `fileURL` sits in this folder, as the path the assets panel and an
+    /// `.osb` use, or `nil` when it is not inside it.
+    ///
+    /// For naming the song the loader already resolved: the answer comes from
+    /// that URL, never from guessing which audio file "looks like" the song.
+    /// Compared with symlinks resolved on both sides (a temp folder is
+    /// `/var/…` and `/private/var/…` depending on who asks).
+    public func relativePath(of fileURL: URL) -> String? {
+        let root = url.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        let target = fileURL.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        guard target.count > root.count, Array(target.prefix(root.count)) == root else { return nil }
+        return target.dropFirst(root.count).joined(separator: "/")
+    }
+
     /// Reads a storyboard-relative file, or `nil` when it cannot be found.
     public func data(forRelativePath path: String) -> Data? {
         guard let url = fileURL(forRelativePath: path) else { return nil }

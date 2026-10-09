@@ -618,6 +618,44 @@ public final class EditorShellModel {
             guard !isCoalescingUndo else { return }
             history.record(effects)
         }
+        didSet { publishSamples() }
+    }
+
+    // ─── Samples in the preview ──────────────────────────────────────────────
+
+    /// Told the document's samples whenever the list changes.
+    ///
+    /// Sent only when it differs from what was last sent: `effects` is written
+    /// on every drag step, and the preview's schedule has no use for the same
+    /// list sixty times a second. Installing the callback sends the current
+    /// list, so wiring it after a project opened still catches up.
+    @ObservationIgnored public var onSamplesChanged: (([StoryboardSample]) -> Void)? {
+        didSet {
+            sentSamples = nil
+            publishSamples()
+        }
+    }
+
+    @ObservationIgnored private var sentSamples: [StoryboardSample]?
+
+    private func publishSamples() {
+        guard let onSamplesChanged else { return }
+        let samples = effects.samples
+        guard samples != sentSamples else { return }
+        sentSamples = samples
+        onSamplesChanged(samples)
+    }
+
+    /// Sample files this machine cannot decode, so the preview is silent for
+    /// them. Set by the app from the player; the export still ships them.
+    public var unplayableSamplePaths: Set<String> = []
+
+    /// Whether a sample clip's file is one the preview cannot play.
+    public func cannotPreview(_ node: EffectNode) -> Bool {
+        guard node.type == SampleEffect.descriptor.type,
+              case let .text(path)? = node.values[SampleEffect.Param.file]
+        else { return false }
+        return unplayableSamplePaths.contains(path)
     }
 
     /// Whether edits are being folded into one undo entry.
@@ -4230,10 +4268,28 @@ public final class EditorShellModel {
 
     @ObservationIgnored private var folderPaths: [String] = []
 
+    /// The beatmap's own song, as a path in the folder — named by the loader,
+    /// which read it from the `.osu`. Hidden from the audio assets because
+    /// placing it as a sample would play the song twice over itself.
+    ///
+    /// `nil` hides nothing: with no known song there is no honest way to pick
+    /// one, and guessing "the first audio file" would hide a hit sound.
+    public var songPath: String? {
+        didSet { rebuildAssets(missing: missingPaths) }
+    }
+
     private func rebuildAssets(missing: Set<String>) {
         missingPaths = missing
 
+        // Case-insensitive: the folder index lowercases its paths, the loader's
+        // URL keeps the file's own casing.
+        let song = songPath?.lowercased()
+
         assets = folderPaths
+            .filter { path in
+                guard let song else { return true }
+                return !(AssetItem.Kind.inferred(from: path) == .audio && path.lowercased() == song)
+            }
             .map { path in
                 AssetItem(
                     id: path,

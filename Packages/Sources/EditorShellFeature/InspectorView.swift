@@ -299,6 +299,15 @@ struct InspectorView: View {
             drawsSprites: descriptor.drawsSprites,
         ) {
         case .effect:
+            // Said where the file is chosen: the preview stays silent for a
+            // sound this machine cannot decode, and the author should know
+            // before they wonder whether the clip is misplaced. The export
+            // still ships the file.
+            if shell.cannotPreview(node) {
+                Label("Can't preview this file here. It is still exported.", systemImage: "speaker.slash")
+                    .font(Theme.Typography.micro)
+                    .foregroundStyle(Theme.Palette.warning)
+            }
             effectParameters(descriptor: descriptor, node: node)
         case .clip:
             // The keyframe grid on Transform only, whose rows carry a stopwatch

@@ -7,7 +7,10 @@ import Foundation
 /// display link and an audio device drift apart, and a storyboard that follows
 /// anything but the audio slides out of sync with the music.
 public final class AudioPlayer {
-    private let engine = AVAudioEngine()
+    /// Shared with `SamplePlayer`: samples play on this engine, beside the
+    /// music rather than through its time-pitch unit, so one device and one
+    /// master volume serve both.
+    let engine = AVAudioEngine()
     private let playerNode = AVAudioPlayerNode()
     /// Stretches time without moving the pitch.
     ///
@@ -41,6 +44,11 @@ public final class AudioPlayer {
 
     public static let minimumRate: Float = 0.25
     public static let maximumRate: Float = 2
+
+    /// The sounds the storyboard places, played on this same engine.
+    ///
+    /// Lazy: a project with no samples never builds the sixteen voices.
+    public private(set) lazy var samples = SamplePlayer(engine: engine)
 
     public init() {
         engine.attach(playerNode)

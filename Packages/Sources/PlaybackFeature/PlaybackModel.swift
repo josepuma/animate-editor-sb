@@ -137,6 +137,67 @@ public final class PlaybackModel {
 
     private let audio = AudioPlayer()
 
+    // ─── Samples ─────────────────────────────────────────────────────────────
+
+    /// Starts a sample `delay` wall-clock ms from now. Nil plays it on the
+    /// audio player's own sample voices; a test records instead, since CI has
+    /// no audio device.
+    @ObservationIgnored public var sampleSink: ((StoryboardSample, Double) -> Void)?
+
+    /// Cuts every sounding sample. Same seam, same reason.
+    @ObservationIgnored public var sampleCancel: (() -> Void)?
+
+    /// Which sounds are due as the clock moves. Starts inclusive at 0 so a
+    /// sample on the first instant sounds when play is pressed there.
+    @ObservationIgnored private var sampleSchedule: SampleSchedule = {
+        var schedule = SampleSchedule()
+        schedule.reset(at: 0, inclusive: true)
+        return schedule
+    }()
+
+    /// The samples the storyboard places, as the shell's document lists them.
+    ///
+    /// Only the schedule: decoding the files is `loadSampleFiles`, which the
+    /// app calls beside this one, because decoding needs the beatmap folder
+    /// and this feature knows nothing about it.
+    public func samplesChanged(_ samples: [StoryboardSample]) {
+        sampleSchedule.samples = samples
+    }
+
+    /// Decodes the sample files off the main thread and returns the paths this
+    /// machine cannot play.
+    public func loadSampleFiles(
+        _ samples: [StoryboardSample], resolve: @Sendable (String) -> URL?,
+    ) async -> Set<String> {
+        await audio.samples.load(samples, resolve: resolve)
+        return audio.samples.unplayable
+    }
+
+    private func cancelSamples() {
+        if let sampleCancel { sampleCancel() } else { audio.samples.stopAll() }
+    }
+
+    /// The window restarts wherever the clock now is: a seek, a loop, a rate
+    /// change or a resume. Whatever was handed over for the old position is
+    /// cut first, or it would sound at the wrong moment.
+    private func restartSamples(inclusive: Bool) {
+        cancelSamples()
+        sampleSchedule.reset(at: currentTime, inclusive: inclusive)
+    }
+
+    private func fireSamples() {
+        guard isPlaying else { return }
+        for fire in sampleSchedule.advance(
+            to: currentTime, rate: rate, lookahead: SampleSchedule.lookahead,
+        ) {
+            if let sampleSink {
+                sampleSink(fire.sample, fire.delay)
+            } else {
+                audio.samples.play(path: fire.sample.path, volume: fire.sample.volume, after: fire.delay)
+            }
+        }
+    }
+
     public enum Status: Equatable, Sendable {
         case loading
         case ready(String)
@@ -173,6 +234,9 @@ public final class PlaybackModel {
     /// playing behind the project browser and the sprites stay resident, so
     /// opening a second beatmap adds to the first rather than replacing it.
     public func unload() {
+        cancelSamples()
+        sampleSchedule.samples = []
+        audio.samples.unload()
         audio.unload()
         sprites = []
         beatmapSprites = []
@@ -190,6 +254,7 @@ public final class PlaybackModel {
         missingImagePaths = []
         isCanvasFullScreen = false
         status = .loading
+        sampleSchedule.reset(at: 0, inclusive: true)
     }
 
     /// Sprites the placed effects evaluate to, kept apart from the ones parsed
@@ -334,6 +399,10 @@ public final class PlaybackModel {
     public func pause() {
         if hasAudio { audio.pause() }
         isPlaying = false
+        // Exclusive: what sounded before the pause must not sound again on
+        // resume, while what was only handed over, and is now cut, is
+        // re-handed by the reset at this instant.
+        restartSamples(inclusive: false)
     }
 
     /// Clamps and applies a seek, in milliseconds.
@@ -346,6 +415,7 @@ public final class PlaybackModel {
         // Clamped to whatever playback is bounded by, so scrubbing cannot
         // leave the stretch being worked on either.
         currentTime = min(max(playbackRange.lowerBound, time), playbackRange.upperBound)
+        restartSamples(inclusive: true)
         guard hasAudio else { return }
 
         audio.seek(toMilliseconds: min(max(0, currentTime), duration))
@@ -378,6 +448,7 @@ public final class PlaybackModel {
             let clamped = min(max(rate, AudioPlayer.minimumRate), AudioPlayer.maximumRate)
             if clamped != rate { rate = clamped; return }
             audio.rate = rate
+            if isPlaying { restartSamples(inclusive: false) }
         }
     }
 
@@ -395,6 +466,11 @@ public final class PlaybackModel {
     /// - Parameter delta: elapsed time in milliseconds, used whenever the
     ///   playhead is outside the track and has no audio clock to follow.
     public func advance(by delta: Double) {
+        advanceClock(by: delta)
+        fireSamples()
+    }
+
+    private func advanceClock(by delta: Double) {
         guard isPlaying else { return }
 
         // Outside the track, the clock runs on the frame delta and the audio

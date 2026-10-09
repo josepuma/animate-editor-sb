@@ -240,4 +240,103 @@ struct SampleUITests {
         #expect(sound.type == SampleEffect.descriptor.type)
         #expect(picture.type == ImageEffect.descriptor.type)
     }
+
+    // ─── The song is not an asset ────────────────────────────────────────────
+
+    @Test("the song the loader resolved is hidden from the audio assets, whichever file it is")
+    func songHidden() {
+        let shell = EditorShellModel()
+        // Three sounds, and the song is neither the first nor the last by name.
+        shell.loadFolderAssets(["a-clap.wav", "m-song.mp3", "z-hit.wav", "sb/a.png"])
+        shell.songPath = "M-Song.MP3"
+
+        #expect(shell.assets.map(\.path).contains("m-song.mp3") == false)
+        #expect(shell.visibleAssets.map(\.path).contains("a-clap.wav"))
+        #expect(shell.visibleAssets.map(\.path).contains("z-hit.wav"))
+        #expect(shell.visibleAssets.count == 3)
+    }
+
+    @Test("with no known song nothing is hidden")
+    func noSongHidesNothing() {
+        let shell = EditorShellModel()
+        shell.loadFolderAssets(["a-clap.wav", "m-song.mp3"])
+        #expect(shell.visibleAssets.count == 2)
+    }
+
+    @Test("a song known after the folder was listed still disappears, and returns when unset")
+    func songArrivesLate() {
+        let shell = EditorShellModel()
+        shell.loadFolderAssets(["a-clap.wav", "m-song.mp3"])
+        shell.songPath = "m-song.mp3"
+        #expect(shell.visibleAssets.map(\.path) == ["a-clap.wav"])
+        shell.songPath = nil
+        #expect(shell.visibleAssets.count == 2)
+    }
+
+    @Test("an image named like the song is not hidden")
+    func onlyAudio() {
+        let shell = EditorShellModel()
+        shell.loadFolderAssets(["song.png", "song.mp3"])
+        shell.songPath = "song.png"
+        #expect(shell.visibleAssets.map(\.path).sorted() == ["song.mp3", "song.png"])
+    }
+
+    // ─── Samples reach the preview ───────────────────────────────────────────
+
+    @Test("the preview is told the samples when they change, and only then")
+    func samplesPublished() throws {
+        let shell = EditorShellModel()
+        var sent: [[StoryboardSample]] = []
+        shell.onSamplesChanged = { sent.append($0) }
+        let afterInstall = sent.count
+
+        _ = try sample(shell, time: 100)
+        #expect(sent.count == afterInstall + 1)
+        #expect(sent.last?.map(\.time) == [100])
+
+        // An edit that leaves the list alone sends nothing.
+        let count = sent.count
+        shell.playheadTime = 500
+        #expect(sent.count == count)
+    }
+
+    @Test("a hidden clip is not in what the preview is told")
+    func hiddenNotPublished() throws {
+        let shell = EditorShellModel()
+        var last: [StoryboardSample] = []
+        shell.onSamplesChanged = { last = $0 }
+        let node = try sample(shell)
+        #expect(last.count == 1)
+        let track = try #require(shell.effects.tracks.first { $0.nodes.contains { $0.id == node.id } })
+        shell.toggleVisibility(of: track.id)
+        #expect(last.isEmpty)
+    }
+
+    // ─── Can't preview ───────────────────────────────────────────────────────
+
+    @Test("a clip whose file cannot be previewed says so, others do not")
+    func unplayableBadge() throws {
+        let shell = EditorShellModel()
+        let bad = try sample(shell)
+        shell.unplayableSamplePaths = ["sb/clap.wav"]
+        #expect(shell.cannotPreview(bad))
+
+        shell.unplayableSamplePaths = []
+        #expect(!shell.cannotPreview(bad))
+
+        shell.unplayableSamplePaths = ["sb/other.wav"]
+        #expect(!shell.cannotPreview(bad))
+    }
+
+    @Test("an unplayable sound wears the muted speaker, a playable one the speaker")
+    func badgeGlyph() {
+        let descriptor = SampleEffect.descriptor
+        #expect(ClipBlockRule.badges(filterIcons: [], descriptor: descriptor, cannotPreview: false)
+            == [descriptor.systemImage])
+        #expect(ClipBlockRule.badges(filterIcons: [], descriptor: descriptor, cannotPreview: true)
+            == ["speaker.slash"])
+        // never on a clip that draws
+        #expect(ClipBlockRule.badges(filterIcons: [], descriptor: nil, cannotPreview: true)
+            == ["sparkles"])
+    }
 }

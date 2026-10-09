@@ -213,4 +213,22 @@ struct BeatmapFolderTests {
 
         #expect(folder.fileURL(forRelativePath: "looks-like.png") == nil)
     }
+
+    @Test("a file's URL maps back to its path in the folder")
+    func relativePathOfURL() throws {
+        let temporary = try TemporaryFolder(files: [
+            "Song.MP3": "x", "sb/Hit.wav": "x", "map.osu": "x",
+        ])
+        let folder = try BeatmapFolder(url: temporary.url)
+
+        let song = try #require(folder.fileURL(forRelativePath: "song.mp3"))
+        #expect(folder.relativePath(of: song)?.lowercased() == "song.mp3")
+        let nested = try #require(folder.fileURL(forRelativePath: "SB/hit.WAV"))
+        #expect(folder.relativePath(of: nested)?.lowercased() == "sb/hit.wav")
+        #expect(folder.relativePath(of: URL(fileURLWithPath: "/elsewhere/song.mp3")) == nil)
+        // deeper than the root, yet in a different tree
+        let elsewhere = temporary.url.deletingLastPathComponent()
+            .appendingPathComponent("not-this-\(UUID().uuidString)/a/b/song.mp3")
+        #expect(folder.relativePath(of: elsewhere) == nil)
+    }
 }

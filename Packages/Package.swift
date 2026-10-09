@@ -107,6 +107,7 @@ let package = Package(
         .testTarget(
             name: "StoryboardPersistenceTests",
             dependencies: ["StoryboardPersistence"],
+            resources: [.copy("Fixtures")],
         ),
         .testTarget(
             name: "ProjectBrowserFeatureTests",

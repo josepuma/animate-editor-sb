@@ -1727,6 +1727,7 @@ struct TrackRowView: View {
                             Array(ClipBlockRule.badges(
                                 filterIcons: filterIcons(node),
                                 descriptor: descriptor(node),
+                                cannotPreview: shell.cannotPreview(node),
                             ).enumerated()),
                             id: \.offset,
                         ) { _, icon in
