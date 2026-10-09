@@ -303,8 +303,8 @@ struct InspectorView: View {
             // sound this machine cannot decode, and the author should know
             // before they wonder whether the clip is misplaced. The export
             // still ships the file.
-            if shell.cannotPreview(node) {
-                Label("Can't preview this file here. It is still exported.", systemImage: "speaker.slash")
+            if let issue = shell.cannotPreview(node) {
+                Label(issue.message, systemImage: "speaker.slash")
                     .font(Theme.Typography.micro)
                     .foregroundStyle(Theme.Palette.warning)
             }

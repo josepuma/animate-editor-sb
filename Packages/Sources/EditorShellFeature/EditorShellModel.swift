@@ -646,16 +646,16 @@ public final class EditorShellModel {
         onSamplesChanged(samples)
     }
 
-    /// Sample files this machine cannot decode, so the preview is silent for
-    /// them. Set by the app from the player; the export still ships them.
-    public var unplayableSamplePaths: Set<String> = []
+    /// Sample files the preview is silent for, with why. Set by the app from
+    /// the player; the export still ships them.
+    public var unplayableSamplePaths: [String: SamplePreviewIssue] = [:]
 
-    /// Whether a sample clip's file is one the preview cannot play.
-    public func cannotPreview(_ node: EffectNode) -> Bool {
+    /// Why a sample clip's file cannot be previewed; `nil` when it can.
+    public func cannotPreview(_ node: EffectNode) -> SamplePreviewIssue? {
         guard node.type == SampleEffect.descriptor.type,
               case let .text(path)? = node.values[SampleEffect.Param.file]
-        else { return false }
-        return unplayableSamplePaths.contains(path)
+        else { return nil }
+        return unplayableSamplePaths[path]
     }
 
     /// Whether edits are being folded into one undo entry.

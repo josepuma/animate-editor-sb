@@ -31,7 +31,7 @@ public final class SamplePlayer: @unchecked Sendable {
     }
 
     /// Paths that cannot be previewed. The export still copies them.
-    public var unplayable: Set<String> { bank.unplayable }
+    public var unplayable: [String: SamplePreviewIssue] { bank.unplayable }
 
     /// Decodes the samples' files, off the calling thread.
     public func load(_ samples: [StoryboardSample], resolve: @Sendable (String) -> URL?) async {

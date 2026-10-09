@@ -318,14 +318,26 @@ struct SampleUITests {
     func unplayableBadge() throws {
         let shell = EditorShellModel()
         let bad = try sample(shell)
-        shell.unplayableSamplePaths = ["sb/clap.wav"]
-        #expect(shell.cannotPreview(bad))
+        shell.unplayableSamplePaths = ["sb/clap.wav": .empty]
+        #expect(shell.cannotPreview(bad) == .empty)
 
-        shell.unplayableSamplePaths = []
-        #expect(!shell.cannotPreview(bad))
+        shell.unplayableSamplePaths = ["sb/clap.wav": .tooLong]
+        #expect(shell.cannotPreview(bad) == .tooLong)
 
-        shell.unplayableSamplePaths = ["sb/other.wav"]
-        #expect(!shell.cannotPreview(bad))
+        shell.unplayableSamplePaths = [:]
+        #expect(shell.cannotPreview(bad) == nil)
+
+        shell.unplayableSamplePaths = ["sb/other.wav": .missing]
+        #expect(shell.cannotPreview(bad) == nil)
+    }
+
+    @Test("each reason says its own cause, never a blanket platform excuse")
+    func messages() {
+        #expect(SamplePreviewIssue.empty.message == "This file has no audio.")
+        #expect(SamplePreviewIssue.tooLong.message.contains("over 60 s"))
+        #expect(SamplePreviewIssue.missing.message == "File not found in the beatmap folder.")
+        #expect(SamplePreviewIssue.undecodable.message.contains("can't decode"))
+        #expect(!SamplePreviewIssue.empty.message.contains("Mac"))
     }
 
     @Test("an unplayable sound wears the muted speaker, a playable one the speaker")

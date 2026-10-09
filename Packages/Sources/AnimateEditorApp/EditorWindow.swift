@@ -319,7 +319,7 @@ struct EditorWindow: View {
             // `PlaybackFeature` knows nothing about one. Sent whenever the list
             // changes, and once on install, so a project that was already open
             // catches up. The decode runs off the main thread; the unplayable
-            // paths come back for the "can't preview" badge.
+            // paths come back, with why, for the "can't preview" badge.
             shell.onSamplesChanged = { [weak playback, weak shell] samples in
                 guard let playback else { return }
                 playback.samplesChanged(samples)

@@ -164,11 +164,11 @@ public final class PlaybackModel {
         sampleSchedule.samples = samples
     }
 
-    /// Decodes the sample files off the main thread and returns the paths this
-    /// machine cannot play.
+    /// Decodes the sample files off the main thread and returns the paths that
+    /// cannot be played, each with why.
     public func loadSampleFiles(
         _ samples: [StoryboardSample], resolve: @Sendable (String) -> URL?,
-    ) async -> Set<String> {
+    ) async -> [String: SamplePreviewIssue] {
         await audio.samples.load(samples, resolve: resolve)
         return audio.samples.unplayable
     }

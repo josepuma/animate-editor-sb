@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import StoryboardCore
 
 /// Turns a sample file into the one format every voice plays.
 ///
@@ -14,20 +15,48 @@ enum SampleDecoder {
     /// on a mistake.
     static let maximumSeconds: Double = 60
 
-    /// `nil` for a file this platform cannot open or that holds no audio.
-    static func decode(_ url: URL) -> AVAudioPCMBuffer? {
-        guard let file = try? AVAudioFile(forReading: url) else { return nil }
+    /// Reads the whole file into `buffer`.
+    ///
+    /// A single `read(into:)` asked for the file's full length can return
+    /// fewer frames — measured: a 48 kHz mono WAV of 17 760 frames came back as
+    /// 17 408 — so the tail of the sound was silently clipped before any
+    /// conversion happened. Keep reading until the file is exhausted.
+    private static func readAll(_ file: AVAudioFile, into buffer: AVAudioPCMBuffer) -> Bool {
+        guard let chunk = AVAudioPCMBuffer(pcmFormat: buffer.format, frameCapacity: 8192),
+              let destination = buffer.floatChannelData
+        else { return false }
+        buffer.frameLength = 0
+        while file.framePosition < file.length {
+            guard (try? file.read(into: chunk)) != nil, chunk.frameLength > 0,
+                  buffer.frameLength + chunk.frameLength <= buffer.frameCapacity,
+                  let source = chunk.floatChannelData
+            else { return buffer.frameLength > 0 }
+            for channel in 0..<Int(buffer.format.channelCount) {
+                (destination[channel] + Int(buffer.frameLength))
+                    .update(from: source[channel], count: Int(chunk.frameLength))
+            }
+            buffer.frameLength += chunk.frameLength
+        }
+        return true
+    }
+
+    /// The decoded sound, or the reason there is none.
+    static func decode(_ url: URL) -> Result<AVAudioPCMBuffer, SamplePreviewIssue> {
+        guard let file = try? AVAudioFile(forReading: url) else { return .failure(.undecodable) }
         let source = file.processingFormat
-        guard file.length > 0, source.sampleRate > 0,
-              Double(file.length) / source.sampleRate <= maximumSeconds,
-              let input = AVAudioPCMBuffer(pcmFormat: source, frameCapacity: AVAudioFrameCount(file.length)),
-              (try? file.read(into: input)) != nil,
+        guard file.length > 0 else { return .failure(.empty) }
+        guard source.sampleRate > 0 else { return .failure(.undecodable) }
+        guard Double(file.length) / source.sampleRate <= maximumSeconds else { return .failure(.tooLong) }
+        guard let input = AVAudioPCMBuffer(pcmFormat: source, frameCapacity: AVAudioFrameCount(file.length)),
+              Self.readAll(file, into: input),
               let converter = AVAudioConverter(from: source, to: format)
-        else { return nil }
+        else { return .failure(.undecodable) }
 
         let ratio = format.sampleRate / source.sampleRate
         let capacity = AVAudioFrameCount((Double(input.frameLength) * ratio).rounded(.up)) + 1024
-        guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { return nil }
+        guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
+            return .failure(.undecodable)
+        }
 
         nonisolated(unsafe) var supplied = false
         var failure: NSError?
@@ -40,25 +69,25 @@ enum SampleDecoder {
             inputStatus.pointee = .haveData
             return input
         }
-        guard status != .error, failure == nil, output.frameLength > 0 else { return nil }
-        return output
+        guard status != .error, failure == nil, output.frameLength > 0 else { return .failure(.undecodable) }
+        return .success(output)
     }
 }
 
 /// Decoded samples, keyed by the path the `.osb` names.
 ///
 /// Each path decodes once and off the main thread: a fire only looks the
-/// buffer up. A file that cannot be decoded is remembered as unplayable rather
-/// than retried on every fire, which is also what the editor shows as the
-/// "can't preview" badge.
+/// buffer up. A file that cannot be decoded is remembered with its reason
+/// rather than retried on every fire, which is also what the editor shows as
+/// the "can't preview" badge.
 public final class SampleBank: @unchecked Sendable {
-    typealias Decode = @Sendable (URL) -> AVAudioPCMBuffer?
+    typealias Decode = @Sendable (URL) -> Result<AVAudioPCMBuffer, SamplePreviewIssue>
 
-    private struct Box: @unchecked Sendable { let buffer: AVAudioPCMBuffer? }
+    private struct Box: @unchecked Sendable { let result: Result<AVAudioPCMBuffer, SamplePreviewIssue> }
 
     private let lock = NSLock()
     private var buffers: [String: AVAudioPCMBuffer] = [:]
-    private var failed: Set<String> = []
+    private var failed: [String: SamplePreviewIssue] = [:]
     private var missing: Set<String> = []
     private let decode: Decode
 
@@ -66,10 +95,12 @@ public final class SampleBank: @unchecked Sendable {
         self.decode = decode
     }
 
-    /// Paths with no sound to play: not found, or not decodable here.
-    public var unplayable: Set<String> {
+    /// Paths with no sound to play, each with why.
+    public var unplayable: [String: SamplePreviewIssue] {
         lock.lock(); defer { lock.unlock() }
-        return failed.union(missing)
+        var all = failed
+        for path in missing { all[path] = .missing }
+        return all
     }
 
     func buffer(for path: String) -> AVAudioPCMBuffer? {
@@ -87,7 +118,7 @@ public final class SampleBank: @unchecked Sendable {
         let decode = self.decode
         let results = await withTaskGroup(of: (String, Box).self) { group in
             for (path, url) in wanted {
-                group.addTask { (path, Box(buffer: decode(url))) }
+                group.addTask { (path, Box(result: decode(url))) }
             }
             var collected: [(String, Box)] = []
             for await result in group { collected.append(result) }
@@ -103,7 +134,7 @@ public final class SampleBank: @unchecked Sendable {
         var wanted: [(String, URL)] = []
         var seen = Set<String>()
         for path in paths where seen.insert(path).inserted {
-            if buffers[path] != nil || failed.contains(path) { continue }
+            if buffers[path] != nil || failed[path] != nil { continue }
             if let url = resolve(path) {
                 missing.remove(path)
                 wanted.append((path, url))
@@ -117,14 +148,17 @@ public final class SampleBank: @unchecked Sendable {
     private func record(_ results: [(String, Box)]) {
         lock.lock(); defer { lock.unlock() }
         for (path, box) in results {
-            if let buffer = box.buffer { buffers[path] = buffer } else { failed.insert(path) }
+            switch box.result {
+            case let .success(buffer): buffers[path] = buffer
+            case let .failure(issue): failed[path] = issue
+            }
         }
     }
 
     func clear() {
         lock.lock(); defer { lock.unlock() }
         buffers = [:]
-        failed = []
+        failed = [:]
         missing = []
     }
 }
