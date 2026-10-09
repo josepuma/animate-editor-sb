@@ -108,6 +108,10 @@ let package = Package(
             name: "StoryboardPersistenceTests",
             dependencies: ["StoryboardPersistence"],
         ),
+        .testTarget(
+            name: "ProjectBrowserFeatureTests",
+            dependencies: ["ProjectBrowserFeature"],
+        ),
 
         // The code editor: highlighting, line numbers, bracket matching.
         //
@@ -191,6 +195,9 @@ let package = Package(
                 // locally for the same reason.
                 "StoryboardPersistence",
             ],
+            // The Dock icon. Without a bundle there is no `Info.plist` to name
+            // one, so `main.swift` hands it to AppKit at launch.
+            resources: [.copy("Resources/AppIcon.png")],
         ),
 
         // Development harness: runs the renderer against a generated storyboard

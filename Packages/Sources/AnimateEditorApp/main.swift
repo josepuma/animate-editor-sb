@@ -41,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // The title stays set for the Window menu and the Dock, but is not
         // drawn: the editor's own header already names what is open, and a
         // second name above it costs a band of window to say nothing.
-        window.title = "Animate Editor"
+        window.title = "Pulse Studio"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         // The window's own tone, so the transparent title bar shows the same
@@ -80,4 +80,11 @@ Theme.registerFonts()
 let delegate = AppDelegate()
 application.delegate = delegate
 application.setActivationPolicy(.regular)
+// A bare SwiftPM executable has no bundle and so no icon of its own: without
+// this the Dock shows the generic executable glyph. It only lasts while the app
+// runs — Finder's icon needs a real `.app` bundle.
+if let iconURL = Bundle.module.url(forResource: "AppIcon", withExtension: "png"),
+   let icon = NSImage(contentsOf: iconURL) {
+    application.applicationIconImage = icon
+}
 application.run()

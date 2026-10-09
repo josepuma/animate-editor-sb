@@ -879,13 +879,10 @@ struct InspectorView: View {
             // lyrics or a HUD, which must stay on screen whatever the camera
             // does.
             PropertyRow("Follows Camera") {
-                Toggle("", isOn: Binding(
+                SwitchControl(isOn: Binding(
                     get: { track.followsCamera },
                     set: { shell.setFollowsCamera($0, on: track.id) },
                 ))
-                .labelsHidden()
-                .controlSize(.mini)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             if track.followsCamera {
@@ -1330,10 +1327,7 @@ private struct ParameterControl: View {
             )
 
         case let .toggle(isOn):
-            Toggle("", isOn: Binding(get: { isOn }, set: { onChange(.toggle($0)) }))
-                .labelsHidden()
-                .controlSize(.mini)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            SwitchControl(isOn: Binding(get: { isOn }, set: { onChange(.toggle($0)) }))
 
         case let .choice(selected):
             MenuField(

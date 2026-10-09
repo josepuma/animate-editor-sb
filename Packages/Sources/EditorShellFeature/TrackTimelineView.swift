@@ -726,7 +726,7 @@ struct TrackTimelineView: View {
         ///
         /// No glow any more: played marks used to carry a blurred halo, and the
         /// system draws no decorative light. They turn the accent instead —
-        /// the reference's ruler marks where you are in lime — which says
+        /// the reference's ruler marks where you are in the accent — which says
         /// "played" as plainly and costs no blur pass, the most expensive
         /// thing this row ever drew (31ms a frame, per mark, before it was
         /// batched).
@@ -798,7 +798,7 @@ struct TrackTimelineView: View {
         }
 
         // Grey for what is still to come, the accent laid over it as the
-        // playhead arrives — the same ramp as before, ending in lime rather
+        // playhead arrives — the same ramp as before, ending in the accent rather
         // than white, so a mark crossing the playhead fades over instead of
         // flicking.
         for (bucket, path) in markBuckets {

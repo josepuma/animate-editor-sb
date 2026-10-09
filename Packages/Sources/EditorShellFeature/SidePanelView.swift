@@ -58,7 +58,7 @@ struct SidePanelView: View {
         VStack(alignment: .leading, spacing: Theme.Spacing.compact) {
             SectionHeader(shell.sidePanel.title) {
                 // One place and one mark for "add" in every panel that can
-                // add something: the lime + at the end of the heading. Each
+                // add something: the accent + at the end of the heading. Each
                 // panel used to say it its own way — a grey + in the filter
                 // row, an icon button by the track count, a card in the grid —
                 // and a control that moves between panels is one that has to be

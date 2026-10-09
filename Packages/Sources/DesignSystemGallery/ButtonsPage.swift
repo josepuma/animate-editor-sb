@@ -101,6 +101,24 @@ struct ButtonsPage: View {
         }
 
         Specimen(
+            "Circular",
+            note: "Half the side for a corner, for a button that sits beside a capsule — the home hero's sound toggle next to Open Project. A rounded square beside a pill reads as a different family.",
+        ) {
+            SpecimenRow {
+                Button("Open Project", systemImage: "play.fill") {}
+                    .buttonStyle(.themed(.primary, size: .large, capsule: true))
+                IconButton(
+                    systemImage: "speaker.slash.fill",
+                    size: Theme.Size.controlLarge,
+                    prominence: .surfaced,
+                    help: "Sound",
+                    isCircular: true,
+                ) {}
+                IconButton(systemImage: "play.fill", prominence: .accented, help: "Play", isCircular: true) {}
+            }
+        }
+
+        Specimen(
             "Sizes",
             note: "The same glyph at every size — the only way to see that the padding holds. Glyph and corner are both fractions of the target: a fixed 15pt glyph leaves 3pt of air in a 22pt button, which reads as no padding at all.",
         ) {

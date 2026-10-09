@@ -27,6 +27,7 @@ public struct IconButton: View {
     private let isActive: Bool
     private let tint: Color?
     private let help: String?
+    private let isCircular: Bool
     private let action: () -> Void
 
     @State private var isHovered = false
@@ -45,8 +46,10 @@ public struct IconButton: View {
         isActive: Bool = true,
         tint: Color? = nil,
         help: String? = nil,
+        isCircular: Bool = false,
         action: @escaping () -> Void,
     ) {
+        self.isCircular = isCircular
         self.systemImage = systemImage
         self.size = size
         self.prominence = prominence
@@ -98,8 +101,11 @@ public struct IconButton: View {
     /// A fixed 10pt radius on a 22pt target is nearly half its width, which
     /// rounds the control into a circle and puts it out of step with every
     /// other corner on screen.
+    ///
+    /// Circular is half the side: for a button that sits beside a capsule,
+    /// where a rounded square next to a pill reads as a different family.
     private var cornerRadius: CGFloat {
-        min(Theme.Radius.control, size * Self.cornerRatio)
+        isCircular ? size / 2 : min(Theme.Radius.control, size * Self.cornerRatio)
     }
 
     /// Matches `Radius.control` against the standard button, so the default is

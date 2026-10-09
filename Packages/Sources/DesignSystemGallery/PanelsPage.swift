@@ -297,7 +297,7 @@ struct PanelsPage: View {
     private var lyrics: some View {
         Specimen(
             "LyricLineRow",
-            note: "One transcribed line: a placed disc (lime once placed), the time in a pill, the text, and a place badge. An amber dot and text mark a line the transcription was unsure of; an overlong line says how long it ran.",
+            note: "One transcribed line: a placed disc (accent once placed), the time in a pill, the text, and a place badge. An amber dot and text mark a line the transcription was unsure of; an overlong line says how long it ran.",
         ) {
             VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
                 StateRow("pending") { lyric() }
