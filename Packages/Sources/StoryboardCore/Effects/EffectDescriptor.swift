@@ -90,6 +90,19 @@ public struct EffectDescriptor: Sendable, Equatable {
     /// which effects run code.
     public var initialSource: String?
 
+    /// Whether the timeline lets this clip be stretched.
+    ///
+    /// Two flags rather than one "kind": whether a clip can be resized and
+    /// whether it draws are independent questions. True for everything but a
+    /// sound, whose length is its file's.
+    public var isResizable = true
+
+    /// Whether this effect produces sprites at all.
+    ///
+    /// Asked by the inspector, keyframe mode and the canvas, which have nothing
+    /// to show or animate for an effect that only plays a sound.
+    public var drawsSprites = true
+
     /// Every parameter at its default, ready for a newly created node.
     public var defaultValues: [String: EffectValue] {
         Dictionary(uniqueKeysWithValues: parameters.map { ($0.id, $0.defaultValue) })

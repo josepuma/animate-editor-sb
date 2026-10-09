@@ -7,6 +7,7 @@ import Foundation
 public enum OsbParser {
     public static func parse(_ source: String) -> Storyboard {
         var sprites: [StoryboardSprite] = []
+        var samples: [StoryboardSample] = []
         var variables: [String: String] = [:]
 
         var section = ""
@@ -56,6 +57,13 @@ public enum OsbParser {
             let depth = indentDepth(of: line)
 
             if depth == 0 {
+                // A sample is not a sprite: it neither starts one nor ends the
+                // one before it, so the sprites around it keep their commands.
+                if line.hasPrefix("Sample") {
+                    commitLoop()
+                    if let sample = parseSampleLine(line) { samples.append(sample) }
+                    continue
+                }
                 // New sprite — commit any open loop first.
                 commitLoop()
                 if let sprite = parseSpriteLine(line, index: spriteIndex) {
@@ -97,7 +105,7 @@ public enum OsbParser {
         // Commit a loop still open at EOF.
         commitLoop()
 
-        return Storyboard(sprites: sprites, variables: variables)
+        return Storyboard(sprites: sprites, variables: variables, samples: samples)
     }
 
     // ─── Sprite parsing ──────────────────────────────────────────────────────
@@ -128,6 +136,40 @@ public enum OsbParser {
             filePath: filePath,
             defaultX: x,
             defaultY: y,
+        )
+    }
+
+    /// Parses `Sample,<time>,<layer>,"<path>",<volume>`.
+    ///
+    /// `nil` for a line that cannot be a sample (no time, no path), so one bad
+    /// line costs itself and not the rest of the file.
+    static func parseSampleLine(_ line: String) -> StoryboardSample? {
+        let parts = splitCsvRespectingQuotes(line)
+        guard parts.first?.trimmed() == "Sample",
+              let time = doubleField(parts, 1), time.isFinite, abs(time) < 1e15
+        else { return nil }
+
+        let path = (parts.count > 3 ? parts[3] : "").trimmed().strippingSurroundingQuotes()
+        guard !path.isEmpty else { return nil }
+
+        // A numeric layer is an index into the four the format has; anything
+        // else — Overlay, 4, a typo — is Foreground rather than a dropped sound.
+        let layerField = parts.count > 2 ? parts[2].trimmed() : ""
+        let layer: Layer
+        if let index = Int(layerField) {
+            let order: [Layer] = [.background, .fail, .pass, .foreground]
+            layer = order.indices.contains(index) ? order[index] : .foreground
+        } else {
+            layer = Layer(osbName: layerField) == .overlay ? .foreground : Layer(osbName: layerField)
+        }
+
+        // Blank or absent means full volume, which is what osu! plays.
+        let volume = intField(parts, 4) ?? 100
+        return StoryboardSample(
+            time: time.rounded(),
+            layer: layer,
+            path: path,
+            volume: min(100, max(0, volume)),
         )
     }
 

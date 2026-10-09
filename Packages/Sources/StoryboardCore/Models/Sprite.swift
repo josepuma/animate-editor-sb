@@ -109,9 +109,16 @@ public struct LoopGroup: Sendable {
 public struct Storyboard: Sendable {
     public var sprites: [StoryboardSprite]
     public var variables: [String: String]
+    /// Sound samples, kept apart from the sprites: they draw nothing.
+    public var samples: [StoryboardSample]
 
-    public init(sprites: [StoryboardSprite] = [], variables: [String: String] = [:]) {
+    public init(
+        sprites: [StoryboardSprite] = [],
+        variables: [String: String] = [:],
+        samples: [StoryboardSample] = [],
+    ) {
         self.sprites = sprites
         self.variables = variables
+        self.samples = samples
     }
 }

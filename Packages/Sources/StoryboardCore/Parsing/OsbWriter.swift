@@ -6,7 +6,7 @@ import Foundation
 /// can be tested against each other: anything this writes, that reads.
 public enum OsbWriter {
     /// The whole file, sprites grouped under their layer headings.
-    public static func write(_ sprites: [StoryboardSprite]) -> String {
+    public static func write(_ sprites: [StoryboardSprite], samples: [StoryboardSample] = []) -> String {
         var lines = ["[Events]", "//Background and Video events"]
 
         // Grouped by layer because the format says so, and in the order the
@@ -21,7 +21,29 @@ public enum OsbWriter {
         }
 
         lines.append("//Storyboard Sound Samples")
+        lines.append(contentsOf: sampleLines(samples))
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    // ─── Samples ─────────────────────────────────────────────────────────────
+
+    /// One line per sample, in time order.
+    ///
+    /// Sorted here because the format reads them as a list and a hand-built
+    /// array is in whatever order it was made; ties keep their given order
+    /// (the index is the tiebreak, so this does not lean on the sort being
+    /// stable). A path with a quote is left out for the reason a sprite's is:
+    /// it would end the field early and corrupt the line.
+    private static func sampleLines(_ samples: [StoryboardSample]) -> [String] {
+        samples.enumerated()
+            .filter { !$0.element.path.isEmpty && !$0.element.path.contains("\"") }
+            .sorted { ($0.element.time, $0.offset) < ($1.element.time, $1.offset) }
+            .map { _, sample in
+                // The format has four layers: Overlay has no number to give.
+                let layer = min(3, sample.layer.renderOrder)
+                let volume = min(100, max(0, sample.volume))
+                return "Sample,\(time(sample.time)),\(layer),\"\(sample.path)\",\(volume)"
+            }
     }
 
     // ─── One sprite ──────────────────────────────────────────────────────────
