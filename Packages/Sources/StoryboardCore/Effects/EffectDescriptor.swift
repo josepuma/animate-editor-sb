@@ -103,6 +103,12 @@ public struct EffectDescriptor: Sendable, Equatable {
     /// to show or animate for an effect that only plays a sound.
     public var drawsSprites = true
 
+    /// Whether the "add a blank effect" menu offers it.
+    ///
+    /// False for a sound: with no file it means nothing, and a blank one would
+    /// be a clip that lies. It is made by placing an audio asset instead.
+    public var isCreatableBlank = true
+
     /// Every parameter at its default, ready for a newly created node.
     public var defaultValues: [String: EffectValue] {
         Dictionary(uniqueKeysWithValues: parameters.map { ($0.id, $0.defaultValue) })

@@ -85,6 +85,24 @@ public struct AssetItem: Identifiable, Sendable {
         case audio
 
         public var id: String { rawValue }
+
+        /// Sounds the game plays as samples, and the images it draws.
+        public static let audioExtensions: Set<String> = ["wav", "mp3", "ogg"]
+        public static let imageExtensions: Set<String> = ["png", "jpg", "jpeg"]
+
+        /// What a file is, from its extension — case-insensitive, because a
+        /// mapper's `Hit.WAV` is as much a sound as `hit.wav`.
+        public static func inferred(from path: String) -> Kind {
+            let ext = (path as NSString).pathExtension.lowercased()
+            return audioExtensions.contains(ext) ? .audio : .image
+        }
+
+        /// Whether the panel can hold the file at all.
+        public static func isSupported(_ path: String) -> Bool {
+            let ext = (path as NSString).pathExtension.lowercased()
+            return audioExtensions.contains(ext) || imageExtensions.contains(ext)
+        }
+
         public var title: String {
             switch self {
             case .all: "All"
@@ -557,7 +575,23 @@ public final class EditorShellModel {
     }
 
     public var visibleAssets: [AssetItem] {
-        assetFilter == .all ? assets : assets.filter { $0.kind == assetFilter }
+        let listed = assetFilter == .all ? assets : assets.filter { $0.kind == assetFilter }
+        // A sound is used by the sample clips that name it, not by sprites, so
+        // its count comes from the document at read time. Cached at load it
+        // would go stale with every sample placed or deleted.
+        guard listed.contains(where: { $0.kind == .audio }) else { return listed }
+        var uses: [String: Int] = [:]
+        for node in effects.nodes where node.type == SampleEffect.descriptor.type {
+            if case let .text(path)? = node.values[SampleEffect.Param.file] {
+                uses[path, default: 0] += 1
+            }
+        }
+        return listed.map { asset in
+            guard asset.kind == .audio else { return asset }
+            var copy = asset
+            copy.useCount = uses[asset.path] ?? 0
+            return copy
+        }
     }
 
     /// The effects placed on the timeline — what the project actually authors,
@@ -1044,6 +1078,41 @@ public final class EditorShellModel {
         selectedNodeID = node.id
         effectsChanged()
         return node
+    }
+
+    /// Places an asset by what it is: a sound becomes a sample, anything else
+    /// an image. One door for the double-click and the drop, so they cannot
+    /// disagree about which is which.
+    @discardableResult
+    public func placeAsset(
+        at path: String,
+        time: Double,
+        on trackID: EffectTrack.ID? = nil,
+    ) -> EffectNode? {
+        switch AssetItem.Kind.inferred(from: path) {
+        case .audio: addSample(at: path, time: time, on: trackID)
+        default: addImage(at: path, time: time, on: trackID)
+        }
+    }
+
+    /// The effects the blank-effect menu may offer.
+    ///
+    /// A sound is left out: without a file it means nothing, and it is made by
+    /// placing an audio asset.
+    public var creatableDescriptors: [EffectDescriptor] {
+        library.descriptors.filter(\.isCreatableBlank)
+    }
+
+    /// Opens a clip's keyframes, selecting it too.
+    ///
+    /// A clip that draws nothing has nothing to animate, so the mode refuses it
+    /// here — in the model, so no gesture can open an empty editor.
+    public func openKeyframes(of nodeID: EffectNode.ID) {
+        guard let node = effects[nodeID],
+              library.descriptor(for: node)?.drawsSprites ?? true
+        else { return }
+        selectedNodeID = nodeID
+        keyframeNodeID = nodeID
     }
 
     /// Places a sound on the timeline.
@@ -2040,7 +2109,13 @@ public final class EditorShellModel {
     /// finished right up until it ships.
     public func importAssetsFromDisk(into destination: AssetDestination) {
         guard let importAssets else { return }
-        let added = importAssets(destination)
+        let returned = importAssets(destination)
+        // Said, not silently dropped: a file the panel cannot hold would
+        // otherwise copy into the folder and never show up.
+        let added = returned.filter(AssetItem.Kind.isSupported)
+        if added.count != returned.count {
+            saveError = "Some files were skipped: only png, jpg, wav, mp3 and ogg can be imported."
+        }
         guard !added.isEmpty else { return }
 
         // Merged rather than replacing: the folder listing was taken when the
@@ -2070,6 +2145,8 @@ public final class EditorShellModel {
     /// The thumbnail for a path, loading it once.
     public func thumbnail(for path: String) -> CGImage? {
         if let cached = thumbnails[path] { return cached }
+        // A sound has no picture to decode; asking would only cache a failure.
+        guard AssetItem.Kind.inferred(from: path) == .image else { return nil }
         let image = assetThumbnail?(path)
         thumbnails[path] = image
         return image
@@ -4162,7 +4239,7 @@ public final class EditorShellModel {
                     id: path,
                     name: (path as NSString).lastPathComponent,
                     path: path,
-                    kind: .image,
+                    kind: AssetItem.Kind.inferred(from: path),
                     useCount: usageCounts[path] ?? 0,
                     isMissing: missing.contains(path),
                 )

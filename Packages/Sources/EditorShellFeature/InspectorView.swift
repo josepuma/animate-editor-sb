@@ -58,10 +58,11 @@ struct InspectorView: View {
             // tab row that has to be scrolled back to.
             if let clip {
                 let isScript = clip.node.type == ScriptEffect.descriptor.type
+                let draws = clip.descriptor.drawsSprites
                 ToolTabs(
-                    items: InspectorTab.tabs(isScript: isScript),
+                    items: InspectorTab.tabs(isScript: isScript, drawsSprites: draws),
                     selection: Binding(
-                        get: { shell.inspectorTab.shown(isScript: isScript) },
+                        get: { shell.inspectorTab.shown(isScript: isScript, drawsSprites: draws) },
                         set: { shell.inspectorTab = $0 },
                     ),
                     icon: \.systemImage,
@@ -293,7 +294,10 @@ struct InspectorView: View {
         selectedKeyframeSection(node)
         selectedFilterKeyframeSection(node)
 
-        switch shell.inspectorTab.shown(isScript: node.type == ScriptEffect.descriptor.type) {
+        switch shell.inspectorTab.shown(
+            isScript: node.type == ScriptEffect.descriptor.type,
+            drawsSprites: descriptor.drawsSprites,
+        ) {
         case .effect:
             effectParameters(descriptor: descriptor, node: node)
         case .clip:
@@ -305,12 +309,15 @@ struct InspectorView: View {
             // is its own surface now, and alignment is owed within a group, not
             // across two.
             timingRow(node: node)
-            transformSection(node)
-                .propertyGrid(
-                    leading: Theme.Size.keyframeGutter,
-                    trailing: TransformProperty.allCases.contains { node.transform[$0].isActive }
-                        ? Theme.Size.keyframeSlot : nil,
-                )
+            // Nothing to move or animate for a clip that draws nothing.
+            if descriptor.drawsSprites {
+                transformSection(node)
+                    .propertyGrid(
+                        leading: Theme.Size.keyframeGutter,
+                        trailing: TransformProperty.allCases.contains { node.transform[$0].isActive }
+                            ? Theme.Size.keyframeSlot : nil,
+                    )
+            }
         case .filters:
             if node.filters.isEmpty {
                 // Said rather than left blank: an empty tab reads as broken,

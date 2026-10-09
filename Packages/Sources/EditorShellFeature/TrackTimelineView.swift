@@ -1073,7 +1073,7 @@ struct TrackTimelineView: View {
                 shell.addFilter(descriptor, to: nodeID)
             },
             addImage: { path, time in
-                shell.addImage(at: path, time: max(0, time), on: track.id)
+                shell.placeAsset(at: path, time: max(0, time), on: track.id)
             },
             openKeyframes: { id in
                 // Selecting it too, not only opening its keyframes.
@@ -1082,8 +1082,7 @@ struct TrackTimelineView: View {
                 // nothing selected, so the inspector fell back to the lane and
                 // showed a track's heading over the effect's own parameters.
                 // Working on a clip's keyframes is working on that clip.
-                shell.selectedNodeID = id
-                shell.keyframeNodeID = id
+                shell.openKeyframes(of: id)
             },
             raise: { shell.raiseTrack(track.id) },
             lower: { shell.lowerTrack(track.id) },
@@ -1136,6 +1135,7 @@ struct TrackTimelineView: View {
             tailDuration: { shell.tail(of: $0.id) },
             passDuration: { shell.passDuration(of: $0.id) },
             passCount: { shell.passCount(of: $0.id) },
+            descriptor: { shell.library.descriptor(for: $0) },
             filterIcons: { node in
                 node.filters.map {
                     shell.filters.descriptor(for: $0.type)?.systemImage ?? "wand.and.stars"
@@ -1363,6 +1363,8 @@ struct TrackRowView: View {
     let passDuration: (EffectNode) -> Double
     /// How many passes play in total.
     let passCount: (EffectNode) -> Int
+    /// What a clip's effect is, for what its block offers.
+    let descriptor: (EffectNode) -> EffectDescriptor?
     /// The glyphs for a clip's filters, for the badges on it.
     let filterIcons: (EffectNode) -> [String]
     /// Where a clip dragged from elsewhere would land, when this lane is the
@@ -1721,11 +1723,14 @@ struct TrackRowView: View {
                         .padding(.trailing, Theme.Spacing.hair)
                 } else if width > 140 {
                     HStack(spacing: Theme.Spacing.hair) {
-                        ForEach(Array(filterIcons(node).enumerated()), id: \.offset) { _, icon in
+                        ForEach(
+                            Array(ClipBlockRule.badges(
+                                filterIcons: filterIcons(node),
+                                descriptor: descriptor(node),
+                            ).enumerated()),
+                            id: \.offset,
+                        ) { _, icon in
                             BlockBadge(systemImage: icon)
-                        }
-                        if filterIcons(node).isEmpty {
-                            BlockBadge(systemImage: "sparkles")
                         }
                     }
                 }
@@ -1892,9 +1897,11 @@ struct TrackRowView: View {
             )
 
             HStack(spacing: 0) {
-                grabBar(node, edge: .leading)
-                Spacer(minLength: 0)
-                grabBar(node, edge: .trailing)
+                if ClipBlockRule.showsResizeBars(descriptor(node)) {
+                    grabBar(node, edge: .leading)
+                    Spacer(minLength: 0)
+                    grabBar(node, edge: .trailing)
+                }
             }
             .frame(width: width)
         }

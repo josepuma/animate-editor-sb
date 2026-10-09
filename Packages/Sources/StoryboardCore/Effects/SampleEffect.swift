@@ -66,6 +66,8 @@ public struct SampleEffect: Effect {
         descriptor.isResizable = false
         // Nothing to look at, so nothing to transform, filter or keyframe.
         descriptor.drawsSprites = false
+        // Made by placing an audio asset, never blank from the "+" menu.
+        descriptor.isCreatableBlank = false
         return descriptor
     }()
 

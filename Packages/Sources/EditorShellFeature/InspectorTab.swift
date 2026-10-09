@@ -38,8 +38,12 @@ public enum InspectorTab: String, CaseIterable, Identifiable, Sendable {
     /// The tabs a clip has: every clip the first three, a script clip its
     /// output as well. A tab that is always there and empty for nine clips out
     /// of ten is a tab that teaches people to stop looking at it.
-    public static func tabs(isScript: Bool) -> [InspectorTab] {
-        isScript ? [.effect, .clip, .filters, .output] : [.effect, .clip, .filters]
+    ///
+    /// A clip that draws nothing — a sound — has no look to filter, so it keeps
+    /// the file and its timing and nothing else.
+    public static func tabs(isScript: Bool, drawsSprites: Bool = true) -> [InspectorTab] {
+        guard drawsSprites else { return [.effect, .clip] }
+        return isScript ? [.effect, .clip, .filters, .output] : [.effect, .clip, .filters]
     }
 
     /// The tab to show for a clip, given the one that was chosen.
@@ -47,7 +51,7 @@ public enum InspectorTab: String, CaseIterable, Identifiable, Sendable {
     /// The choice itself is kept: someone reading a script's output who picks
     /// an emitter for a moment and comes back finds the output still open,
     /// rather than having been sent to Effect for good.
-    public func shown(isScript: Bool) -> InspectorTab {
-        Self.tabs(isScript: isScript).contains(self) ? self : .effect
+    public func shown(isScript: Bool, drawsSprites: Bool = true) -> InspectorTab {
+        Self.tabs(isScript: isScript, drawsSprites: drawsSprites).contains(self) ? self : .effect
     }
 }

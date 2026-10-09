@@ -308,7 +308,7 @@ struct EditorWindow: View {
             let folderAssets = try? BeatmapFolder(url: folder)
             if let folderAssets {
                 shell.loadFolderAssets(
-                    folderAssets.files(withExtensions: ["png", "jpg", "jpeg"]),
+                    folderAssets.files(withExtensions: ["png", "jpg", "jpeg", "wav", "mp3", "ogg"]),
                 )
             }
 
@@ -328,9 +328,10 @@ struct EditorWindow: View {
                 panel.canChooseFiles = true
                 panel.canChooseDirectories = false
                 panel.allowsMultipleSelection = true
-                panel.allowedContentTypes = [.png, .jpeg]
+                panel.allowedContentTypes = [.png, .jpeg, .wav, .mp3]
+                    + (UTType(filenameExtension: "ogg").map { [$0] } ?? [])
                 panel.prompt = "Import"
-                panel.message = "Choose images to copy into \(destination.title)"
+                panel.message = "Choose images or sounds to copy into \(destination.title)"
 
                 guard panel.runModal() == .OK else { return [] }
 

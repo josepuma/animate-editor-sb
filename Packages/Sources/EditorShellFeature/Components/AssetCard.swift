@@ -62,7 +62,7 @@ package struct AssetCard: View {
         // Dragged onto a track, or double-clicked to drop at the playhead —
         // the two ways an asset gets into a timeline in any editor.
         .draggable(AssetTransfer(path: asset.path).payload) {
-            Label(asset.name, systemImage: "photo")
+            Label(asset.name, systemImage: asset.kind == .audio ? "speaker.wave.2" : "photo")
                 .font(Theme.Typography.label)
                 .padding(Theme.Spacing.snug)
                 .background(.thinMaterial, in: Capsule())
@@ -91,6 +91,10 @@ package struct AssetCard: View {
             }
         } else if asset.isMissing {
             ArtworkPlaceholder(systemImage: "exclamationmark.triangle", tint: Theme.Palette.warning)
+        } else if asset.kind == .audio {
+            // A sound has no picture, and says so with a glyph rather than a
+            // photo icon that promises one.
+            ArtworkPlaceholder(systemImage: "waveform")
         } else {
             ArtworkPlaceholder(systemImage: "photo")
         }

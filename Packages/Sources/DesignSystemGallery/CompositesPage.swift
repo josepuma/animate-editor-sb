@@ -48,6 +48,9 @@ struct CompositesPage: View {
                         block(tint, label: "Emitter")
                         block(tint, label: "Selected", isSelected: true)
                         block(tint, label: "Hidden", isDimmed: true)
+                        // A sound: its own speaker glyph in place of the
+                        // sparkles, and no thumbnail plate — it draws nothing.
+                        block(tint, label: "clap.wav", isSound: true)
                     }
                 }
             }
@@ -176,6 +179,7 @@ struct CompositesPage: View {
         label: String,
         isSelected: Bool = false,
         isDimmed: Bool = false,
+        isSound: Bool = false,
     ) -> some View {
         TrackBlock(
             tint: tint,
@@ -184,11 +188,13 @@ struct CompositesPage: View {
             isSelected: isSelected,
             cornerRadius: Theme.Radius.clip,
         ) {
-            RoundedRectangle(cornerRadius: Theme.Radius.small)
-                .fill(.white.opacity(0.18))
-                .frame(width: 24)
+            if !isSound {
+                RoundedRectangle(cornerRadius: Theme.Radius.small)
+                    .fill(.white.opacity(0.18))
+                    .frame(width: 24)
+            }
         } badge: {
-            BlockBadge(systemImage: "sparkles")
+            BlockBadge(systemImage: isSound ? SampleEffect.descriptor.systemImage : "sparkles")
         }
         .frame(width: 150, height: 32)
     }

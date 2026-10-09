@@ -115,7 +115,7 @@ struct SidePanelView: View {
             if shell.visibleAssets.isEmpty {
                 ComingSoon(
                     title: "No assets",
-                    detail: "Images in the beatmap folder appear here. Import to add more.",
+                    detail: "Images and sounds in the beatmap folder appear here. Import to add more.",
                     systemImage: "photo.on.rectangle.angled",
                 )
             } else {
@@ -142,7 +142,7 @@ struct SidePanelView: View {
                                 asset: asset,
                                 thumbnail: shell.thumbnail(for: asset.path),
                             ) {
-                                shell.addImage(at: asset.path, time: playheadNow())
+                                shell.placeAsset(at: asset.path, time: playheadNow())
                             }
                         }
                     }
@@ -265,7 +265,7 @@ struct SidePanelView: View {
     private var newEffectMenu: some View {
         Menu {
             ForEach(LibraryCategory.displayOrder, id: \.self) { category in
-                let inCategory = shell.library.descriptors.filter { $0.category == category }
+                let inCategory = shell.creatableDescriptors.filter { $0.category == category }
                 if !inCategory.isEmpty {
                     Section(category.rawValue) {
                         ForEach(inCategory, id: \.type) { descriptor in

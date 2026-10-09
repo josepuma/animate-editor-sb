@@ -287,6 +287,22 @@ struct PanelsPage: View {
                 )
                 .frame(width: 130)
 
+                // A sound has no picture to decode: a waveform glyph on the
+                // placeholder, and its uses are the samples that name it.
+                AssetCard(
+                    asset: AssetItem(id: "5", name: "clap.wav", path: "sb/clap.wav", kind: .audio, useCount: 3),
+                    thumbnail: nil,
+                    place: {},
+                )
+                .frame(width: 130)
+
+                AssetCard(
+                    asset: AssetItem(id: "6", name: "kick.ogg", path: "sb/kick.ogg", kind: .audio, useCount: 0, isMissing: true),
+                    thumbnail: nil,
+                    place: {},
+                )
+                .frame(width: 130)
+
                 Spacer(minLength: 0)
             }
         }
