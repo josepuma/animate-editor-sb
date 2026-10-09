@@ -58,6 +58,54 @@ private func loadGolden() throws -> ResolverGolden {
     return try JSONDecoder().decode(ResolverGolden.self, from: Data(contentsOf: url))
 }
 
+// ─── The one deliberate departure ────────────────────────────────────────────
+
+/// The TypeScript parser read a header position with `parseFloat(v) || 320`,
+/// so a literal 0 came back as the centre. osu! draws it at 0 — a letterbox bar
+/// at `TopCentre,320,0` hung from mid-screen in the editor. The fixture still
+/// holds the TS answer, so this rewrites exactly those expectations: a header
+/// coordinate written as 0, on a sprite that never moves on that axis (only
+/// then does the default reach every frame). Everything else is compared as is.
+private struct ZeroPositionFix {
+    let zeroX: Set<String>
+    let zeroY: Set<String>
+
+    init(osb: String) {
+        var zeroX = Set<String>(), zeroY = Set<String>()
+        var index = -1
+        var current: (id: String, x: Bool, y: Bool)?
+        var moves = (x: false, y: false)
+
+        func close() {
+            guard let sprite = current else { return }
+            if sprite.x && !moves.x { zeroX.insert(sprite.id) }
+            if sprite.y && !moves.y { zeroY.insert(sprite.id) }
+        }
+
+        for raw in osb.split(whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            let parts = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+            if parts.first == "Sprite" || parts.first == "Animation" {
+                close()
+                index += 1
+                let isZero = { (i: Int) in parts.count > i && Double(parts[i]) == 0 }
+                current = ("sprite_\(index)", isZero(4), isZero(5))
+                moves = (false, false)
+            } else if let command = parts.first?.trimmingCharacters(in: CharacterSet(charactersIn: "_ ")) {
+                if command == "M" { moves = (true, true) }
+                if command == "MX" { moves.x = true }
+                if command == "MY" { moves.y = true }
+            }
+        }
+        close()
+        self.zeroX = zeroX
+        self.zeroY = zeroY
+    }
+
+    func x(_ id: String, _ want: Double) -> Double { zeroX.contains(id) ? 0 : want }
+    func y(_ id: String, _ want: Double) -> Double { zeroY.contains(id) ? 0 : want }
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 @Suite("StoryboardResolver — parity with the TypeScript engine")
@@ -74,6 +122,7 @@ struct ResolverGoldenTests {
         for (name, testCase) in golden.cases.sorted(by: { $0.key < $1.key }) {
             let storyboard = OsbParser.parse(testCase.osb)
             let prepared = StoryboardResolver.prepare(storyboard.sprites)
+            let fix = ZeroPositionFix(osb: testCase.osb)
 
             for frame in testCase.frames {
                 let actual = StoryboardResolver.resolve(prepared, at: frame.time)
@@ -88,8 +137,8 @@ struct ResolverGoldenTests {
                     let label = "[\(name)] t=\(frame.time) sprite=\(want.spriteId)"
 
                     #expect(state.spriteId == want.spriteId, "\(label): sprite id mismatch")
-                    expectClose(state.x, want.x, "\(label) x")
-                    expectClose(state.y, want.y, "\(label) y")
+                    expectClose(state.x, fix.x(want.spriteId, want.x), "\(label) x")
+                    expectClose(state.y, fix.y(want.spriteId, want.y), "\(label) y")
                     expectClose(state.scaleX, want.scaleX, "\(label) scaleX")
                     expectClose(state.scaleY, want.scaleY, "\(label) scaleY")
                     expectClose(state.rotation, want.rotation, "\(label) rotation")
@@ -106,12 +155,25 @@ struct ResolverGoldenTests {
         }
     }
 
+    // An exception wider than the bug would hide a regression behind it.
+    @Test("the zero-position exception names exactly the sprites the bug touched")
+    func zeroPositionFixIsNarrow() throws {
+        let golden = try loadGolden()
+        var named: [String] = []
+        for (name, testCase) in golden.cases.sorted(by: { $0.key < $1.key }) {
+            let fix = ZeroPositionFix(osb: testCase.osb)
+            named += fix.zeroX.sorted().map { "\(name)/\($0).x" } + fix.zeroY.sorted().map { "\(name)/\($0).y" }
+        }
+        #expect(named == ["multipleSprites/sprite_0.x", "multipleSprites/sprite_0.y"])
+    }
+
     @Test("the parser produces the same sprites as the TypeScript parser")
     func parsedSpritesMatchGolden() throws {
         let golden = try loadGolden()
 
         for (name, testCase) in golden.cases.sorted(by: { $0.key < $1.key }) {
             let storyboard = OsbParser.parse(testCase.osb)
+            let fix = ZeroPositionFix(osb: testCase.osb)
 
             #expect(
                 storyboard.sprites.count == testCase.sprites.count,
@@ -122,8 +184,8 @@ struct ResolverGoldenTests {
             for (sprite, want) in zip(storyboard.sprites, testCase.sprites) {
                 #expect(sprite.id == want.id, "[\(name)]: sprite id mismatch")
                 #expect(sprite.filePath == want.filePath, "[\(name)] \(want.id): file path mismatch")
-                #expect(sprite.defaultX == want.defaultX, "[\(name)] \(want.id): defaultX mismatch")
-                #expect(sprite.defaultY == want.defaultY, "[\(name)] \(want.id): defaultY mismatch")
+                #expect(sprite.defaultX == fix.x(want.id, want.defaultX), "[\(name)] \(want.id): defaultX mismatch")
+                #expect(sprite.defaultY == fix.y(want.id, want.defaultY), "[\(name)] \(want.id): defaultY mismatch")
                 #expect(
                     sprite.commands.count == want.commandCount,
                     "[\(name)] \(want.id): got \(sprite.commands.count) commands, expected \(want.commandCount)",

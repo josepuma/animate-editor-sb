@@ -23,6 +23,33 @@ struct OsbParserTests {
         #expect(sprite.defaultY == 240)
     }
 
+    // A letterbox bar sits at y = 0 (`TopCentre,320,0`). JavaScript's
+    // `parseFloat(y) || 240` treated that 0 as missing and hung the bar from
+    // the middle of the screen; osu! draws it from the top edge.
+    @Test("a position of zero is a position, not a missing field")
+    func zeroPositionIsKept() {
+        let storyboard = OsbParser.parse("""
+        [Events]
+        Sprite,Foreground,TopCentre,"sb/p.png",0,0
+        Sprite,Foreground,Centre,"sb/p.png",-0,0.0
+        """)
+
+        #expect(storyboard.sprites.map(\.defaultX) == [0, 0])
+        #expect(storyboard.sprites.map(\.defaultY) == [0, 0])
+    }
+
+    @Test("a missing or unreadable position falls back to the centre")
+    func missingPositionFallsBack() {
+        let storyboard = OsbParser.parse("""
+        [Events]
+        Sprite,Foreground,Centre,"sb/p.png"
+        Sprite,Foreground,Centre,"sb/p.png",abc,
+        """)
+
+        #expect(storyboard.sprites.map(\.defaultX) == [320, 320])
+        #expect(storyboard.sprites.map(\.defaultY) == [240, 240])
+    }
+
     @Test("keeps commas inside quoted file paths")
     func keepsCommasInsideQuotedPath() {
         let storyboard = OsbParser.parse("""

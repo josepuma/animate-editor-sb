@@ -124,10 +124,11 @@ public enum OsbParser {
         let origin = Origin(osbName: parts.count > 2 ? parts[2].trimmed() : "")
         let filePath = (parts.count > 3 ? parts[3] : "").trimmed().strippingSurroundingQuotes()
 
-        // The TypeScript source uses `parseFloat(...) || 320`, so a value of 0
-        // or an unparsable field both fall back to the default.
-        let x = nonZeroDouble(parts, 4) ?? 320
-        let y = nonZeroDouble(parts, 5) ?? 240
+        // Only a missing or unreadable field falls back. The TypeScript source
+        // used `parseFloat(...) || 320`, where 0 is falsy, so a letterbox bar
+        // at y = 0 was hung from the middle of the screen.
+        let x = finiteDouble(parts, 4) ?? 320
+        let y = finiteDouble(parts, 5) ?? 240
 
         return StoryboardSprite(
             id: "sprite_\(index)",
@@ -274,9 +275,8 @@ public enum OsbParser {
         blankAware(parts, index).flatMap(Double.init)
     }
 
-    /// Mirrors JavaScript's `parseFloat(x) || fallback`, where 0 is falsy.
-    private static func nonZeroDouble(_ parts: [String], _ index: Int) -> Double? {
-        guard let value = doubleField(parts, index), value != 0, !value.isNaN else { return nil }
+    private static func finiteDouble(_ parts: [String], _ index: Int) -> Double? {
+        guard let value = doubleField(parts, index), value.isFinite else { return nil }
         return value
     }
 
