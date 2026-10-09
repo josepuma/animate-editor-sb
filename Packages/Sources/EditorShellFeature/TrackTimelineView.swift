@@ -378,6 +378,17 @@ struct TrackTimelineView: View {
                 playhead(width: contentWidth, height: proxy.size.height)
                     .offset(x: contentOrigin)
                     .allowsHitTesting(false)
+
+                // Over the playhead: when the two coincide, the snap is the
+                // news.
+                SnapGuideMarker(
+                    shell: shell,
+                    range: visibleRange,
+                    width: contentWidth,
+                    height: proxy.size.height,
+                )
+                .offset(x: contentOrigin)
+                .allowsHitTesting(false)
             }
         }
         .padding(Theme.Spacing.compact)
@@ -1394,6 +1405,9 @@ struct TrackRowView: View {
     /// the previous frame's draft applies the whole translation again on each
     /// event, and the clip accelerates off the timeline.
     @State private var dragOrigin: ClosedRange<Double>?
+    /// What the current drag can snap to besides the beat, gathered when it
+    /// starts.
+    @State private var dragAnchors: [Double]?
     /// The last click, for counting doubles without making singles wait.
     @State private var lastClick: (id: EffectNode.ID, at: Date) = ("", .distantPast)
 
@@ -2260,7 +2274,16 @@ struct TrackRowView: View {
                 // from the pointer.
                 let shift = scale.duration(ofWidth: value.translation.width)
                 let length = origin.upperBound - origin.lowerBound
-                let start = max(0, origin.lowerBound + shift)
+                let snap = TimelineSnap.move(
+                    start: max(0, origin.lowerBound + shift),
+                    length: length,
+                    grid: shell.beat,
+                    anchors: snapAnchors(excluding: node.id),
+                    threshold: snapThreshold,
+                    isEnabled: isSnapping,
+                )
+                let start = max(0, snap.time)
+                showSnapGuide(snap.guide)
                 draft = (node.id, start...(start + length))
 
                 // Which lane the pointer has crossed into, if any.
@@ -2377,22 +2400,55 @@ struct TrackRowView: View {
 
                 switch edge {
                 case .leading:
+                    let snap = snappedEdge(origin.lowerBound + shift, of: node.id)
                     // Clamped against the far edge so dragging past it does not
                     // invert the clip into a negative duration.
                     let start = min(
-                        max(0, origin.lowerBound + shift),
+                        max(0, snap.time),
                         origin.upperBound - Self.minimumDuration,
                     )
+                    showSnapGuide(start == snap.time ? snap.guide : nil)
                     draft = (node.id, start...origin.upperBound)
                 case .trailing:
-                    let end = max(
-                        origin.upperBound + shift,
-                        origin.lowerBound + Self.minimumDuration,
-                    )
+                    let snap = snappedEdge(origin.upperBound + shift, of: node.id)
+                    let end = max(snap.time, origin.lowerBound + Self.minimumDuration)
+                    showSnapGuide(end == snap.time ? snap.guide : nil)
                     draft = (node.id, origin.lowerBound...end)
                 }
             }
             .onEnded { _ in commit(.resize) }
+    }
+
+    // ─── Snapping ────────────────────────────────────────────────────────────
+
+    /// The snap reach in milliseconds at the current zoom.
+    private var snapThreshold: Double {
+        scale.duration(ofWidth: CGFloat(TimelineSnap.thresholdPoints))
+    }
+
+    /// ⌘ held skips the snap, the same escape the canvas offers: sometimes
+    /// 1007 is the number someone wants.
+    private var isSnapping: Bool { !NSEvent.modifierFlags.contains(.command) }
+
+    private func snapAnchors(excluding nodeID: EffectNode.ID) -> [Double] {
+        dragAnchors ?? shell.timelineSnapAnchors(excluding: nodeID)
+    }
+
+    private func snappedEdge(_ time: Double, of nodeID: EffectNode.ID) -> TimelineSnap.Snap {
+        TimelineSnap.edge(
+            time,
+            grid: shell.beat,
+            anchors: snapAnchors(excluding: nodeID),
+            threshold: snapThreshold,
+            isEnabled: isSnapping,
+        )
+    }
+
+    /// Written only when it changes: an `@Observable` setter notifies even for
+    /// the same value, and the guide's view would redraw on every pointer event.
+    private func showSnapGuide(_ time: Double?) {
+        guard shell.timelineSnapGuide != time else { return }
+        shell.timelineSnapGuide = time
     }
 
     /// Records where a drag started, and selects what is being dragged.
@@ -2403,6 +2459,9 @@ struct TrackRowView: View {
     private func beginDrag(_ node: EffectNode) -> ClosedRange<Double> {
         if let dragOrigin { return dragOrigin }
         dragOrigin = node.timeRange
+        // Gathered once per drag: nothing else moves while this clip does, and
+        // walking every node on every pointer event is work for nothing.
+        dragAnchors = shell.timelineSnapAnchors(excluding: node.id)
         if node.id != shell.selectedNodeID { selectNode(node.id) }
         return node.timeRange
     }
@@ -2425,6 +2484,8 @@ struct TrackRowView: View {
         defer {
             draft = nil
             dragOrigin = nil
+            dragAnchors = nil
+            showSnapGuide(nil)
             pendingTrackID = nil
             actions.previewDrop(nil, nil, nil)
         }
@@ -2693,5 +2754,33 @@ private struct PlayheadMarker: View {
         }
         .frame(height: height, alignment: .top)
         .offset(x: x - 1)
+    }
+}
+
+// ─── Snap guide ──────────────────────────────────────────────────────────────
+
+/// The line a dragged clip has snapped to, through every lane.
+///
+/// A view of its own for the same reason as the playhead: it reads a value
+/// that changes during a drag, and only this line should redraw for it.
+/// Dashed and accented, unlike the solid playhead, so a snap onto the playhead
+/// still reads as a snap.
+private struct SnapGuideMarker: View {
+    let shell: EditorShellModel
+    let range: ClosedRange<Double>
+    let width: CGFloat
+    let height: CGFloat
+
+    var body: some View {
+        if let time = shell.timelineSnapGuide {
+            let x = TimelineScale(range: range, width: width).x(of: time)
+            Path { path in
+                path.move(to: CGPoint(x: 0, y: 0))
+                path.addLine(to: CGPoint(x: 0, y: height))
+            }
+            .stroke(Theme.Palette.selection, style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            .frame(width: 1, height: height)
+            .offset(x: x)
+        }
     }
 }

@@ -406,6 +406,27 @@ public final class EditorShellModel {
 
     public var dropPreview: DropPreview?
 
+    /// The time a dragged clip has snapped to, while the drag is in flight.
+    ///
+    /// Held here for the same reason as `dropPreview`: the line runs through
+    /// every lane, and the row doing the dragging can only draw in itself.
+    public var timelineSnapGuide: Double?
+
+    /// What a clip dragged along the timeline can line up with, besides the
+    /// beat: every other clip's two edges, on any lane, and the playhead.
+    ///
+    /// Lanes are separate on screen, not in time — a clip on another lane is
+    /// exactly what a hit on this one lines up against. The dragged clip is
+    /// left out, or it would stick to wherever it started.
+    public func timelineSnapAnchors(excluding nodeID: EffectNode.ID) -> [Double] {
+        var anchors = [playheadTime]
+        for node in effects.nodes where node.id != nodeID {
+            anchors.append(node.startTime)
+            anchors.append(node.startTime + node.duration)
+        }
+        return anchors
+    }
+
     public var visibleAssets: [AssetItem] {
         assetFilter == .all ? assets : assets.filter { $0.kind == assetFilter }
     }
