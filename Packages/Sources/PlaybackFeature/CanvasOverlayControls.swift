@@ -155,6 +155,11 @@ struct CanvasOverlayControls: View {
     /// reference it is being slowed down to be.
     private static let rates: [Float] = [0.25, 0.5, 0.75, 1, 1.5, 2]
 
+    /// A zoom as a percentage, 100% being the stage fitted to the canvas.
+    static func zoomLabel(_ zoom: Double) -> String {
+        "\(Int((zoom * 100).rounded()))%"
+    }
+
     /// A rate as it is spoken: `1×`, `0.5×`.
     private static func label(for rate: Float) -> String {
         rate == rate.rounded()
@@ -216,6 +221,55 @@ struct CanvasOverlayControls: View {
             .menuIndicator(.hidden)
             .frame(width: Theme.Size.controlSmall, height: Theme.Size.controlSmall)
             .help("Playback speed")
+
+            // Zoom, beside full screen: both are about how the canvas is
+            // looked at, and neither reaches the storyboard. A menu of named
+            // steps rather than a slider, for the reason the speed menu is one.
+            Menu {
+                ForEach(CanvasViewport.presets, id: \.self) { zoom in
+                    Button {
+                        model.setCanvasZoom(zoom)
+                    } label: {
+                        if abs(model.canvasViewport.zoom - zoom) < 0.001 {
+                            Label(Self.zoomLabel(zoom), systemImage: "checkmark")
+                        } else {
+                            Text(Self.zoomLabel(zoom))
+                        }
+                    }
+                }
+                Divider()
+                Button("Fit") { model.fitCanvas() }
+            } label: {
+                Text(Self.zoomLabel(model.canvasViewport.zoom))
+                    .font(Theme.Typography.micro)
+                    .monospacedDigit()
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Canvas zoom — ⌘+ in, ⌘− out, ⌘0 fit. ⌘ and the wheel, or a pinch, zoom at the pointer; the wheel alone pans.")
+            .background {
+                // The shortcuts, bound here so they live while the controls
+                // do. ⌘ rather than bare keys, which would be swallowed out of
+                // every field being typed in.
+                Group {
+                    // Both: on a US keyboard + is ⇧= and ⌘= is the habit; on a
+                    // Spanish or Latin American one + has its own key and =
+                    // is ⇧0, so ⌘= never arrives — reported as zoom-in not
+                    // working from the keyboard.
+                    Button("") { model.stepCanvasZoom(in: true) }
+                        .keyboardShortcut("=", modifiers: .command)
+                    Button("") { model.stepCanvasZoom(in: true) }
+                        .keyboardShortcut("+", modifiers: .command)
+                    Button("") { model.stepCanvasZoom(in: false) }
+                        .keyboardShortcut("-", modifiers: .command)
+                    Button("") { model.fitCanvas() }
+                        .keyboardShortcut("0", modifiers: .command)
+                }
+                .opacity(0)
+                .allowsHitTesting(false)
+            }
 
             IconButton(
                 systemImage: model.isCanvasFullScreen

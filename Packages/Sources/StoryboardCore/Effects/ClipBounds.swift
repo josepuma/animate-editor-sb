@@ -133,13 +133,22 @@ public struct ClipBounds: Sendable, Equatable {
         if nodeIDs.count <= smallGroup {
             return nodeIDs.contains { sprite(spriteID, belongsTo: $0) }
         }
-        if nodeIDs.contains(spriteID) { return true }
+        return owner(of: spriteID, among: nodeIDs) != nil
+    }
+
+    /// Which of `nodeIDs` drew a sprite, if any.
+    ///
+    /// The id is cut at each separator and the pieces looked up, shortest
+    /// first — a layer's sprite (`clip/L0/3`) and a filter's copy belong to
+    /// the clip, not to anything nested inside it.
+    public static func owner(of spriteID: String, among nodeIDs: Set<String>) -> String? {
         var index = spriteID.startIndex
         while let slash = spriteID[index...].firstIndex(of: "/") {
-            if nodeIDs.contains(String(spriteID[..<slash])) { return true }
+            let prefix = String(spriteID[..<slash])
+            if nodeIDs.contains(prefix) { return prefix }
             index = spriteID.index(after: slash)
         }
-        return false
+        return nodeIDs.contains(spriteID) ? spriteID : nil
     }
 
     /// Up to this many clips, comparing against each beats cutting the id.

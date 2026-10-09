@@ -39,3 +39,29 @@ struct ClipOwnershipSetTests {
         #expect(!ClipBounds.sprite("node-a/0", belongsToAnyOf: []))
     }
 }
+
+/// The canvas asks the other way round: not "is this sprite one of these
+/// clips'", but "whose is it".
+@Suite("Clip owner of a sprite")
+struct ClipOwnerTests {
+    private let clips: Set<String> = ["node-a", "node-b"]
+
+    @Test("a sprite, a layer's sprite and a filter's copy all find their clip")
+    func findsOwner() {
+        #expect(ClipBounds.owner(of: "node-a", among: clips) == "node-a")
+        #expect(ClipBounds.owner(of: "node-a/0", among: clips) == "node-a")
+        #expect(ClipBounds.owner(of: "node-b/L0/3", among: clips) == "node-b")
+    }
+
+    /// The separator is what keeps a clip from claiming a neighbour whose id
+    /// it prefixes.
+    @Test("a prefix of another id is not its owner")
+    func prefixIsNotOwner() {
+        #expect(ClipBounds.owner(of: "node-ab/1", among: clips) == nil)
+    }
+
+    @Test("a sprite no listed clip drew has no owner")
+    func strangerHasNone() {
+        #expect(ClipBounds.owner(of: "sb/bg.jpg", among: clips) == nil)
+    }
+}

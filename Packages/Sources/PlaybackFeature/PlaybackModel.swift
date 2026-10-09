@@ -240,6 +240,9 @@ public final class PlaybackModel {
     ) {
         beatmapSprites = sprites
         rebuildSprites()
+        // Another storyboard is another picture: it opens fitted, not wherever
+        // the last one was being looked at.
+        canvasViewport.fit()
         let storyboardRange = StoryboardResolver.timeRange(of: sprites)
         self.duration = max(duration, 1)
         timelineRange = storyboardRange
@@ -456,6 +459,7 @@ public final class PlaybackModel {
         drawnCount: Int,
         framesPerSecond: Double,
         selectionBounds: ClipBounds? = nil,
+        hoverBounds: ClipBounds? = nil,
     ) {
         self.drawnCount = drawnCount
         self.framesPerSecond = framesPerSecond
@@ -465,6 +469,9 @@ public final class PlaybackModel {
         // reads it, whether or not anything changed.
         if selectionBounds != self.selectionBounds {
             self.selectionBounds = selectionBounds
+        }
+        if hoverBounds != self.hoverBounds {
+            self.hoverBounds = hoverBounds
         }
     }
 
@@ -484,6 +491,100 @@ public final class PlaybackModel {
 
     /// Where that clip is on the stage, measured as it was last drawn.
     public private(set) var selectionBounds: ClipBounds?
+
+    // ─── Canvas zoom ─────────────────────────────────────────────────────────
+
+    /// How the canvas is looked at. A view onto it, never part of the
+    /// storyboard: an export is always the stage.
+    public var canvasViewport = CanvasViewport()
+
+    /// The space the canvas is laid out in, so commands without a pointer —
+    /// a menu, a shortcut — can zoom about its middle.
+    @ObservationIgnored public var canvasContainerSize: CGSize = .zero
+
+    /// The stage in canvas units.
+    public var canvasStageSize: CGSize {
+        let stage = OsuCanvas.size(widescreen: isWidescreen)
+        return CGSize(width: CGFloat(stage.width), height: CGFloat(stage.height))
+    }
+
+    /// Sets the zoom about the middle of the view, the way a preset does.
+    public func setCanvasZoom(_ zoom: Double) {
+        let size = canvasContainerSize
+        canvasViewport.zoom(
+            to: zoom,
+            keeping: CGPoint(x: size.width / 2, y: size.height / 2),
+            container: size,
+            stage: canvasStageSize,
+        )
+    }
+
+    /// Zooms by a factor about a point — a pinch, or ⌘ and the wheel.
+    public func zoomCanvas(by factor: Double, at point: CGPoint) {
+        canvasViewport.zoom(
+            to: canvasViewport.zoom * factor,
+            keeping: point,
+            container: canvasContainerSize,
+            stage: canvasStageSize,
+        )
+    }
+
+    public func panCanvas(by delta: CGSize) {
+        canvasViewport.pan(by: delta, container: canvasContainerSize, stage: canvasStageSize)
+    }
+
+    public func fitCanvas() {
+        canvasViewport.fit()
+    }
+
+    /// One preset in or out — what ⌘= and ⌘− do, so a keyboard zoom always
+    /// lands on a number the menu can name. From between presets it goes to
+    /// the next one along rather than back to the one it passed.
+    public func stepCanvasZoom(in zoomingIn: Bool) {
+        let current = canvasViewport.zoom
+        let presets = CanvasViewport.presets
+        let next = zoomingIn
+            ? presets.first { $0 > current + 1e-9 } ?? presets.last
+            : presets.last { $0 < current - 1e-9 } ?? presets.first
+        guard let next else { return }
+        setCanvasZoom(next)
+    }
+
+    // ─── Picking on the canvas ───────────────────────────────────────────────
+
+    /// The clip under the pointer, outlined so it can be picked without
+    /// hunting for it on the timeline.
+    ///
+    /// Not observed: the canvas reads it at draw time. What views watch is the
+    /// box it produces, `hoverBounds`.
+    @ObservationIgnored public var hoveredClipID: String? {
+        didSet {
+            guard hoveredClipID != oldValue else { return }
+            // The old clip's box would outline the wrong thing for a frame.
+            if hoverBounds != nil { hoverBounds = nil }
+        }
+    }
+
+    /// Where the hovered clip is on the stage, as last drawn.
+    public private(set) var hoverBounds: ClipBounds?
+
+    /// The clips a click may pick — every clip not on a locked lane. Set by
+    /// whoever owns the document; the canvas knows only sprites.
+    @ObservationIgnored public var pickableClipIDs: () -> Set<String> = { [] }
+
+    /// Asks the renderer which clip is drawn at a point. Installed by the
+    /// canvas once its renderer exists.
+    @ObservationIgnored var hitTester: (
+        ((x: Double, y: Double), (String) -> String?) -> String?
+    )?
+
+    /// The clip drawn on top at a point on the stage, among those that may be
+    /// picked.
+    public func clip(at point: (x: Double, y: Double)) -> String? {
+        let clips = pickableClipIDs()
+        guard !clips.isEmpty, let hitTester else { return nil }
+        return hitTester(point) { ClipBounds.owner(of: $0, among: clips) }
+    }
 
     // ─── Drag preview ────────────────────────────────────────────────────────
 

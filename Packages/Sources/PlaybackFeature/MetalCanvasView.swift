@@ -7,13 +7,16 @@ import SwiftUI
 struct MetalCanvasView: NSViewRepresentable {
     let model: PlaybackModel
     let source: any StoryboardSource
+    /// The widest drawable to render, in pixels; `nil` draws at full backing
+    /// resolution, which is what the editor wants. See `CappedDrawable`.
+    var maximumPixelWidth: CGFloat? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(model: model, source: source)
     }
 
     func makeNSView(context: Context) -> MTKView {
-        let view = MTKView()
+        let view: MTKView = maximumPixelWidth.map { CappedMTKView(maximumWidth: $0) } ?? MTKView()
         view.device = MTLCreateSystemDefaultDevice()
         // Plain `bgra8Unorm`, not the `_srgb` variant.
         //
@@ -134,6 +137,9 @@ struct MetalCanvasView: NSViewRepresentable {
 
                     renderer.isWidescreen = model.isWidescreen
                     self.renderer = renderer
+                    model.hitTester = { [weak renderer] point, owner in
+                        renderer?.clip(at: point, owner: owner)
+                    }
                     model.contentLoaded(
                         name: source.displayName,
                         sprites: sprites,
@@ -215,14 +221,77 @@ struct MetalCanvasView: NSViewRepresentable {
 
             guard let renderer else { return }
             renderer.measuredClipIDs = model.selectedClipIDs
+            // The part of the canvas the view shows. The view fills the whole
+            // space the canvas has, so even fitted this reaches past the
+            // stage on one axis — the letterbox shows what is there, dimmed.
+            renderer.visibleArea = model.canvasViewport
+                .layout(container: view.bounds.size, stage: model.canvasStageSize)
+                .visible
+            renderer.hoveredClipID = model.hoveredClipID
             renderer.preview = model.clipPreview
             renderer.draw(at: model.currentTime, in: view)
             model.frameRendered(
                 drawnCount: renderer.lastDrawnCount,
                 framesPerSecond: smoothedFPS,
                 selectionBounds: renderer.measuredBounds,
+                hoverBounds: renderer.hoveredBounds,
             )
         }
     }
 }
 
+
+
+/// The drawable size for a view whose resolution is capped.
+///
+/// Scaled down as a whole, so the stage keeps its shape and the layer stretches
+/// it back over the view: behind a scrim and a fade, a trailer at a third of
+/// the pixels reads the same and costs the GPU a fraction of the fill.
+enum CappedDrawable {
+    static func size(bounds: CGSize, scale: CGFloat, maximumWidth: CGFloat) -> CGSize {
+        let full = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        let factor = full.width > maximumWidth ? maximumWidth / full.width : 1
+        return CGSize(
+            width: max(1, (full.width * factor).rounded()),
+            height: max(1, (full.height * factor).rounded()),
+        )
+    }
+}
+
+/// An `MTKView` that sizes its own drawable instead of matching the backing.
+///
+/// `autoResizeDrawable` off, so MetalKit stops resetting the size to the
+/// window's full resolution on every layout.
+final class CappedMTKView: MTKView {
+    private let maximumWidth: CGFloat
+
+    init(maximumWidth: CGFloat) {
+        self.maximumWidth = maximumWidth
+        super.init(frame: .zero, device: nil)
+        autoResizeDrawable = false
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) {
+        fatalError("init(coder:) is not used")
+    }
+
+    override func layout() {
+        super.layout()
+        resizeDrawable()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        resizeDrawable()
+    }
+
+    private func resizeDrawable() {
+        let size = CappedDrawable.size(
+            bounds: bounds.size,
+            scale: window?.backingScaleFactor ?? 2,
+            maximumWidth: maximumWidth,
+        )
+        if drawableSize != size { drawableSize = size }
+    }
+}

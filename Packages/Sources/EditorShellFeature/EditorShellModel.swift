@@ -238,6 +238,41 @@ public final class EditorShellModel {
         selectedNodeIDs.filter { !isLocked($0) }
     }
 
+    /// The clips a click on the canvas may pick: every one not on a locked
+    /// lane.
+    ///
+    /// A locked lane is clicked through, the way a locked layer is in any
+    /// editor — it is what keeps a full-screen background from catching every
+    /// click meant for what is drawn over it. A hidden clip draws nothing, so
+    /// it is never under the pointer to begin with.
+    public var canvasPickableClipIDs: Set<EffectNode.ID> {
+        var ids: Set<EffectNode.ID> = []
+        for track in effects.tracks where !track.isLocked {
+            for node in track.nodes { ids.insert(node.id) }
+        }
+        return ids
+    }
+
+    /// A click on the canvas: selects what it landed on, or with ⌘/⇧ adds it
+    /// to the selection.
+    ///
+    /// A plain click on nothing clears the selection, as clicking empty canvas
+    /// always has. An added click on nothing does not: it is a slip on the way
+    /// to building a group, not a request to drop it.
+    public func pickOnCanvas(_ nodeID: EffectNode.ID?, adding: Bool) {
+        guard let nodeID else {
+            guard !adding else { return }
+            selectedNodeID = nil
+            selectedKeyframe = nil
+            return
+        }
+        if adding {
+            toggleNodeSelection(nodeID)
+        } else if !(selectedNodeIDs.count == 1 && selectedNodeID == nodeID) {
+            selectedNodeID = nodeID
+        }
+    }
+
     /// Drops clips that no longer exist from the selection.
     private func pruneSelection() {
         select(group: selectedNodeIDs.filter { effects[$0] != nil })

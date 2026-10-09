@@ -87,9 +87,8 @@ struct EditorWindow: View {
                     pivotX: pivot.x, pivotY: pivot.y,
                 ))
             },
-            onDeselect: {
-                shell.selectedNodeID = nil
-                shell.selectedKeyframe = nil
+            onPick: { clipID, adding in
+                shell.pickOnCanvas(clipID, adding: adding)
             },
             // Asked for at gesture time, not read here: reading any of these in
             // this body rebuilds the whole window on every edit, which is the
@@ -209,8 +208,14 @@ struct EditorWindow: View {
             }
             // Straight through, with no scheduling hop: the box is drawn from
             // the next frame the canvas renders, and that frame is 16ms away.
-            shell.onSelectionChanged = { [weak playback] id in
-                playback?.selectedClipIDs = id
+            shell.onSelectionChanged = { [weak playback] ids in
+                playback?.selectedClipIDs = ids
+            }
+            // The canvas knows sprites, the shell knows which clips may be
+            // picked; asked per pointer event, so a lane locked a moment ago
+            // is already clicked through.
+            playback.pickableClipIDs = { [weak shell] in
+                shell?.canvasPickableClipIDs ?? []
             }
             // Sprites reach the canvas when a pass lands, and only then.
             //

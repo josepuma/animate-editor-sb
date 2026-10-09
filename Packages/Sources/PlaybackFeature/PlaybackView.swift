@@ -21,7 +21,7 @@ public struct PlaybackView: View {
     private let onClipDrag: ((ClipDrag) -> Void)?
 
     /// Clicking the stage away from the selection clears it.
-    private let onDeselect: (() -> Void)?
+    private let onPick: ((String?, Bool) -> Void)?
 
     /// Whether the framed clip refuses edits.
     /// Whether the selected clip refuses to be moved, asked for at draw time.
@@ -58,7 +58,7 @@ public struct PlaybackView: View {
         isClipLocked: @escaping () -> Bool = { false },
         clipOrigin: (() -> (x: Double, y: Double)?)? = nil,
         onClipDrag: ((ClipDrag) -> Void)? = nil,
-        onDeselect: (() -> Void)? = nil,
+        onPick: ((String?, Bool) -> Void)? = nil,
         editablePath: (() -> MotionPath?)? = nil,
         isDrawingPath: (() -> Bool)? = nil,
         onPathChange: ((MotionPath) -> Void)? = nil,
@@ -73,7 +73,7 @@ public struct PlaybackView: View {
         self.isClipLocked = isClipLocked
         self.clipOrigin = clipOrigin
         self.onClipDrag = onClipDrag
-        self.onDeselect = onDeselect
+        self.onPick = onPick
         self.editablePath = editablePath
         self.isDrawingPath = isDrawingPath
         self.onPathChange = onPathChange
@@ -104,7 +104,7 @@ public struct PlaybackView: View {
             isClipLocked: isClipLocked,
             clipOrigin: clipOrigin,
             onClipDrag: onClipDrag,
-            onDeselect: onDeselect,
+            onPick: onPick,
             editablePath: editablePath,
             isDrawingPath: isDrawingPath,
             onPathChange: onPathChange,
@@ -134,7 +134,9 @@ public struct PlaybackCanvas: View {
     /// here — the same seam every other shell callback in this file uses.
     var clipOrigin: (() -> (x: Double, y: Double)?)?
     var onClipDrag: ((ClipDrag) -> Void)?
-    var onDeselect: (() -> Void)?
+    /// A click on the canvas: the clip it landed on (or `nil` for none) and
+    /// whether ⌘ or ⇧ was held to add it to the selection.
+    var onPick: ((String?, Bool) -> Void)?
     /// The path being edited, or nil when there is nothing to edit.
     var editablePath: (() -> MotionPath?)?
     var isDrawingPath: (() -> Bool)?
@@ -143,6 +145,46 @@ public struct PlaybackCanvas: View {
     var onCameraFrame: ((Double, Double, Double, Double) -> Void)?
     var onCameraPathPoint: ((Double, Double, Double) -> Void)?
     var cameraView: CameraViewSwitch?
+
+    /// Turns a point on the canvas into stage units — the inverse of how the
+    /// selection frame places a box.
+    ///
+    /// The offset is the renderer's (`offset(widescreen:)`), not the constant:
+    /// the hit test asks the renderer, and on a 4:3 map the renderer puts no
+    /// margin before the stage.
+    private func stageCoordinates(viewSize: CGSize) -> (CGPoint) -> (x: Double, y: Double) {
+        let stage = OsuCanvas.size(widescreen: model.isWidescreen)
+        let scale = Double(viewSize.width) / Double(stage.width)
+        let offset = Double(OsuCanvas.offset(widescreen: model.isWidescreen))
+        return { point in
+            (x: Double(point.x) / scale - offset, y: Double(point.y) / scale)
+        }
+    }
+
+    /// The same, for a point measured in the whole canvas view rather than on
+    /// the stage — where the picking layer sits, so a sprite off the stage can
+    /// be picked as well.
+    private func containerCoordinates(stageRect: CGRect) -> (CGPoint) -> (x: Double, y: Double) {
+        let onStage = stageCoordinates(viewSize: stageRect.size)
+        return { point in
+            onStage(CGPoint(x: point.x - stageRect.minX, y: point.y - stageRect.minY))
+        }
+    }
+
+    /// Outlines whichever clip is under the pointer, or none once it leaves.
+    private func hover(at point: CGPoint?, toStage: (CGPoint) -> (x: Double, y: Double)) {
+        model.hoveredClipID = point.flatMap { model.clip(at: toStage($0)) }
+    }
+
+    /// A click: the clip under it, with ⌘ or ⇧ adding it to the selection.
+    private func pick(at point: CGPoint, toStage: (CGPoint) -> (x: Double, y: Double)) {
+        guard let onPick else { return }
+        let flags = NSEvent.modifierFlags
+        onPick(
+            model.clip(at: toStage(point)),
+            flags.contains(.command) || flags.contains(.shift),
+        )
+    }
 
     public var body: some View {
         GeometryReader { proxy in
@@ -154,30 +196,28 @@ public struct PlaybackCanvas: View {
                 width: proxy.size.width,
                 height: proxy.size.height - Self.barHeight,
             )
-            let size = fittedSize(in: available)
+            // The stage sits wherever the zoom and pan put it inside the
+            // space the canvas has; at the fitted view that is the old fitted
+            // rectangle, centred. Every overlay is laid over the stage rect
+            // with its own geometry unchanged — the frame, guides, pen and
+            // camera tools all measure against the stage, not the window.
+            let layout = model.canvasViewport.layout(container: available, stage: model.canvasStageSize)
+            let stageRect = layout.stageRect
+            let size = stageRect.size
 
             VStack(spacing: 0) {
-            ZStack {
-                // Clicking the picture away from a selection clears it, the
-                // way clicking empty space does in any editor. Beneath the
-                // selection box, so the frame's own gestures win where they
-                // overlap — the box is what the pointer was aiming at there.
+            ZStack(alignment: .topLeading) {
+                // The whole space, not just the stage: zoomed out, what sits off
+                // the stage is drawn around it.
                 MetalCanvasView(model: model, source: source)
-                    .frame(width: size.width, height: size.height)
-                    .clipShape(
-                        RoundedRectangle(cornerRadius: Theme.Radius.stage, style: .continuous),
-                    )
-                    // The stage reads as black on black, so without an edge
-                    // there is no telling where the storyboard stops and the
-                    // letterbox behind it starts — a sprite parked just off
-                    // screen looks the same as one that is simply dark.
-                    // Matches the panels around it, since the canvas is a
-                    // surface among them.
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.Radius.stage, style: .continuous)
-                            .strokeBorder(Theme.Border.panel, lineWidth: 1),
-                    )
-                    .elevated(Theme.Elevation.high)
+                    .frame(width: available.width, height: available.height)
+
+                // Off the stage is shown but dimmed, and the stage keeps its
+                // edge: the frame osu! draws is still unmistakable, and what is
+                // past it reads as outside — there to be found and fixed, not
+                // part of the picture.
+                StageMat(stageRect: stageRect, container: available)
+                    .allowsHitTesting(false)
 
                 // Clicking the picture away from a selection clears it, the
                 // way clicking empty space does in any editor.
@@ -186,11 +226,45 @@ public struct PlaybackCanvas: View {
                 // click, and below the selection box, so the frame's own
                 // gestures win where they overlap — there the box is what the
                 // pointer was aiming at.
-                if let onDeselect {
+                //
+                // It also picks: the clip under the pointer is outlined, and a
+                // click selects it — ⌘ or ⇧ to add it to the selection — so
+                // what is plainly on screen can be chosen without hunting for
+                // it on the timeline. Over the whole space, so a sprite off the
+                // stage can be picked too.
+                if let onPick {
+                    let stage = OsuCanvas.size(widescreen: model.isWidescreen)
+                    let toStage = containerCoordinates(stageRect: stageRect)
                     Color.clear
-                        .frame(width: size.width, height: size.height)
+                        .frame(width: available.width, height: available.height)
                         .contentShape(.rect)
-                        .onTapGesture(perform: onDeselect)
+                        .onContinuousHover(coordinateSpace: .local) { phase in
+                            switch phase {
+                            case let .active(location): hover(at: location, toStage: toStage)
+                            case .ended: hover(at: nil, toStage: toStage)
+                            }
+                        }
+                        .gesture(
+                            SpatialTapGesture().onEnded { value in
+                                pick(at: value.location, toStage: toStage)
+                            },
+                        )
+
+                    // Under the selection frame, and only for a clip that is
+                    // not already selected: the frame already says where that
+                    // one is.
+                    if let hovered = model.hoverBounds,
+                       let id = model.hoveredClipID,
+                       !model.selectedClipIDs.contains(id)
+                    {
+                        HoverOutline(
+                            bounds: hovered,
+                            stageSize: (Double(stage.width), Double(stage.height)),
+                            viewSize: size,
+                        )
+                        .onStage(stageRect)
+                        .allowsHitTesting(false)
+                    }
                 }
 
                 if let onClipDrag {
@@ -200,14 +274,24 @@ public struct PlaybackCanvas: View {
                         origin: clipOrigin?(),
                         stageSize: (Double(stage.width), Double(stage.height)),
                         viewSize: size,
+                        // Held to what the view shows, not to the stage: a
+                        // frame larger than the stage is why one zooms out.
+                        visibleArea: CGRect(
+                            x: -stageRect.minX,
+                            y: -stageRect.minY,
+                            width: available.width,
+                            height: available.height,
+                        ),
                         isLocked: isClipLocked(),
+                        onTap: { point in pick(at: point, toStage: stageCoordinates(viewSize: size)) },
+                        onPointer: { point in hover(at: point, toStage: stageCoordinates(viewSize: size)) },
                         onDrag: onClipDrag,
                         onSnap: { snapX, snapY in
                             snappedX = snapX
                             snappedY = snapY
                         },
                     )
-                    .frame(width: size.width, height: size.height)
+                    .onStage(stageRect)
                     // One identity for the life of the canvas.
                     //
                     // Behind an `if let` on the measurement, SwiftUI tore the
@@ -234,7 +318,7 @@ public struct PlaybackCanvas: View {
                         stageSize: (Double(stage.width), Double(stage.height)),
                         viewSize: size,
                     )
-                    .frame(width: size.width, height: size.height)
+                    .onStage(stageRect)
                 }
 
                 // The pen tool, above the frame so its points win where they
@@ -254,7 +338,7 @@ public struct PlaybackCanvas: View {
                         viewSize: size,
                         isDrawing: isDrawingPath?() ?? false,
                     )
-                    .frame(width: size.width, height: size.height)
+                    .onStage(stageRect)
                     .id("path-editor")
                 }
 
@@ -269,14 +353,26 @@ public struct PlaybackCanvas: View {
                         onFrame: onCameraFrame,
                         onPathPoint: onCameraPathPoint,
                     )
-                    .frame(width: size.width, height: size.height)
+                    .onStage(stageRect)
                     .id("camera-frame")
                 }
-
-
-
             }
-            .frame(width: available.width, height: available.height)
+            .frame(width: available.width, height: available.height, alignment: .topLeading)
+            // Behind everything, catching the wheel and the pinch: ⌘ and the
+            // wheel, or a pinch, zoom about the pointer; the wheel alone pans.
+            .background {
+                CanvasScrollMonitor(
+                    onPan: { model.panCanvas(by: $0) },
+                    onZoom: { factor, point in model.zoomCanvas(by: factor, at: point) },
+                )
+            }
+            // The view's own edge: an overlay reaching past it — a frame
+            // larger than the stage, zoomed in — stops here rather than
+            // spilling over the panels around the canvas.
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.stage, style: .continuous))
+            .onChange(of: available, initial: true) { _, size in
+                model.canvasContainerSize = size
+            }
 
             controlBar(canvasSize: size)
                 .frame(height: Self.barHeight)
@@ -321,14 +417,6 @@ public struct PlaybackCanvas: View {
     /// The pills plus the breathing room the rest of the layout uses.
     private static let barHeight: CGFloat = Theme.Size.pill + Theme.Spacing.regular * 2
 
-    private func fittedSize(in available: CGSize) -> CGSize {
-        let size = OsuCanvas.size(widescreen: model.isWidescreen)
-        let aspect = CGFloat(size.width / size.height)
-        let byWidth = CGSize(width: available.width, height: available.width / aspect)
-        return byWidth.height <= available.height
-            ? byWidth
-            : CGSize(width: available.height * aspect, height: available.height)
-    }
 }
 
 // ─── Render statistics ───────────────────────────────────────────────────────
@@ -358,5 +446,148 @@ private struct RenderStats: View {
         // shorter reads as uneven, whatever its own proportions are.
         .frame(height: Theme.Size.pill)
         .capsuleSurface(.bar)
+    }
+}
+
+/// A thin outline around the clip under the pointer.
+///
+/// Thinner and fainter than the selection frame, with no handles: it says
+/// "this is what a click would pick", not "this is picked". Turned with the
+/// clip, like the frame, so the outline sits where the clip is drawn.
+private struct HoverOutline: View {
+    let bounds: ClipBounds
+    let stageSize: (width: Double, height: Double)
+    let viewSize: CGSize
+
+    var body: some View {
+        let scale = Double(viewSize.width) / stageSize.width
+        let rect = CGRect(
+            x: (bounds.minX + Double(OsuCanvas.xOffset)) * scale,
+            y: bounds.minY * scale,
+            width: bounds.width * scale,
+            height: bounds.height * scale,
+        )
+        Rectangle()
+            .strokeBorder(Theme.Palette.selection.opacity(0.6), lineWidth: 1)
+            .frame(width: rect.width, height: rect.height)
+            .rotationEffect(.radians(bounds.rotation))
+            .position(x: rect.midX, y: rect.midY)
+    }
+}
+
+private extension View {
+    /// Lays an overlay over the stage rect, so its own stage geometry holds
+    /// wherever the zoom and pan have put the stage.
+    func onStage(_ rect: CGRect) -> some View {
+        frame(width: rect.width, height: rect.height)
+            .offset(x: rect.minX, y: rect.minY)
+    }
+}
+
+/// Dims what lies off the stage and draws the stage's edge.
+///
+/// The canvas shows what sits outside the frame osu! draws — that is what
+/// zooming out is for — but it must still read as outside: dimmed, with the
+/// stage's edge unmistakable.
+private struct StageMat: View {
+    let stageRect: CGRect
+    let container: CGSize
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            // The hole and the edge share one radius — the stage's, the same
+            // one every other surface in the app is cut to. A square stage
+            // inside rounded panels read as a different family of thing.
+            Path { path in
+                path.addRect(CGRect(origin: .zero, size: container))
+                path.addRoundedRect(
+                    in: stageRect,
+                    cornerSize: CGSize(width: Theme.Radius.stage, height: Theme.Radius.stage),
+                    style: .continuous,
+                )
+            }
+            .fill(Theme.Fill.offStage, style: FillStyle(eoFill: true))
+
+            RoundedRectangle(cornerRadius: Theme.Radius.stage, style: .continuous)
+                .strokeBorder(Theme.Border.stage, lineWidth: 1)
+                .frame(width: stageRect.width, height: stageRect.height)
+                .offset(x: stageRect.minX, y: stageRect.minY)
+        }
+        .frame(width: container.width, height: container.height, alignment: .topLeading)
+    }
+}
+
+/// Catches the scroll wheel and the trackpad pinch over the canvas.
+///
+/// SwiftUI on macOS has no scroll-wheel handler, and the Metal view under the
+/// canvas keeps its own events — so a local monitor, answering only for
+/// events over this view and in its window, and leaving every other scroll in
+/// the app alone. It takes no clicks: it only listens.
+private struct CanvasScrollMonitor: NSViewRepresentable {
+    var onPan: (CGSize) -> Void
+    var onZoom: (Double, CGPoint) -> Void
+
+    func makeNSView(context _: Context) -> MonitorView {
+        let view = MonitorView()
+        view.onPan = onPan
+        view.onZoom = onZoom
+        return view
+    }
+
+    func updateNSView(_ view: MonitorView, context _: Context) {
+        view.onPan = onPan
+        view.onZoom = onZoom
+    }
+
+    final class MonitorView: NSView {
+        var onPan: (CGSize) -> Void = { _ in }
+        var onZoom: (Double, CGPoint) -> Void = { _, _ in }
+        private var monitor: Any?
+
+        /// Top-left origin, the way SwiftUI measures the canvas.
+        override var isFlipped: Bool { true }
+
+        /// Listens only; clicks go to whatever is in front.
+        override func hitTest(_: NSPoint) -> NSView? { nil }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            // Removed when the view leaves its window, which is also how it
+            // leaves for good; a monitor left behind would answer for a
+            // canvas that no longer exists.
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify]) { [weak self] event in
+                guard let self, let handled = self.handle(event), handled else { return event }
+                return nil
+            }
+        }
+
+        /// `true` when the event was over the canvas and has been used.
+        private func handle(_ event: NSEvent) -> Bool? {
+            guard event.window === window else { return false }
+            let point = convert(event.locationInWindow, from: nil)
+            guard bounds.contains(point) else { return false }
+
+            switch event.type {
+            case .magnify:
+                onZoom(1 + event.magnification, point)
+            case .scrollWheel:
+                // A mouse wheel reports lines, a trackpad points; lines are
+                // scaled so a notch moves a useful amount.
+                let step: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 12
+                let dx = event.scrollingDeltaX * step
+                let dy = event.scrollingDeltaY * step
+                if event.modifierFlags.contains(.command) {
+                    onZoom(pow(1.01, Double(dy)), point)
+                } else {
+                    onPan(CGSize(width: dx, height: dy))
+                }
+            default:
+                return false
+            }
+            return true
+        }
     }
 }

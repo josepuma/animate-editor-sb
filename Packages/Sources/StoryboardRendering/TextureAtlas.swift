@@ -3,6 +3,7 @@ import ImageIO
 import Metal
 import MetalKit
 import simd
+import StoryboardCore
 
 /// Packs sprite images into array-texture slices and records where each one landed.
 ///
@@ -18,6 +19,8 @@ struct TextureAtlas {
         let uvRect: SIMD4<Float>
         /// Original pixel size, used to size the quad.
         let pixelSize: SIMD2<Float>
+        /// The image's transparency, for picking on the canvas.
+        var mask: AlphaMask? = nil
     }
 
     let texture: MTLTexture
@@ -217,6 +220,7 @@ struct TextureAtlas {
                 // oversized image is shrunk before upload, and reading the
                 // texture here would shrink the sprite on screen with it.
                 pixelSize: entry.loaded.drawnSize,
+                mask: entry.loaded.mask,
             )
         }
 

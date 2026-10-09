@@ -78,6 +78,22 @@ public enum Theme {
     // ─── Sizing ──────────────────────────────────────────────────────────────
 
     public enum Size {
+        /// The home screen's hero, as a share of the window's height. A share
+        /// rather than points: the trailer is the page's subject, and fixed at
+        /// one height it is a strip on a tall window and a wall on a short one.
+        public static let heroShare: CGFloat = 0.78
+        /// The least the hero shrinks to, so title and buttons always fit.
+        public static let heroMinimum: CGFloat = 340
+        /// How wide the hero's words may run before wrapping: past that a line
+        /// crosses the subject of the picture it is laid over.
+        public static let heroText: CGFloat = 520
+        /// The narrowest a card on the home screen's grid gets. The grid fits
+        /// as many columns as clear it and shares out the rest, so a 16:9
+        /// thumbnail still shows a storyboard's art.
+        public static let shelfCard: CGFloat = 300
+        /// How far the first row of projects rides up into the hero's faded
+        /// foot.
+        public static let heroOverlap: CGFloat = 150
         /// 22 — dense icon button, for secondary actions in a crowded bar.
         public static let controlTiny: CGFloat = 22
         /// 28 — compact icon button.
@@ -191,6 +207,16 @@ public enum Theme {
         // a plain grotesk: Geist was tried first and read as too neutral —
         // correct, and without character.
 
+        /// The one title on a page that is a poster rather than a header — the
+        /// featured project over its trailer. Large and heavy because it sits on
+        /// moving pictures and has to hold its own against them. SemiBold, the
+        /// heaviest cut bundled: a name that is not registered falls back to
+        /// San Francisco without a word.
+        public static let display = Font.custom(Theme.FontFace.semibold, size: 44, relativeTo: .largeTitle)
+        /// A card's title on the home screen's shelf: a step above a row's,
+        /// because it names a whole project under a picture, not an item in a
+        /// list.
+        public static let shelfTitle = Font.custom(Theme.FontFace.semibold, size: 15, relativeTo: .headline)
         /// Screen titles.
         public static let title = Font.custom(Theme.FontFace.semibold, size: 28, relativeTo: .largeTitle)
         /// Section headings.
@@ -255,17 +281,22 @@ public enum Theme {
         ///
         /// **One accent, used for everything that is chosen.** There used to be
         /// three — a violet accent, an amber selection and an orange playhead —
-        /// and three colours all saying "look here" say nothing. Lime because it
-        /// is the hue furthest from every track tint and from the warm colours
-        /// that mean warning, so it stays legible on any lane.
-        public static let accent = Color(red: 0.76, green: 0.95, blue: 0.42)
+        /// and three colours all saying "look here" say nothing.
+        ///
+        /// osu!'s own pink (#FF66AA): this is a storyboard editor for that
+        /// game, and its brand colour is the one its players already read as
+        /// "this is osu!". It was lime before, chosen as the hue furthest from
+        /// every track tint; pink sits close to `TrackPalette.pink`, so a
+        /// selected clip on a pink lane outlines in nearly its own colour. That
+        /// was weighed and accepted — the lane palette is unchanged.
+        public static let accent = Color(red: 1.0, green: 0.4, blue: 0.667)
         /// Text and glyphs drawn on the accent.
         ///
-        /// Dark, not white: lime is a light colour, and white on it fails
-        /// contrast the way white on yellow does.
+        /// Dark, not white: the pink is light enough that white on it loses
+        /// contrast, and dark on it reads at a glance.
         public static let onAccent = Color(red: 0.05, green: 0.05, blue: 0.06)
         /// A softer accent for fills behind content.
-        public static let accentMuted = Color(red: 0.76, green: 0.95, blue: 0.42).opacity(0.16)
+        public static let accentMuted = Color(red: 1.0, green: 0.4, blue: 0.667).opacity(0.16)
         /// The playhead: a thin white line.
         ///
         /// White rather than the accent, so it never reads as one more chosen
@@ -275,9 +306,10 @@ public enum Theme {
         /// The frame around a selected clip on the timeline.
         ///
         /// The accent itself. It used to be amber because the violet accent
-        /// vanished on a violet lane; lime does not collide with any track tint,
-        /// so the reason for a second "selected" colour went away with violet.
-        /// Kept as its own name because it answers its own question.
+        /// vanished on a violet lane. On a pink lane the osu! pink nearly does
+        /// the same — a known, accepted cost (see `accent`). Kept as its own
+        /// name because it answers its own question, and so a second colour
+        /// can come back here if that cost stops being worth it.
         public static let selection = accent
         /// Something needs attention but still works.
         public static let warning = Color(red: 0.98, green: 0.68, blue: 0.25)
@@ -317,6 +349,9 @@ public enum Theme {
     /// opacities they drift: the same control ends up at 0.12 in one place and
     /// 0.1 in another, and nobody notices until the two sit side by side.
     public enum Fill {
+        /// 0.75 black — over the canvas outside the stage: still visible, so a
+        /// sprite parked there can be found, but plainly not the picture.
+        public static let offStage = Color.black.opacity(0.75)
         /// 0.03 — a block grouping other controls, barely distinct from behind.
         public static let subtle = Color.white.opacity(0.03)
         /// 0.05 — a panel anchored to the window: side panel, inspector, cards.
@@ -368,6 +403,13 @@ public enum Theme {
         public static let badge = Color.white.opacity(0.2)
         /// 0.35 — the playhead's own edge.
         public static let handle = Color.white.opacity(0.35)
+        /// 0.6 — the edge of the stage on the canvas: what osu! will draw.
+        ///
+        /// Strong on purpose. With the canvas showing what lies off the stage,
+        /// this line is the only thing saying where the storyboard ends, and at
+        /// a panel's 0.04 it disappeared against the black — reported as not
+        /// being able to tell what would end up in the storyboard.
+        public static let stage = Color.white.opacity(0.6)
     }
 
     /// Colours identifying content, chosen to stay distinct from each other
@@ -375,8 +417,9 @@ public enum Theme {
     ///
     /// A notch less saturated than they were, so the accent stays the loudest
     /// thing on screen: a selection frame has to win against the lane under it.
-    /// Green leans cool (emerald) for the same reason — next to a lime accent,
-    /// a yellow-green lane would read as half-selected.
+    /// Green leans cool (emerald), from when the accent was lime and a
+    /// yellow-green lane read as half-selected. Pink is the lane that now sits
+    /// nearest the accent.
     public enum TrackPalette {
         public static let blue = Color(red: 0.40, green: 0.60, blue: 0.92)
         public static let violet = Color(red: 0.60, green: 0.46, blue: 0.92)

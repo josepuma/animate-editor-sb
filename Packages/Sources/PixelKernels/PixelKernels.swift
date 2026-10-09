@@ -14,6 +14,41 @@
 /// needed. No closures cross into it: a closure from another module is not
 /// inlined, and a per-pixel call is the cost this target exists to avoid.
 public enum PixelKernels {
+    // ─── Alpha masks ─────────────────────────────────────────────────────────
+
+    /// Shrinks an image's alpha to `toWidth` × `height`, each cell keeping the
+    /// most opaque pixel that falls in it — so a one-pixel line survives where
+    /// an average would fade it out. RGBA bytes, row 0 at the top.
+    public static func maxAlpha(
+        _ bytes: UnsafeRawBufferPointer,
+        width: Int,
+        height: Int,
+        bytesPerRow: Int,
+        toWidth maskWidth: Int,
+        height maskHeight: Int,
+    ) -> [UInt8] {
+        var out = [UInt8](repeating: 0, count: maskWidth * maskHeight)
+        guard width > 0, height > 0, maskWidth > 0, maskHeight > 0 else { return out }
+        // The cell each column falls in, worked out once rather than per pixel.
+        var columnCell = [Int](repeating: 0, count: width)
+        for x in 0..<width { columnCell[x] = min(maskWidth - 1, x * maskWidth / width) }
+
+        out.withUnsafeMutableBufferPointer { out in
+            columnCell.withUnsafeBufferPointer { columnCell in
+                for y in 0..<height {
+                    let rowStart = min(maskHeight - 1, y * maskHeight / height) * maskWidth
+                    let source = y * bytesPerRow + 3
+                    for x in 0..<width {
+                        let value = bytes[source + x * 4]
+                        let index = rowStart + columnCell[x]
+                        if value > out[index] { out[index] = value }
+                    }
+                }
+            }
+        }
+        return out
+    }
+
     // ─── Outline ─────────────────────────────────────────────────────────────
 
     /// Every pixel white, at the larger of its own alpha and a ring that

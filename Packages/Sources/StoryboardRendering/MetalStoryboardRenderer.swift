@@ -1,5 +1,6 @@
 import Metal
 import MetalKit
+import PixelKernels
 import StoryboardCore
 import StoryboardShaderTypes
 import simd
@@ -79,6 +80,12 @@ public final class MetalStoryboardRenderer {
     /// this one, which is what osu! does with it.
     public var isWidescreen = true
 
+    /// The part of the canvas the view shows, in canvas units, or `nil` for
+    /// exactly the stage. Set by the canvas from its zoom and pan, and used
+    /// only when drawing to the screen: a frame rendered into a texture — an
+    /// export, a preview — is always the stage.
+    public var visibleArea: CGRect?
+
     /// Sprites are drawn in this order; layers are sorted bottom to top.
     private var drawOrder: [PreparedSprite] = []
 
@@ -123,6 +130,46 @@ public final class MetalStoryboardRenderer {
 
     /// The box around `measuredClipIDs`' sprites, as of the last frame drawn.
     public private(set) var measuredBounds: ClipBounds?
+
+    /// The clip under the pointer, outlined so it can be picked.
+    ///
+    /// Measured in the same pass as the selection, for the same reason: the
+    /// states are already resolved, and the outline has to follow a clip that
+    /// moves while the pointer rests over it.
+    public var hoveredClipID: String?
+
+    /// The box around `hoveredClipID`'s sprites, as of the last frame drawn.
+    public private(set) var hoveredBounds: ClipBounds?
+
+    /// Which clip is drawn at a point on the stage, as of the last frame.
+    ///
+    /// Asked of the frame already on screen rather than resolving the moment
+    /// again: what the pointer is over is what was drawn, and the states are
+    /// still here from drawing it. Called on a pointer event, not per frame.
+    ///
+    /// - Parameter owner: the clip a sprite belongs to, or `nil` when it may
+    ///   not be picked — those are clicked through.
+    public func clip(at point: (x: Double, y: Double), owner: (String) -> String?) -> String? {
+        var candidates: [CanvasHitTest.Candidate] = []
+        candidates.reserveCapacity(scratchStates.count)
+        for (position, state) in scratchStates.enumerated() {
+            let sprite = drawOrder[scratchIndices[position]]
+            let entry = atlas?.entries[sprite.filePath]
+            let size = entry?.pixelSize ?? SIMD2<Float>(100, 100)
+            var state = state
+            state.spriteId = sprite.id
+            candidates.append(CanvasHitTest.Candidate(
+                state: state,
+                width: Double(size.x),
+                height: Double(size.y),
+                origin: sprite.origin,
+                // No entry means a missing image, drawn as a flat quad: its
+                // box is exactly what it draws.
+                mask: entry?.mask,
+            ))
+        }
+        return CanvasHitTest.clip(at: point, in: candidates, owner: owner)
+    }
 
     // ─── Setup ───────────────────────────────────────────────────────────────
 
@@ -371,7 +418,7 @@ public final class MetalStoryboardRenderer {
               let drawable = view.currentDrawable
         else { return }
 
-        render(at: time, into: descriptor) { commandBuffer in
+        render(at: time, into: descriptor, visible: visibleArea) { commandBuffer in
             commandBuffer.present(drawable)
             commandBuffer.commit()
         }
@@ -402,7 +449,9 @@ public final class MetalStoryboardRenderer {
         descriptor.colorAttachments[0].clearColor = background
 
         var drew = false
-        render(at: time, into: descriptor) { commandBuffer in
+        // Always the stage: an export or a preview is the storyboard, not the
+        // editor's zoomed view of it.
+        render(at: time, into: descriptor, visible: nil) { commandBuffer in
             // Waited on rather than presented: an exporter reads the texture
             // back the moment this returns, and reading a frame the GPU has not
             // finished writing gives whatever was there before.
@@ -417,6 +466,7 @@ public final class MetalStoryboardRenderer {
     private func render(
         at time: Double,
         into descriptor: MTLRenderPassDescriptor,
+        visible: CGRect?,
         finish: (MTLCommandBuffer) -> Void,
     ) {
 
@@ -442,7 +492,7 @@ public final class MetalStoryboardRenderer {
         }
 
         var uniforms = Uniforms(
-            projection: Self.projectionMatrix(widescreen: isWidescreen),
+            projection: Self.projectionMatrix(widescreen: isWidescreen, visible: visible),
         )
         uniformBuffer.contents().copyMemory(
             from: &uniforms,
@@ -512,6 +562,7 @@ public final class MetalStoryboardRenderer {
         instances.removeAll(keepingCapacity: true)
         batches.removeAll(keepingCapacity: true)
         var measured: ClipBounds?
+        var hovered: ClipBounds?
 
         // `resolve` reports which prepared sprite each state came from, so the
         // metadata is one subscript away.
@@ -530,13 +581,17 @@ public final class MetalStoryboardRenderer {
             let entry = atlas?.entries[sprite.filePath]
             let size = entry?.pixelSize ?? SIMD2<Float>(100, 100)
 
-            if !measuredClipIDs.isEmpty, ClipBounds.sprite(sprite.id, belongsToAnyOf: measuredClipIDs) {
+            let isSelected = !measuredClipIDs.isEmpty
+                && ClipBounds.sprite(sprite.id, belongsToAnyOf: measuredClipIDs)
+            let isHovered = hoveredClipID.map { ClipBounds.sprite(sprite.id, belongsTo: $0) } ?? false
+            if isSelected || isHovered {
                 let box = ClipBounds.around(
                     [state],
                     sizeOf: { _ in (width: Double(size.x), height: Double(size.y)) },
                     originOf: { _ in sprite.origin },
                 )
-                if let box { measured = measured.map { $0.union(box) } ?? box }
+                if let box, isSelected { measured = measured.map { $0.union(box) } ?? box }
+                if let box, isHovered { hovered = hovered.map { $0.union(box) } ?? box }
             }
 
             var state = state
@@ -594,20 +649,31 @@ public final class MetalStoryboardRenderer {
         }
 
         measuredBounds = measured
+        hoveredBounds = hovered
     }
 
     /// Orthographic projection from canvas space to clip space.
     ///
     /// Canvas space has Y increasing downwards; clip space has Y increasing
     /// upwards, so the Y row is negated.
-    private static func projectionMatrix(widescreen: Bool) -> matrix_float4x4 {
-        let (width, height) = OsuCanvas.size(widescreen: widescreen)
+    ///
+    /// Maps `visible` — the part of the canvas the view shows, in canvas units
+    /// — onto the whole view. Without one, the stage exactly fills it, which is
+    /// the fitted view; zoomed out, the visible area is larger than the stage
+    /// and what sits off it is drawn around it.
+    nonisolated static func projectionMatrix(widescreen: Bool, visible: CGRect?) -> matrix_float4x4 {
+        let (stageWidth, stageHeight) = OsuCanvas.size(widescreen: widescreen)
+        let area = visible ?? CGRect(x: 0, y: 0, width: CGFloat(stageWidth), height: CGFloat(stageHeight))
+        let width = Float(area.width)
+        let height = Float(area.height)
+        let minX = Float(area.minX)
+        let minY = Float(area.minY)
 
         return matrix_float4x4(columns: (
             SIMD4<Float>(2 / width, 0, 0, 0),
             SIMD4<Float>(0, -2 / height, 0, 0),
             SIMD4<Float>(0, 0, 1, 0),
-            SIMD4<Float>(-1, 1, 0, 1),
+            SIMD4<Float>(-1 - 2 * minX / width, 1 + 2 * minY / height, 0, 1),
         ))
     }
 }
@@ -660,6 +726,9 @@ public enum RendererError: Error, CustomStringConvertible {
 public struct LoadedTexture {
     public let texture: MTLTexture
     public let drawnSize: SIMD2<Float>
+    /// The image's transparency, kept on the CPU so the canvas can tell what
+    /// the pointer is over. Built from the bytes already decoded for upload.
+    public var mask: AlphaMask? = nil
 }
 
 extension MTKTextureLoader {
@@ -687,10 +756,8 @@ extension MTKTextureLoader {
             let drawnSize = SIMD2<Float>(Float(image.width), Float(image.height))
             let fitted = Self.fitted(image) ?? image
 
-            return LoadedTexture(
-                texture: try Self.makeTexture(from: fitted, device: loader.device),
-                drawnSize: drawnSize,
-            )
+            let made = try Self.makeTexture(from: fitted, device: loader.device)
+            return LoadedTexture(texture: made.texture, drawnSize: drawnSize, mask: made.mask)
         }
 
         /// Shrinks an image that exceeds what the format accepts.
@@ -741,7 +808,10 @@ extension MTKTextureLoader {
         /// Core Graphics handles whatever the source format was — indexed,
         /// greyscale, 16-bit, BGRA — and writes straight RGBA, which is what
         /// the shader premultiplies and the atlas expects.
-        private static func makeTexture(from image: CGImage, device: MTLDevice) throws -> MTLTexture {
+        private static func makeTexture(
+            from image: CGImage,
+            device: MTLDevice,
+        ) throws -> (texture: MTLTexture, mask: AlphaMask) {
             let width = image.width
             let height = image.height
             let bytesPerRow = width * 4
@@ -798,7 +868,20 @@ extension MTKTextureLoader {
                     bytesPerRow: bytesPerRow,
                 )
             }
-            return texture
+            // From the same bytes, while they are here: once uploaded, reading
+            // them back would mean waiting on the GPU.
+            let maskSize = AlphaMask.size(width: width, height: height)
+            let mask = AlphaMask(
+                width: maskSize.width,
+                height: maskSize.height,
+                alpha: pixels.withUnsafeBytes {
+                    PixelKernels.maxAlpha(
+                        $0, width: width, height: height, bytesPerRow: bytesPerRow,
+                        toWidth: maskSize.width, height: maskSize.height,
+                    )
+                },
+            )
+            return (texture, mask)
         }
     }
 }

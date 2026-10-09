@@ -61,12 +61,27 @@ struct SelectionBox: View {
     /// Stage size, so stage units can be converted to points and back.
     let stageSize: (width: Double, height: Double)
     let viewSize: CGSize
+
+    /// The part of the canvas the view shows, in this frame's coordinates —
+    /// larger than the stage when zoomed out. `nil` is the stage itself.
+    var visibleArea: CGRect? = nil
     /// Whether the framed clip refuses edits.
     ///
     /// Answered on demand rather than passed in: read as a property it made the
     /// window rebuild on every selection, and it matters only at the moment a
     /// gesture would move something.
     var isLocked: Bool
+    /// A still click inside the frame, in canvas coordinates.
+    ///
+    /// The frame covers the canvas beneath it, so without this a click on a
+    /// clip drawn inside a selected one — a title over a selected background —
+    /// went nowhere: too still to be a move, and never reaching the canvas.
+    var onTap: ((CGPoint) -> Void)?
+
+    /// Where the pointer is over the frame, in canvas coordinates, or `nil`
+    /// once it leaves — so the clip under it can be outlined here too.
+    var onPointer: ((CGPoint?) -> Void)?
+
     let onDrag: (ClipDrag) -> Void
 
     /// Which stage lines the clip is currently caught on, for the canvas to
@@ -81,6 +96,12 @@ struct SelectionBox: View {
 
     /// Points per stage unit. One number because the stage keeps its aspect.
     private var scale: Double { viewSize.width / stageSize.width }
+
+    /// What the frame is held to: the visible part of the canvas, in the
+    /// frame's own coordinates, or the stage when the canvas is fitted.
+    private var visibleRect: CGRect {
+        visibleArea ?? CGRect(origin: .zero, size: viewSize)
+    }
 
     /// The gesture's travel so far, applied to the box as it is drawn.
     ///
@@ -197,7 +218,7 @@ struct SelectionBox: View {
         // screen. Its four borders sit far outside the canvas, so what is
         // drawn inside the stage is its empty middle: the frame is there and
         // reads as gone, taking the resize handles with it.
-        return Self.shown(raw, rotation: bounds.rotation, in: viewSize, isDragging: isDragging)
+        return Self.shown(raw, rotation: bounds.rotation, in: visibleRect, isDragging: isDragging)
     }
 
     /// The smallest a frame is drawn while a gesture is carrying it.
@@ -220,18 +241,25 @@ struct SelectionBox: View {
     /// since held to the stage it measures as nothing and a frame there is a
     /// dot.
     static func shown(_ raw: CGRect, rotation: Double, in viewSize: CGSize, isDragging: Bool) -> CGRect? {
-        if let held = held(raw, rotation: rotation, in: viewSize) { return held }
+        shown(raw, rotation: rotation, in: CGRect(origin: .zero, size: viewSize), isDragging: isDragging)
+    }
+
+    /// The same, held to `area` — the part of the canvas the view shows, in
+    /// the frame's coordinates. At the fitted view that is the stage; zoomed
+    /// out it reaches past it, and the frame with it.
+    static func shown(_ raw: CGRect, rotation: Double, in area: CGRect, isDragging: Bool) -> CGRect? {
+        if let held = held(raw, rotation: rotation, in: area) { return held }
         // Compared edge by edge rather than with `intersects`, which calls a
         // box of zero height — exactly a squashed clip — empty and never on
         // anything.
-        let onStage = raw.maxX >= 0 && raw.minX <= viewSize.width
-            && raw.maxY >= 0 && raw.minY <= viewSize.height
-        guard isDragging || onStage else { return nil }
+        let inView = raw.maxX >= area.minX && raw.minX <= area.maxX
+            && raw.maxY >= area.minY && raw.minY <= area.maxY
+        guard isDragging || inView else { return nil }
         let inset = edgeInset
-        let width = min(max(raw.width, minimumDraggedSize), viewSize.width - inset * 2)
-        let height = min(max(raw.height, minimumDraggedSize), viewSize.height - inset * 2)
-        let midX = min(max(raw.midX, inset + width / 2), viewSize.width - inset - width / 2)
-        let midY = min(max(raw.midY, inset + height / 2), viewSize.height - inset - height / 2)
+        let width = min(max(raw.width, minimumDraggedSize), area.width - inset * 2)
+        let height = min(max(raw.height, minimumDraggedSize), area.height - inset * 2)
+        let midX = min(max(raw.midX, area.minX + inset + width / 2), area.maxX - inset - width / 2)
+        let midY = min(max(raw.midY, area.minY + inset + height / 2), area.maxY - inset - height / 2)
         return CGRect(x: midX - width / 2, y: midY - height / 2, width: width, height: height)
     }
 
@@ -262,15 +290,20 @@ struct SelectionBox: View {
     /// twelve points off a stretched, rotated shape. A turned frame is left
     /// whole; the stage clips what overhangs.
     static func held(_ raw: CGRect, rotation: Double, in viewSize: CGSize) -> CGRect? {
+        held(raw, rotation: rotation, in: CGRect(origin: .zero, size: viewSize))
+    }
+
+    /// The same, held to `area` rather than to the stage.
+    static func held(_ raw: CGRect, rotation: Double, in area: CGRect) -> CGRect? {
         guard abs(rotation) < 0.0001 else {
             guard raw.width > minimumSize, raw.height > minimumSize else { return nil }
             return raw
         }
         let inset = edgeInset
-        let minX = max(inset, raw.minX)
-        let minY = max(inset, raw.minY)
-        let maxX = min(viewSize.width - inset, raw.maxX)
-        let maxY = min(viewSize.height - inset, raw.maxY)
+        let minX = max(area.minX + inset, raw.minX)
+        let minY = max(area.minY + inset, raw.minY)
+        let maxX = min(area.maxX - inset, raw.maxX)
+        let maxY = min(area.maxY - inset, raw.maxY)
 
         // A clip whose sprites are momentarily off-stage measures as nothing,
         // and clamping that to a pixel collapsed the frame to a dot mid-drag.
@@ -440,8 +473,12 @@ struct SelectionBox: View {
                         y: box.minY - liveOffset.height + inset,
                     )
                     .gesture(moveGesture)
+                    .simultaneousGesture(tapGesture)
                     .onHover { hovering in
                         setZone(.body, hovering)
+                    }
+                    .onContinuousHover(coordinateSpace: .named(Self.canvasSpace)) { phase in
+                        reportPointer(phase)
                     }
             }
         }
@@ -453,7 +490,8 @@ struct SelectionBox: View {
         // Clipped to the stage: a background is deliberately larger than the
         // frame it fills, and a box drawn past the edge would spill over the
         // panels beside the canvas.
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.stage, style: .continuous))
+        // Not clipped to the stage: the canvas clips its whole view, and a
+        // zoomed-out frame reaching past the stage is the point of zooming out.
         // A locked clip takes the pointer so it can refuse *out loud*.
         //
         // It used to opt out of hit testing entirely, which meant a drag
@@ -468,7 +506,28 @@ struct SelectionBox: View {
                     .contentShape(.rect)
                     .offset(x: box.minX, y: box.minY)
                     .onHover { hovering in setZone(.locked, hovering) }
+                    .gesture(tapGesture)
+                    .onContinuousHover(coordinateSpace: .named(Self.canvasSpace)) { phase in
+                        reportPointer(phase)
+                    }
             }
+        }
+        // Outermost, so the locked overlay is inside it too: taps and hovers
+        // report in the canvas's own coordinates, whichever layer took them.
+        .coordinateSpace(.named(Self.canvasSpace))
+    }
+
+    private static let canvasSpace = "SelectionBox.canvas"
+
+    private var tapGesture: some Gesture {
+        SpatialTapGesture(coordinateSpace: .named(Self.canvasSpace))
+            .onEnded { value in onTap?(value.location) }
+    }
+
+    private func reportPointer(_ phase: HoverPhase) {
+        switch phase {
+        case let .active(location): onPointer?(location)
+        case .ended: onPointer?(nil)
         }
     }
 
@@ -879,8 +938,8 @@ struct SelectionBox: View {
         // here it no longer shares space with them.
         let margin = Double(Self.gripSize)
         return CGPoint(
-            x: min(max(margin, x), viewSize.width - margin),
-            y: min(max(margin, y), viewSize.height - margin),
+            x: min(max(visibleRect.minX + margin, x), visibleRect.maxX - margin),
+            y: min(max(visibleRect.minY + margin, y), visibleRect.maxY - margin),
         )
     }
 
