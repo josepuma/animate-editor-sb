@@ -481,13 +481,26 @@ struct EditorWindow: View {
                 return { stream.stop() }
             }
 
-            shell.exportHandler = { sprites, projectFolder in
-                let prepared = StoryboardExport.prepareUsingAppImages(sprites) { path in
-                    // Read straight off the folder being edited. A sprite path
-                    // is relative to it, which is exactly how the exported file
-                    // will name it again.
-                    try? Data(contentsOf: projectFolder.appendingPathComponent(path))
-                }
+            // A sample's length is its file's, so the model asks the platform.
+            // Read through the folder, which confines the path to it.
+            shell.audioDuration = { [weak shell] path in
+                guard let folder = shell?.projectFolder,
+                      let url = (try? BeatmapFolder(url: folder))?.fileURL(forRelativePath: path)
+                else { return nil }
+                return AudioFileInfo.duration(of: url)
+            }
+
+            shell.exportHandler = { sprites, samples, projectFolder in
+                // Every read goes through the folder, which refuses a path
+                // that climbs out of it: sprite and sample paths come from a
+                // `.osb` someone else may have written.
+                let beatmap = try? BeatmapFolder(url: projectFolder)
+                let prepared = StoryboardExport.prepareUsingAppImages(
+                    sprites,
+                    samples: samples,
+                    beatmapImage: { beatmap?.data(forRelativePath: $0) },
+                    beatmapAudio: { beatmap?.data(forRelativePath: $0) },
+                )
                 return try StoryboardExport.write(
                     prepared,
                     toFolder: projectFolder,

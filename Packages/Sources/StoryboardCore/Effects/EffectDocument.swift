@@ -819,6 +819,8 @@ public struct EffectDocument: Sendable, Codable {
         minimumDuration: Double = 100,
     ) {
         guard let location = locate(nodeID) else { return }
+        // A sound is as long as its file; no entry point stretches it.
+        guard tracks[location.track].nodes[location.node].type != SampleEffect.descriptor.type else { return }
         let old = tracks[location.track].nodes[location.node].duration
         let new = max(minimumDuration, duration)
 

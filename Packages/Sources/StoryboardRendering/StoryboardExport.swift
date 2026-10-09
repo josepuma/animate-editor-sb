@@ -23,6 +23,40 @@ public enum StoryboardExport {
         public let storyboard: String
         /// Generated images, keyed by their path relative to the folder.
         public let images: [String: Data]
+        /// Sample audio, keyed by the path the `Sample` line names. Only files
+        /// that could be read: an unreadable one keeps its line and is the
+        /// mapper's to find, as a missing image is.
+        public let audio: [String: Data]
+    }
+
+    /// The extensions osu! plays as a sample.
+    static let sampleExtensions: Set<String> = ["wav", "ogg", "mp3"]
+
+    /// Resolves `path` beneath `directory`, or `nil` if it would land anywhere
+    /// else.
+    ///
+    /// A path in a `.osb` is somebody else's input. Backslashes are Windows
+    /// separators and are mapped first — otherwise `..\x` would slip past a
+    /// check that only knows `/`. Absolute paths and any `..` component are
+    /// refused outright, then the standardized result must sit under the
+    /// directory **on a directory boundary**: a bare string prefix would let
+    /// `export-evil/` pass for `export`.
+    static func contained(_ path: String, in directory: URL) -> URL? {
+        let normalised = path.replacingOccurrences(of: "\\", with: "/")
+        guard !normalised.isEmpty, !normalised.hasPrefix("/") else { return nil }
+        let components = normalised.split(separator: "/", omittingEmptySubsequences: true)
+        guard !components.isEmpty, !components.contains("..") else { return nil }
+
+        let root = directory.standardizedFileURL
+        let destination = root.appendingPathComponent(normalised).standardizedFileURL
+        let prefix = root.path.hasSuffix("/") ? root.path : root.path + "/"
+        guard destination.path.hasPrefix(prefix) else { return nil }
+        return destination
+    }
+
+    private static func isSampleFile(_ path: String) -> Bool {
+        guard let dot = path.lastIndex(of: ".") else { return false }
+        return sampleExtensions.contains(path[path.index(after: dot)...].lowercased())
     }
 
     /// Prepares a storyboard for a folder, rewriting paths as it goes.
@@ -39,14 +73,23 @@ public enum StoryboardExport {
     /// test process down with it.
     public static func prepareUsingAppImages(
         _ sprites: [StoryboardSprite],
+        samples: [StoryboardSample] = [],
         beatmapImage: @escaping (String) -> Data? = { _ in nil },
+        beatmapAudio: @escaping (String) -> Data? = { _ in nil },
     ) -> Result {
-        prepare(sprites) { appImageData(for: $0, beatmapImage: beatmapImage) }
+        prepare(
+            sprites,
+            samples: samples,
+            imageData: { appImageData(for: $0, beatmapImage: beatmapImage) },
+            audioData: beatmapAudio,
+        )
     }
 
     public static func prepare(
         _ sprites: [StoryboardSprite],
+        samples: [StoryboardSample] = [],
         imageData: (String) -> Data?,
+        audioData: (String) -> Data? = { _ in nil },
     ) -> Result {
         var images: [String: Data] = [:]
         var rewritten: [String: String] = [:]
@@ -62,7 +105,12 @@ public enum StoryboardExport {
                 continue
             }
 
-            guard let data = imageData(original) else { continue }
+            // A path that climbs out of the folder is never read, and is left
+            // as it is: the writer refuses it too, and rewriting it would
+            // hide that the file was skipped.
+            guard needsGenerating(original) || isContainedRelative(original),
+                  let data = imageData(original)
+            else { continue }
 
             // A generated image has no path of its own, so it is given one. The
             // beatmap's own files keep theirs exactly: the export is meant to
@@ -81,9 +129,21 @@ public enum StoryboardExport {
         // written: every sprite the export ships passes through this one point,
         // whichever effect, filter or script produced it, so the file and the
         // canvas cannot disagree about a sprite that only one source touched.
+        // Samples: only audio files whose path stays inside the folder get a
+        // line. A readable one is carried once however many lines name it.
+        var audio: [String: Data] = [:]
+        var lines: [StoryboardSample] = []
+        for sample in samples where isSampleFile(sample.path) && isContainedRelative(sample.path) {
+            lines.append(sample)
+            if audio[sample.path] == nil, let data = audioData(sample.path) {
+                audio[sample.path] = data
+            }
+        }
+
         return Result(
-            storyboard: OsbWriter.write(OsbExportNormalization.normalize(prepared)),
+            storyboard: OsbWriter.write(OsbExportNormalization.normalize(prepared), samples: lines),
             images: images,
+            audio: audio,
         )
     }
 
@@ -104,6 +164,10 @@ public enum StoryboardExport {
         return TextTextures.data(for: path)
             ?? BuiltInTextures.data(for: path)
             ?? beatmapImage(path)
+    }
+
+    private static func isContainedRelative(_ path: String) -> Bool {
+        contained(path, in: URL(fileURLWithPath: "/export-root", isDirectory: true)) != nil
     }
 
     /// Whether a path names an image the app provides rather than a file the
@@ -163,8 +227,11 @@ public extension StoryboardExport {
         }
         try FileManager.default.createDirectory(at: export, withIntermediateDirectories: true)
 
-        for (path, data) in result.images {
-            let destination = export.appendingPathComponent(path)
+        // Images and sample audio alike: both names come from a file someone
+        // else wrote. A path that would land outside `export/` is skipped, not
+        // an abort — the rest of the export is still good.
+        for (path, data) in result.images.merging(result.audio, uniquingKeysWith: { first, _ in first }) {
+            guard let destination = contained(path, in: export) else { continue }
             try FileManager.default.createDirectory(
                 at: destination.deletingLastPathComponent(),
                 withIntermediateDirectories: true,

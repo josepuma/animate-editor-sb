@@ -1046,6 +1046,44 @@ public final class EditorShellModel {
         return node
     }
 
+    /// Places a sound on the timeline.
+    ///
+    /// The clip is as long as its file, asked of the app through
+    /// `audioDuration` once, here. If that cannot say — no seam, an
+    /// undecodable file — it is placed anyway with a short marker length: a
+    /// sound the platform cannot measure is still a sound the game can play.
+    @discardableResult
+    public func addSample(
+        at path: String,
+        time: Double,
+        on trackID: EffectTrack.ID? = nil,
+    ) -> EffectNode? {
+        guard let descriptor = library.descriptor(for: SampleEffect.descriptor.type) else {
+            return nil
+        }
+
+        let seconds = audioDuration?(path)
+        let duration: Double = if let seconds, seconds.isFinite, seconds > 0 {
+            seconds * 1000
+        } else {
+            SampleEffect.fallbackDuration
+        }
+
+        var node = effects.add(
+            descriptor,
+            at: max(0, time),
+            duration: duration,
+            on: trackID ?? destinationTrackID,
+        )
+        node.name = (path as NSString).lastPathComponent
+        node.values[SampleEffect.Param.file] = .text(path)
+        completingPlacement { effects[node.id] = node }
+
+        selectedNodeID = node.id
+        effectsChanged()
+        return node
+    }
+
     // ─── Lyrics ──────────────────────────────────────────────────────────────
 
     /// Reads the song and returns the words it heard.
@@ -1656,7 +1694,23 @@ public final class EditorShellModel {
         }
     }
 
-    public var exportHandler: ((_ sprites: [StoryboardSprite], _ folder: URL) throws -> URL)?
+    /// Writes the storyboard and everything it needs. Takes the document's
+    /// samples beside the sprites: a sound is not a sprite, and the file holds
+    /// both.
+    public var exportHandler: ((
+        _ sprites: [StoryboardSprite],
+        _ samples: [StoryboardSample],
+        _ folder: URL,
+    ) throws -> URL)?
+
+    /// The length, in seconds, of an audio file named by a path relative to
+    /// the project, or `nil` when it cannot be read.
+    ///
+    /// A seam like `exportHandler`: reading a file's length needs
+    /// AVFoundation, which Core does not import. Asked once, at placement —
+    /// a sample's length is its file's and moving the clip never changes it.
+    @ObservationIgnored
+    public var audioDuration: (@Sendable (_ path: String) -> Double?)?
 
     /// Writes the editor's type declarations into a project folder.
     ///
@@ -2111,7 +2165,7 @@ public final class EditorShellModel {
             // The same sprites the canvas is drawing, not a fresh evaluation:
             // what was on screen is what should be in the file, and evaluating
             // again is a second chance to disagree.
-            lastExport = try exportHandler(evaluated, projectFolder)
+            lastExport = try exportHandler(evaluated, effects.samples, projectFolder)
             exportError = nil
             return true
         } catch {
@@ -2417,6 +2471,11 @@ public final class EditorShellModel {
     }
 
     public func resizeEffect(_ nodeID: EffectNode.ID, startTime: Double, duration: Double) {
+        // In the model so every path obeys, not just the view that draws no
+        // ears: a sound's length is its file's, and stretching it would
+        // promise something the game does not do.
+        if let node = effects[nodeID],
+           library.descriptor(for: node)?.isResizable == false { return }
         effects.resize(nodeID, startTime: startTime, duration: duration)
         effectsChanged(node: nodeID)
     }
