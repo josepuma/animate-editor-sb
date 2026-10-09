@@ -1595,7 +1595,7 @@ struct TrackRowView: View {
         // too, now that it shows them: without it they would snap into place on
         // a click while fading on a hover — the same control behaving two ways.
         .animation(Theme.Motion.quick, value: hoveredNodeID)
-        .animation(Theme.Motion.quick, value: shell.selectedNodeID)
+        .animation(Theme.Motion.quick, value: shell.selectedNodeIDs)
         .animation(Theme.Motion.quick, value: targetedNodeID)
         // The ghost fades too, so crossing a lane boundary reads as a preview
         // settling in rather than as something blinking on.
@@ -1648,8 +1648,22 @@ struct TrackRowView: View {
 
     /// The span a clip is drawn at: its draft while dragging, otherwise its own.
     private func span(of node: EffectNode) -> VisibleSpan? {
-        let range = draft?.id == node.id ? draft!.range : node.timeRange
+        var range = draft?.id == node.id ? draft!.range : node.timeRange
+        // The rest of a group being dragged, wherever it is — on this lane or
+        // another. Read from the model because the drag lives in another row.
+        if draft?.id != node.id,
+           let shift = shell.timelineGroupShift,
+           !track.isLocked,
+           shell.selectedNodeIDs.contains(node.id)
+        {
+            range = (range.lowerBound + shift)...(range.upperBound + shift)
+        }
         return VisibleSpan.spans(of: [range], scale: scale).first
+    }
+
+    /// Whether the clip being dragged carries the rest of a selection with it.
+    private func isGroupDrag(_ node: EffectNode) -> Bool {
+        shell.selectedNodeIDs.count > 1 && shell.selectedNodeIDs.contains(node.id)
     }
 
     @ViewBuilder
@@ -1730,7 +1744,7 @@ struct TrackRowView: View {
             // wanted, and a `ZStack` sizes to its largest child — so selecting
             // one clip made every clip on the lane grow, which is the opposite
             // of a selection being local to what was selected.
-            .frame(maxHeight: node.id == shell.selectedNodeID
+            .frame(maxHeight: shell.selectedNodeIDs.contains(node.id)
                 ? contentHeight - Self.bandWidth * 2
                 : .infinity)
             .offset(x: span.start)
@@ -1807,14 +1821,20 @@ struct TrackRowView: View {
     private var ears: some View {
         // Selection wins over hover, so pointing at a neighbour cannot move the
         // frame off the clip being edited while a drag is being aimed.
-        let target = shell.selectedNodeID.flatMap { id in
-            track.nodes.first { $0.id == id }
-        } ?? hoveredNodeID.flatMap { id in
-            track.nodes.first { $0.id == id }
-        }
+        //
+        // Every selected clip on the lane carries a frame, so a group reads as
+        // a group; with none selected here, the hovered one does.
+        let selected = track.nodes.filter { shell.selectedNodeIDs.contains($0.id) }
+        let targets = selected.isEmpty
+            ? track.nodes.filter { $0.id == hoveredNodeID }
+            : selected
 
-        if let node = target, let span = span(of: node), !track.isLocked {
-            selectionFrame(node, span: span)
+        if !track.isLocked {
+            ForEach(targets) { node in
+                if let span = span(of: node) {
+                    selectionFrame(node, span: span)
+                }
+            }
         }
     }
 
@@ -2282,7 +2302,21 @@ struct TrackRowView: View {
                     threshold: snapThreshold,
                     isEnabled: isSnapping,
                 )
-                let start = max(0, snap.time)
+                var start = max(0, snap.time)
+
+                if isGroupDrag(node) {
+                    // A group stops as a whole at zero, so the grabbed clip may
+                    // have to stop short of where it would go on its own.
+                    let shift = shell.clampedSelectionShift(start - origin.lowerBound)
+                    start = origin.lowerBound + shift
+                    showSnapGuide(shift == snap.time - origin.lowerBound ? snap.guide : nil)
+                    draft = (node.id, start...(start + length))
+                    if shell.timelineGroupShift != shift { shell.timelineGroupShift = shift }
+                    // No lane change for a group: clips from several lanes
+                    // have no one lane to move to.
+                    return
+                }
+
                 showSnapGuide(snap.guide)
                 draft = (node.id, start...(start + length))
 
@@ -2313,6 +2347,14 @@ struct TrackRowView: View {
                 if abs(value.translation.width) < Self.clickSlop,
                    abs(value.translation.height) < Self.clickSlop
                 {
+                    // ⌘ or ⇧ adds the clip to the selection or takes it out —
+                    // the convention of every list and canvas on the system.
+                    let flags = NSEvent.modifierFlags
+                    if flags.contains(.command) || flags.contains(.shift) {
+                        shell.toggleNodeSelection(node.id)
+                        lastClick = (node.id, .distantPast)
+                        return
+                    }
                     selectNode(node.id)
 
                     // A second click on the same clip, soon enough after the
@@ -2459,10 +2501,12 @@ struct TrackRowView: View {
     private func beginDrag(_ node: EffectNode) -> ClosedRange<Double> {
         if let dragOrigin { return dragOrigin }
         dragOrigin = node.timeRange
+        // Grabbing a clip that is part of the selection keeps the selection:
+        // that is how a group gets dragged. Grabbing any other selects it alone.
+        if !shell.selectedNodeIDs.contains(node.id) { selectNode(node.id) }
         // Gathered once per drag: nothing else moves while this clip does, and
         // walking every node on every pointer event is work for nothing.
         dragAnchors = shell.timelineSnapAnchors(excluding: node.id)
-        if node.id != shell.selectedNodeID { selectNode(node.id) }
         return node.timeRange
     }
 
@@ -2490,6 +2534,12 @@ struct TrackRowView: View {
             actions.previewDrop(nil, nil, nil)
         }
         guard let draft else { return }
+
+        if kind == .move, let shift = shell.timelineGroupShift {
+            shell.timelineGroupShift = nil
+            shell.moveSelection(by: shift)
+            return
+        }
 
         switch kind {
         case .move:

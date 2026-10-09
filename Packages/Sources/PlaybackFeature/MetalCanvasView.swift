@@ -214,7 +214,7 @@ struct MetalCanvasView: NSViewRepresentable {
             lastFrameTimestamp = now
 
             guard let renderer else { return }
-            renderer.measuredClipID = model.selectedClipID
+            renderer.measuredClipIDs = model.selectedClipIDs
             renderer.preview = model.clipPreview
             renderer.draw(at: model.currentTime, in: view)
             model.frameRendered(

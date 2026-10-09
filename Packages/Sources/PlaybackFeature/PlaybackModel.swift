@@ -468,15 +468,16 @@ public final class PlaybackModel {
         }
     }
 
-    /// Which clip the selection box should frame, if any.
+    /// Which clips the selection box should frame — one, or a group framed
+    /// as a single box around all of it.
     ///
     /// Clearing the measurement on a change rather than leaving the old one:
     /// the bounds belong to whichever clip was measured last, so keeping them
     /// draws the previous clip's frame around the new selection until the next
     /// frame corrects it — a box that visibly jumps from the wrong place.
-    public var selectedClipID: String? {
+    public var selectedClipIDs: Set<String> = [] {
         didSet {
-            guard selectedClipID != oldValue else { return }
+            guard selectedClipIDs != oldValue else { return }
             selectionBounds = nil
         }
     }

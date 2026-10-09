@@ -378,22 +378,28 @@ public struct EditorShellView<Canvas: View>: View {
             }
             .keyboardShortcut("v", modifiers: .command)
 
-            // Cut and Select All have no editor-wide meaning yet, so their only
-            // job is to reach the field. Without them macOS offers nothing at
-            // all inside a text field in a window with no Edit menu.
+            // Cut has no editor-wide meaning yet, so its only job is to reach
+            // the field. Without it macOS offers nothing at all inside a text
+            // field in a window with no Edit menu.
             Button("Cut") {
                 NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
             }
             .keyboardShortcut("x", modifiers: .command)
 
+            // In a field it selects the field's text; anywhere else, every
+            // clip — the group a batch move or delete works on.
             Button("Select All") {
-                NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+                if EditingFocus.isActive {
+                    NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+                } else {
+                    shell.selectAllClips()
+                }
             }
             .keyboardShortcut("a", modifiers: .command)
 
             Button("Duplicate") {
-                guard !EditingFocus.isActive, let nodeID = shell.selectedNodeID else { return }
-                shell.duplicateEffect(nodeID)
+                guard !EditingFocus.isActive else { return }
+                shell.duplicateSelection()
             }
             .keyboardShortcut("d", modifiers: .command)
 

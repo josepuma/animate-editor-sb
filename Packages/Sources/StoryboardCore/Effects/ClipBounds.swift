@@ -122,6 +122,29 @@ public struct ClipBounds: Sendable, Equatable {
         return rest.isEmpty || rest.first == "/"
     }
 
+    /// Whether a sprite belongs to any clip of a group selection.
+    ///
+    /// A few clips are tried one by one, which allocates nothing. Past that —
+    /// a select-all is every clip in the project — each sprite would be
+    /// compared against all of them every frame, so the id is cut at each
+    /// separator instead and the pieces looked up: a few lookups per sprite
+    /// however large the group.
+    public static func sprite(_ spriteID: String, belongsToAnyOf nodeIDs: Set<String>) -> Bool {
+        if nodeIDs.count <= smallGroup {
+            return nodeIDs.contains { sprite(spriteID, belongsTo: $0) }
+        }
+        if nodeIDs.contains(spriteID) { return true }
+        var index = spriteID.startIndex
+        while let slash = spriteID[index...].firstIndex(of: "/") {
+            if nodeIDs.contains(String(spriteID[..<slash])) { return true }
+            index = spriteID.index(after: slash)
+        }
+        return false
+    }
+
+    /// Up to this many clips, comparing against each beats cutting the id.
+    private static let smallGroup = 8
+
     /// The box around both.
     ///
     /// Two boxes turned alike are joined in their own axes and stay turned —

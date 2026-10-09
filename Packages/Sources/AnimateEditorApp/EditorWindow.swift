@@ -66,7 +66,8 @@ struct EditorWindow: View {
                 // is drawn where the drag has taken it until the committed
                 // sprites arrive. Scaled about the clip's own position as the
                 // canvas shows it — the pivot a committed scale grows from.
-                guard taken, let clipID = shell.selectedNodeID else {
+                let clipIDs = shell.movableSelectionIDs
+                guard taken, !clipIDs.isEmpty else {
                     playback.cancelPreview()
                     return
                 }
@@ -79,7 +80,7 @@ struct EditorWindow: View {
                     (x: ($0.minX + $0.maxX) / 2, y: ($0.minY + $0.maxY) / 2)
                 } ?? (x: 0, y: 0)
                 playback.previewDrag(ClipPreview(
-                    clipID: clipID,
+                    clipIDs: clipIDs,
                     dx: drag.dx, dy: drag.dy,
                     scaleX: drag.scaleX, scaleY: drag.scaleY,
                     rotation: drag.rotation,
@@ -209,7 +210,7 @@ struct EditorWindow: View {
             // Straight through, with no scheduling hop: the box is drawn from
             // the next frame the canvas renders, and that frame is 16ms away.
             shell.onSelectionChanged = { [weak playback] id in
-                playback?.selectedClipID = id
+                playback?.selectedClipIDs = id
             }
             // Sprites reach the canvas when a pass lands, and only then.
             //

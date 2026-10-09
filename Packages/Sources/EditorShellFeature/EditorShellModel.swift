@@ -154,13 +154,99 @@ public final class EditorShellModel {
     /// The lane the next effect lands on, and what the inspector shows when no
     /// effect is selected.
     public var selectedTrackID: EffectTrack.ID?
-    /// The effect being edited.
+    /// The effect being edited — the one the inspector shows.
+    ///
+    /// With several clips selected this is the one picked last, and the rest
+    /// are in `selectedNodeIDs`. Assigning it directly selects just that clip:
+    /// every place that selects one thing — a click, a paste, an arrow key —
+    /// keeps meaning what it meant, and none of them can leave a stale group
+    /// behind.
     public var selectedNodeID: EffectNode.ID? {
         didSet {
+            if !isAdjustingGroup {
+                setGroup(selectedNodeID.map { [$0] } ?? [])
+            }
             guard selectedNodeID != oldValue else { return }
             revealScriptEditorIfNeeded()
-            onSelectionChanged?(selectedNodeID)
         }
+    }
+
+    /// Every selected clip, `selectedNodeID` included.
+    ///
+    /// A set beside the single id rather than replacing it: the inspector, the
+    /// keyframe editor and a dozen menus describe *one* clip, and a group is
+    /// what moves, deletes and duplicates together.
+    public private(set) var selectedNodeIDs: Set<EffectNode.ID> = [] {
+        didSet {
+            guard selectedNodeIDs != oldValue else { return }
+            onSelectionChanged?(selectedNodeIDs)
+        }
+    }
+
+    /// Set while the group is being edited, so assigning the inspected clip
+    /// does not collapse the group back to one.
+    @ObservationIgnored private var isAdjustingGroup = false
+
+    /// Written only when it changes: an `@Observable` setter notifies even for
+    /// the same value, and every view reading the selection would rebuild on
+    /// every click.
+    private func setGroup(_ group: Set<EffectNode.ID>) {
+        guard selectedNodeIDs != group else { return }
+        selectedNodeIDs = group
+    }
+
+    /// Replaces the group, keeping the inspected clip if it is still in it.
+    private func select(group: Set<EffectNode.ID>) {
+        isAdjustingGroup = true
+        defer { isAdjustingGroup = false }
+        setGroup(group)
+        if let selectedNodeID, group.contains(selectedNodeID) { return }
+        // In document order rather than the set's: a set has none, and the
+        // inspector jumping to a different clip for the same group would read
+        // as random.
+        selectedNodeID = effects.nodes.first { group.contains($0.id) }?.id
+    }
+
+    /// ⌘- or ⇧-click: adds a clip to the selection, or takes it out.
+    ///
+    /// An added clip becomes the inspected one — it is what the hand just
+    /// pointed at.
+    public func toggleNodeSelection(_ nodeID: EffectNode.ID) {
+        var group = selectedNodeIDs
+        if group.contains(nodeID) {
+            group.remove(nodeID)
+            select(group: group)
+        } else {
+            group.insert(nodeID)
+            isAdjustingGroup = true
+            setGroup(group)
+            selectedNodeID = nodeID
+            isAdjustingGroup = false
+        }
+    }
+
+    /// ⌘A: every clip on every lane.
+    public func selectAllClips() {
+        select(group: Set(effects.nodes.map(\.id)))
+    }
+
+    /// The selected clips a drag can move — the group less its locked clips.
+    ///
+    /// What the canvas previews a drag on, so a locked clip in a group stays
+    /// drawn where it is, as the commit will leave it.
+    public var movableSelectionIDs: Set<EffectNode.ID> {
+        selectedNodeIDs.filter { !isLocked($0) }
+    }
+
+    /// Drops clips that no longer exist from the selection.
+    private func pruneSelection() {
+        select(group: selectedNodeIDs.filter { effects[$0] != nil })
+    }
+
+    /// The selected clips in document order, which is the order a batch edit
+    /// walks them in so its result never depends on a set's.
+    private var selectedNodesInOrder: [EffectNode] {
+        effects.nodes.filter { selectedNodeIDs.contains($0.id) }
     }
 
     /// Shows the script panel when a script clip is selected.
@@ -202,7 +288,7 @@ public final class EditorShellModel {
     /// there subscribes the window to it, and going through `.task(id:)`
     /// instead put a scheduling hop between the click and the canvas — the
     /// frame that draws the selection box could not run until that hop landed.
-    @ObservationIgnored public var onSelectionChanged: ((EffectNode.ID?) -> Void)?
+    @ObservationIgnored public var onSelectionChanged: ((Set<EffectNode.ID>) -> Void)?
 
     /// Moves the playhead, for controls that navigate between keyframes.
     ///
@@ -411,6 +497,14 @@ public final class EditorShellModel {
     /// Held here for the same reason as `dropPreview`: the line runs through
     /// every lane, and the row doing the dragging can only draw in itself.
     public var timelineSnapGuide: Double?
+
+    /// How far a selected group has been dragged along the timeline, while the
+    /// drag is in flight.
+    ///
+    /// In the model because the group spans lanes, and only the row holding
+    /// the grabbed clip sees the gesture: every other row reads this to draw
+    /// its selected clips where the hand has taken them.
+    public var timelineGroupShift: Double?
 
     /// What a clip dragged along the timeline can line up with, besides the
     /// beat: every other clip's two edges, on any lane, and the playhead.
@@ -2118,7 +2212,9 @@ public final class EditorShellModel {
         // at, so it takes leaving the mode first.
         guard keyframeNodeID == nil else { return }
 
-        if let nodeID = selectedNodeID {
+        if selectedNodeIDs.count > 1 {
+            removeEffects(selectedNodeIDs)
+        } else if let nodeID = selectedNodeID {
             removeEffect(nodeID)
         } else if let trackID = selectedTrackID {
             requestRemoveTrack(trackID)
@@ -2140,8 +2236,64 @@ public final class EditorShellModel {
 
     public func removeEffect(_ nodeID: EffectNode.ID) {
         effects.remove(nodeID)
-        if selectedNodeID == nodeID { selectedNodeID = nil }
+        pruneSelection()
         effectsChanged(node: nodeID)
+    }
+
+    /// Removes several clips as one edit, so one undo brings them all back.
+    ///
+    /// Written to a copy and assigned once: undo snapshots on every write to
+    /// `effects`, and a loop of removes would be a loop of undo steps.
+    public func removeEffects(_ nodeIDs: Set<EffectNode.ID>) {
+        var document = effects
+        for node in effects.nodes where nodeIDs.contains(node.id) {
+            document.remove(node.id)
+        }
+        effects = document
+        pruneSelection()
+        effectsChanged()
+    }
+
+    /// Duplicates every selected clip, selecting the copies — the same promise
+    /// a single duplicate makes, kept for a group.
+    public func duplicateSelection() {
+        guard selectedNodeIDs.count > 1 else {
+            if let selectedNodeID { duplicateEffect(selectedNodeID) }
+            return
+        }
+        var document = effects
+        let copies = selectedNodesInOrder.compactMap { document.duplicate($0.id) }
+        effects = document
+        select(group: Set(copies.map(\.id)))
+        effectsChanged()
+    }
+
+    /// Shifts every selected clip along the timeline by the same amount.
+    ///
+    /// Clamped as a group: the earliest clip stops at zero and the rest keep
+    /// their distance from it. Clamping each on its own would squash the group
+    /// together, and the spacing is the point of moving them as one. Locked
+    /// clips stay where they are, as they do for a single drag.
+    public func moveSelection(by delta: Double) {
+        let movable = selectedNodesInOrder.filter { !isLocked($0.id) }
+        guard let earliest = movable.map(\.startTime).min() else { return }
+        let shift = max(delta, -earliest)
+        guard shift != 0 else { return }
+
+        var document = effects
+        for node in movable {
+            document.move(node.id, to: node.startTime + shift)
+        }
+        effects = document
+        effectsChanged()
+    }
+
+    /// How far a group dragged on the timeline may go before its earliest clip
+    /// would cross zero — what the lane previews with, so the drag never shows
+    /// a place the commit will not honour.
+    public func clampedSelectionShift(_ delta: Double) -> Double {
+        let earliest = selectedNodesInOrder.filter { !isLocked($0.id) }.map(\.startTime).min() ?? 0
+        return max(delta, -earliest)
     }
 
     public func setValue(_ value: EffectValue, for parameterID: String, on nodeID: EffectNode.ID) {
@@ -2346,8 +2498,10 @@ public final class EditorShellModel {
     /// window on every playhead tick.
     @ObservationIgnored
     public var isSelectionLocked: Bool {
-        guard let nodeID = selectedNodeID else { return false }
-        return isLocked(nodeID)
+        // A group is locked only when every clip in it is: one that can still
+        // move is a group the frame should let the hand drag.
+        guard !selectedNodeIDs.isEmpty else { return false }
+        return selectedNodeIDs.allSatisfy(isLocked)
     }
 
     /// Where the selected clip's position is drawn on the canvas.
@@ -2358,7 +2512,11 @@ public final class EditorShellModel {
     /// reported on one that rolls and zooms, with lanes at depth.
     @ObservationIgnored
     public var clipOrigin: (x: Double, y: Double)? {
-        guard let nodeID = selectedNodeID, let node = effects[nodeID] else { return nil }
+        // A group has no single position to mark, so the canvas falls back to
+        // the centre of the box around all of it — the pivot a group drag
+        // turns and scales about.
+        guard selectedNodeIDs.count <= 1,
+              let nodeID = selectedNodeID, let node = effects[nodeID] else { return nil }
         let local = min(max(0, playheadTime - node.startTime), node.duration)
         let x = node.transform.value(.x, at: local)
         let y = node.transform.value(.y, at: local)
@@ -2424,33 +2582,37 @@ public final class EditorShellModel {
     /// transform holds where the pivot is while the box says where the pixels
     /// are — assigning the landmark straight to the position would centre the
     /// pivot instead of the picture.
+    ///
+    /// A group aligns as one: the box is the one around all of it, and every
+    /// clip takes the same nudge, so their arrangement survives.
     public func align(_ alignment: StageSnap.Alignment) {
-        guard let nodeID = selectedNodeID,
-              let node = effects[nodeID],
-              !isLocked(nodeID),
-              let box = selectionBounds?()
-        else { return }
+        let movable = selectedNodesInOrder.filter { !isLocked($0.id) }
+        guard !movable.isEmpty, let box = selectionBounds?() else { return }
 
         let offset = StageSnap.offset(
             toAlign: (minX: box.minX, minY: box.minY, maxX: box.maxX, maxY: box.maxY),
             alignment,
         )
 
-        if alignment.isHorizontal {
-            effects.setTransformValue(
-                node.transform[value: .x] + offset.dx, for: .x, on: nodeID,
-            )
-        } else {
-            effects.setTransformValue(
-                node.transform[value: .y] + offset.dy, for: .y, on: nodeID,
-            )
+        var document = effects
+        for node in movable {
+            if alignment.isHorizontal {
+                document.setTransformValue(
+                    node.transform[value: .x] + offset.dx, for: .x, on: node.id,
+                )
+            } else {
+                document.setTransformValue(
+                    node.transform[value: .y] + offset.dy, for: .y, on: node.id,
+                )
+            }
         }
+        effects = document
         effectsChanged()
     }
 
     /// Whether there is a clip to align, and a measurement to align it by.
     public var canAlign: Bool {
-        guard let nodeID = selectedNodeID, !isLocked(nodeID) else { return false }
+        guard selectedNodeIDs.contains(where: { !isLocked($0) }) else { return false }
         return selectionBounds?() != nil
     }
 
@@ -2468,6 +2630,14 @@ public final class EditorShellModel {
         isFinished: Bool,
         at time: Double,
     ) -> Bool {
+        if selectedNodeIDs.count > 1 {
+            return applyGroupCanvasDrag(
+                dx: dx, dy: dy, scaleX: scaleX, scaleY: scaleY,
+                rotation: rotation, isStretch: isStretch,
+                isFinished: isFinished, at: time,
+            )
+        }
+
         guard let nodeID = selectedNodeID,
               let node = effects[nodeID],
               !isLocked(nodeID)
@@ -2523,6 +2693,102 @@ public final class EditorShellModel {
         effects[nodeID] = updated
         effectsChanged()
         canvasDragOrigin = nil
+        return true
+    }
+
+    /// Where each clip of a group stood when a canvas drag began, and the point
+    /// the group turns and scales about.
+    ///
+    /// Captured on the first event for the same reason a single clip's
+    /// baseline is: every event reports its total travel.
+    @ObservationIgnored private var groupDragOrigin: (
+        pivot: (x: Double, y: Double),
+        nodes: [EffectNode.ID: (x: Double, y: Double, scaleX: Double, scaleY: Double, rotation: Double)]
+    )?
+
+    /// A canvas drag on a group: every clip moves, and a scale or a turn
+    /// carries their positions about the group's centre.
+    ///
+    /// Scaled each about its own position, two clips grow into each other;
+    /// about the centre they spread apart, which is what the frame around
+    /// both — and the preview the canvas draws from the same pivot — showed
+    /// while the hand was down.
+    ///
+    /// The geometry is done where the drag was measured, on the picture: each
+    /// clip's position is taken through the camera, moved there, and the
+    /// difference brought back into its lane. The same conversion a single
+    /// clip's drag makes, applied per clip, since lanes can sit at different
+    /// depths.
+    private func applyGroupCanvasDrag(
+        dx: Double,
+        dy: Double,
+        scaleX: Double,
+        scaleY: Double,
+        rotation: Double,
+        isStretch: Bool,
+        isFinished: Bool,
+        at time: Double,
+    ) -> Bool {
+        let movable = selectedNodesInOrder.filter { !isLocked($0.id) }
+        guard !movable.isEmpty else { return false }
+
+        if groupDragOrigin == nil {
+            var nodes: [EffectNode.ID: (x: Double, y: Double, scaleX: Double, scaleY: Double, rotation: Double)] = [:]
+            for node in movable {
+                let local = min(max(0, time - node.startTime), node.duration)
+                nodes[node.id] = (
+                    x: node.transform.value(.x, at: local),
+                    y: node.transform.value(.y, at: local),
+                    scaleX: node.transform.value(.scaleX, at: local),
+                    scaleY: node.transform.value(.scaleY, at: local),
+                    rotation: node.transform.value(.rotation, at: local)
+                )
+            }
+            let box = selectionBounds?()
+            groupDragOrigin = (
+                pivot: box.map { (x: $0.centreX, y: $0.centreY) } ?? (x: 0, y: 0),
+                nodes: nodes
+            )
+        }
+        guard isFinished, let origin = groupDragOrigin else { return true }
+        defer { groupDragOrigin = nil }
+
+        let linkedX = !isStretch && scaleIsLinked && scaleY != 1 ? scaleY : scaleX
+        let linkedY = !isStretch && scaleIsLinked && scaleX != 1 ? scaleX : scaleY
+        let angle = rotation * .pi / 180
+        let (c, s) = (cos(angle), sin(angle))
+        let pivot = origin.pivot
+
+        var document = effects
+        for node in movable {
+            guard let start = origin.nodes[node.id], var updated = document[node.id] else { continue }
+            let local = min(max(0, time - node.startTime), node.duration)
+            let depth = canvasCameraDepth(of: node.id)
+
+            // On the picture: scale about the pivot, turn about it, shift —
+            // the order `ClipPreview` draws in.
+            let seen = depth.map {
+                CameraTransform.project(start.x, start.y, through: effects.camera, at: time, z: $0)
+            } ?? (start.x, start.y)
+            let offsetX = (seen.0 - pivot.x) * linkedX
+            let offsetY = (seen.1 - pivot.y) * linkedY
+            var moveX = pivot.x + offsetX * c - offsetY * s + dx - seen.0
+            var moveY = pivot.y + offsetX * s + offsetY * c + dy - seen.1
+            if let depth {
+                (moveX, moveY) = CameraTransform.unproject(
+                    dx: moveX, dy: moveY, through: effects.camera, at: time, z: depth,
+                )
+            }
+
+            if moveX != 0 { write(start.x + moveX, for: .x, on: &updated, at: local) }
+            if moveY != 0 { write(start.y + moveY, for: .y, on: &updated, at: local) }
+            if linkedX != 1 { write(start.scaleX * linkedX, for: .scaleX, on: &updated, at: local) }
+            if linkedY != 1 { write(start.scaleY * linkedY, for: .scaleY, on: &updated, at: local) }
+            if rotation != 0 { write(start.rotation + rotation, for: .rotation, on: &updated, at: local) }
+            document[node.id] = updated
+        }
+        effects = document
+        effectsChanged()
         return true
     }
 
@@ -2859,7 +3125,7 @@ public final class EditorShellModel {
         effects.removeTrack(trackID)
         if selectedTrackID == trackID { selectedTrackID = effects.tracks.last?.id }
         // The selected effect may have gone with the lane it was on.
-        if let selectedNodeID, effects[selectedNodeID] == nil { self.selectedNodeID = nil }
+        pruneSelection()
         effectsChanged()
     }
 

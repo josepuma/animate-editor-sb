@@ -19,7 +19,9 @@ import StoryboardCore
 /// committed result is what the evaluator makes of the same numbers, and is
 /// swapped in on the frame its sprites arrive.
 public struct ClipPreview: Sendable, Equatable {
-    public var clipID: String
+    /// Every clip being dragged — one, or a whole selection moving as a group
+    /// about a shared pivot.
+    public var clipIDs: Set<String>
     public var dx: Double
     public var dy: Double
     public var scaleX: Double
@@ -28,6 +30,26 @@ public struct ClipPreview: Sendable, Equatable {
     public var rotation: Double
     public var pivotX: Double
     public var pivotY: Double
+
+    public init(
+        clipIDs: Set<String>,
+        dx: Double = 0,
+        dy: Double = 0,
+        scaleX: Double = 1,
+        scaleY: Double = 1,
+        rotation: Double = 0,
+        pivotX: Double = 0,
+        pivotY: Double = 0,
+    ) {
+        self.clipIDs = clipIDs
+        self.dx = dx
+        self.dy = dy
+        self.scaleX = scaleX
+        self.scaleY = scaleY
+        self.rotation = rotation
+        self.pivotX = pivotX
+        self.pivotY = pivotY
+    }
 
     public init(
         clipID: String,
@@ -39,20 +61,16 @@ public struct ClipPreview: Sendable, Equatable {
         pivotX: Double = 0,
         pivotY: Double = 0,
     ) {
-        self.clipID = clipID
-        self.dx = dx
-        self.dy = dy
-        self.scaleX = scaleX
-        self.scaleY = scaleY
-        self.rotation = rotation
-        self.pivotX = pivotX
-        self.pivotY = pivotY
+        self.init(
+            clipIDs: [clipID], dx: dx, dy: dy, scaleX: scaleX, scaleY: scaleY,
+            rotation: rotation, pivotX: pivotX, pivotY: pivotY,
+        )
     }
 
-    /// Whether a sprite belongs to the dragged clip — the same test the
+    /// Whether a sprite belongs to a dragged clip — the same test the
     /// selection box is measured with.
     public func covers(_ spriteID: String) -> Bool {
-        ClipBounds.sprite(spriteID, belongsTo: clipID)
+        ClipBounds.sprite(spriteID, belongsToAnyOf: clipIDs)
     }
 
     /// Scales about the pivot, turns about it, then shifts.

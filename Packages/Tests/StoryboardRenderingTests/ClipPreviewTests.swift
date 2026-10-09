@@ -58,4 +58,13 @@ struct ClipPreviewTests {
         #expect(!preview.covers("other/0"))
         #expect(!preview.covers("clipper/0"))
     }
+
+    /// A group drags as one: every selected clip's sprites follow the hand.
+    @Test("a group preview moves every clip in it")
+    func groupMoves() {
+        let preview = ClipPreview(clipIDs: ["a", "b"], dx: 30, dy: 0)
+        #expect(preview.covers("a/0"))
+        #expect(preview.covers("b/L0/1"))
+        #expect(!preview.covers("c/0"))
+    }
 }

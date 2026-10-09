@@ -110,7 +110,9 @@ public final class MetalStoryboardRenderer {
     /// the renderer already resolves rather than in a pass of its own: the
     /// states are right there, and resolving a second time is how the inspector
     /// once cost 12ms a frame.
-    public var measuredClipID: String?
+    ///
+    /// A set, so a group selection is framed as one box around all of it.
+    public var measuredClipIDs: Set<String> = []
 
     /// A clip being dragged, drawn where the drag has taken it.
     ///
@@ -119,7 +121,7 @@ public final class MetalStoryboardRenderer {
     /// and a box that already contained it would show it twice.
     public var preview: ClipPreview?
 
-    /// The box around `measuredClipID`'s sprites, as of the last frame drawn.
+    /// The box around `measuredClipIDs`' sprites, as of the last frame drawn.
     public private(set) var measuredBounds: ClipBounds?
 
     // ─── Setup ───────────────────────────────────────────────────────────────
@@ -528,7 +530,7 @@ public final class MetalStoryboardRenderer {
             let entry = atlas?.entries[sprite.filePath]
             let size = entry?.pixelSize ?? SIMD2<Float>(100, 100)
 
-            if let measuredClipID, ClipBounds.sprite(sprite.id, belongsTo: measuredClipID) {
+            if !measuredClipIDs.isEmpty, ClipBounds.sprite(sprite.id, belongsToAnyOf: measuredClipIDs) {
                 let box = ClipBounds.around(
                     [state],
                     sizeOf: { _ in (width: Double(size.x), height: Double(size.y)) },
