@@ -3,28 +3,93 @@ import StoryboardPersistence
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Landing screen: a wall of recently opened beatmaps, or a way to add one.
-public struct ProjectBrowserView: View {
-    @State private var model: ProjectBrowserModel
+/// Landing screen: one project playing as a poster, the rest beneath it — or,
+/// with nothing opened yet, a way to start.
+///
+/// The poster's moving picture is handed in: playing a storyboard takes the
+/// renderer and the editor's evaluation, and this feature imports neither.
+public struct ProjectBrowserView<Trailer: View>: View {
+    /// Made once, when the view appears — never in `init`.
+    ///
+    /// `State(wrappedValue:)` evaluates its argument on every init and throws
+    /// all but the first away, so a model built there ran in full each time
+    /// the parent rebuilt. Worse, its init *read* observed properties while
+    /// the parent's body was evaluating, which subscribed the parent to a model
+    /// nobody kept: that model's previews landing rebuilt the parent, which
+    /// built another model, which loaded every preview again — a loop. Measured
+    /// in release, half the main thread, and every new model picked a new
+    /// featured project, so the trailer restarted without end.
+    @State private var model: ProjectBrowserModel?
+    private let onOpen: (URL) -> Void
+    private let trailer: (URL, Double?, Bool) -> Trailer
+
+    /// - Parameters:
+    ///   - onOpen: called with a folder that loaded successfully.
+    ///   - trailer: the featured project playing — given its folder, the
+    ///     mapper's preview time and whether to stay silent.
+    public init(
+        onOpen: @escaping (URL) -> Void,
+        @ViewBuilder trailer: @escaping (URL, Double?, Bool) -> Trailer,
+    ) {
+        self.onOpen = onOpen
+        self.trailer = trailer
+    }
+
+    public var body: some View {
+        if let model {
+            ProjectBrowserPage(model: model, trailer: trailer)
+        } else {
+            Theme.Tone.base
+                .frame(minWidth: 760, minHeight: 560)
+                .onAppear { model = ProjectBrowserModel(onOpen: onOpen) }
+        }
+    }
+}
+
+/// The browser itself, over a model that already exists.
+struct ProjectBrowserPage<Trailer: View>: View {
+    let model: ProjectBrowserModel
+    let trailer: (URL, Double?, Bool) -> Trailer
     @State private var isTargetedForDrop = false
     /// Width the grid has to divide, measured rather than assumed.
     @State private var availableWidth: CGFloat = 0
 
     /// Card width. The grid fits as many as the window allows.
-    private static let cardWidth: CGFloat = 260
+    /// Computed: Swift allows no stored statics on a generic type.
+    private static var cardWidth: CGFloat { 260 }
 
-    /// - Parameter onOpen: called with a folder that loaded successfully.
-    public init(onOpen: @escaping (URL) -> Void) {
-        _model = State(wrappedValue: ProjectBrowserModel(onOpen: onOpen))
-    }
-
-    public var body: some View {
+    var body: some View {
         // The reader wraps the scroll view rather than sitting inside it: a
         // scroll view offers its child whatever height the content asks for, so
         // an empty state inside one can never learn how tall the window is —
         // and it ends up a band across the top instead of a page.
         GeometryReader { window in
         ScrollView {
+            if let featured = model.featuredURL {
+                let heroHeight = max(
+                    Theme.Size.heroMinimum,
+                    window.size.height * Theme.Size.heroShare,
+                )
+                // The projects start on the hero's faded foot rather than
+                // below it, the way a streaming home runs its first row into
+                // the poster: the page reads as one surface, not a banner with
+                // a list stapled under it.
+                ZStack(alignment: .top) {
+                    hero(for: featured, height: heroHeight)
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        Color.clear.frame(height: heroHeight - Theme.Size.heroOverlap)
+                        shelf
+                            .onGeometryChange(for: CGFloat.self) { proxy in
+                                proxy.size.width
+                            } action: { width in
+                                availableWidth = width
+                            }
+                            .padding(.horizontal, Theme.Spacing.page)
+                            .padding(.bottom, Theme.Spacing.page)
+                    }
+                }
+            } else {
             VStack(alignment: .leading, spacing: Theme.Spacing.loose) {
                 header
 
@@ -55,6 +120,7 @@ public struct ProjectBrowserView: View {
                 availableWidth = width
             }
             .padding(Theme.Spacing.section)
+            }
         }
         .frame(minWidth: 760, minHeight: 560)
         // The window's tone, as in the editor: black belongs to the stage.
@@ -65,6 +131,10 @@ public struct ProjectBrowserView: View {
             if isTargetedForDrop { dropHighlight }
         }
         }
+        // Up under the transparent title bar, so the poster is the window's
+        // own top: a strip of window above it would frame the picture instead
+        // of letting it be the page.
+        .ignoresSafeArea(.container, edges: .top)
         .animation(Theme.Motion.quick, value: isTargetedForDrop)
         .alert(
             "Could not open that folder",
@@ -84,7 +154,7 @@ public struct ProjectBrowserView: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.regular) {
             VStack(alignment: .leading, spacing: Theme.Spacing.tight) {
-                Text("Animate Editor")
+                Text("Pulse Studio")
                     .font(Theme.Typography.title)
                     .foregroundStyle(Theme.Palette.primary)
 
@@ -134,18 +204,99 @@ public struct ProjectBrowserView: View {
         }
     }
 
+    /// The featured project, with the app's header laid over its top edge.
+    ///
+    /// Over the picture rather than above it: a bar above the poster pushes
+    /// the poster down, and the poster is the page.
+    private func hero(for url: URL, height: CGFloat) -> some View {
+        let preview = model.featuredPreview
+        let entry = model.recents.first { $0.url == url }
+        return FeaturedHero(
+            title: preview?.title ?? entry?.name ?? url.lastPathComponent,
+            artist: preview?.artist ?? "",
+            detail: Self.detail(for: preview),
+            artworkURL: preview?.backgroundURL,
+            isMuted: model.isTrailerMuted,
+            isOpening: model.isOpening(url),
+            open: { model.open(url: url) },
+            toggleMute: { model.isTrailerMuted.toggle() },
+            bottomInset: Theme.Size.heroOverlap,
+        ) {
+            // Keyed by the folder so a different featured project is a new
+            // player, not the old one asked to change its mind mid-load.
+            trailer(url, preview?.previewTime, model.isTrailerMuted)
+                .id(url)
+        }
+        .frame(height: height)
+        .overlay(alignment: .top) {
+            header
+                .padding(.horizontal, Theme.Spacing.page)
+                .padding(.top, Theme.Spacing.section)
+        }
+    }
+
+    /// Every project under the hero, in a grid that runs down the page.
+    ///
+    /// A grid rather than a sideways row: a row is for browsing a few things,
+    /// and finding one project among many means paging through it a screen at
+    /// a time. A grid shows them all at a glance.
+    private var shelf: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.regular) {
+            Text("Recent")
+                .font(Theme.Typography.title)
+                .foregroundStyle(Theme.Palette.primary)
+
+            LazyVGrid(columns: columns(minimum: Theme.Size.shelfCard), spacing: Theme.Spacing.section) {
+                ForEach(model.recents) { entry in
+                    let preview = model.previews[entry.id]
+                    ShelfCard(
+                        title: preview?.title ?? entry.name,
+                        subtitle: Self.shelfSubtitle(for: preview),
+                        isBusy: model.isOpening(entry.url),
+                        isFeatured: entry.url == model.featuredURL,
+                        action: { model.open(url: entry.url) },
+                    ) {
+                        PosterArtwork(url: preview?.backgroundURL)
+                    }
+                    .contextMenu {
+                        Button("Open") { model.open(url: entry.url) }
+                        Button("Remove from Recents", role: .destructive) { model.forget(entry) }
+                    }
+                }
+            }
+        }
+    }
+
+    /// "Artist · 128 BPM" on one quiet line, or nothing while it loads.
+    private static func shelfSubtitle(for preview: BeatmapPreview?) -> String? {
+        guard let preview else { return nil }
+        let artist = preview.artist.isEmpty ? nil : preview.artist
+        let tempo = preview.bpm.flatMap { $0 > 0 ? String(format: "%.0f BPM", $0) : nil }
+        let parts = [artist, tempo].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// "Mapped by X · 128 BPM", or nothing while the preview loads.
+    private static func detail(for preview: BeatmapPreview?) -> String? {
+        guard let preview else { return nil }
+        let creator = preview.creator.isEmpty ? nil : "Mapped by \(preview.creator)"
+        let tempo = preview.bpm.flatMap { $0 > 0 ? String(format: "%.0f BPM", $0) : nil }
+        let parts = [creator, tempo].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
     /// Equal columns rather than `.adaptive`.
     ///
     /// An adaptive grid with an open maximum hands the leftover width out
     /// unevenly, so one card ends up wider than its neighbour — and since the
     /// height follows the aspect ratio, taller too, which is what leaves the
     /// footers on different lines.
-    private var columns: [GridItem] {
+    private func columns(minimum: CGFloat) -> [GridItem] {
         // The gaps come out of the width before it is divided: ignoring them
         // fits one column too many at certain widths, and every card then
         // lands under the minimum it was sized for.
         let gap = Theme.Spacing.regular
-        let count = max(1, Int((availableWidth + gap) / (Self.cardWidth + gap)))
+        let count = max(1, Int((availableWidth + gap) / (minimum + gap)))
 
         return Array(
             repeating: GridItem(.flexible(), spacing: gap),
@@ -158,7 +309,7 @@ public struct ProjectBrowserView: View {
             SectionHeader("Recent")
 
             LazyVGrid(
-                columns: columns,
+                columns: columns(minimum: Self.cardWidth),
                 spacing: Theme.Spacing.loose,
             ) {
                 ForEach(model.recents) { entry in
@@ -179,7 +330,7 @@ public struct ProjectBrowserView: View {
     /// A constant rather than a measurement: the two would have to be measured
     /// and published back, and being a few points out changes nothing — the
     /// empty state is centred in whatever it gets.
-    private static let headerHeight: CGFloat = 96
+    private static var headerHeight: CGFloat { 96 }
 
     private var emptyState: some View {
         VStack(spacing: Theme.Spacing.compact) {

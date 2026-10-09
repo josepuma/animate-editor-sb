@@ -32,6 +32,8 @@ struct AppRootView: View {
             } else {
                 ProjectBrowserView { url in
                     openFolder = url
+                } trailer: { folder, previewTime, isMuted in
+                    ProjectTrailer(folder: folder, previewTime: previewTime, isMuted: isMuted)
                 }
             }
         }
@@ -41,7 +43,7 @@ struct AppRootView: View {
         // The app's accent, for every control AppKit draws — sliders, switches,
         // focus rings. Left alone they take the user's system accent, so on a
         // Mac set to orange the inspector's sliders came out orange beside a
-        // lime selection: two accents, one of them not chosen by the app.
+        // pink selection: two accents, one of them not chosen by the app.
         .tint(Theme.Palette.accent)
         .alert(
             "Could not load that storyboard",

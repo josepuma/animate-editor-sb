@@ -32,6 +32,27 @@ struct OsuParserTests {
         #expect(!narrow.isWidescreen)
     }
 
+    @Test("reads the preview time")
+    func readsPreviewTime() {
+        let timing = OsuParser.parse("""
+        [General]
+        PreviewTime: 64250
+        """)
+
+        #expect(timing.previewTime == 64250)
+    }
+
+    @Test("a preview time of -1 means the map has none")
+    func noPreviewTime() {
+        // osu! writes -1 for "not set" and then picks a point itself; reading
+        // it literally would start a trailer a millisecond before the song.
+        let unset = OsuParser.parse("[General]\nPreviewTime: -1")
+        let absent = OsuParser.parse("[General]\nAudioFilename: a.mp3")
+
+        #expect(unset.previewTime == nil)
+        #expect(absent.previewTime == nil)
+    }
+
     @Test("a beatmap without the key is not widescreen")
     func widescreenDefaultsOff() {
         // osu! treats the absent key as off: a map written before widescreen

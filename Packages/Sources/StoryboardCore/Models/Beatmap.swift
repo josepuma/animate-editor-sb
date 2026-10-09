@@ -107,6 +107,9 @@ public struct BeatmapTimingData: Sendable, Equatable {
     public var uninheritedPoints: [UninheritedTimingPoint]
     public var breaks: [BreakPeriod]
     public var kiaiSections: [KiaiSection]
+    /// Where osu! starts the song in its menu, in milliseconds — the moment the
+    /// mapper picked as the one that sells the map. `nil` when unset (`-1`).
+    public var previewTime: Double?
 
     public init(
         metadata: BeatmapMetadata = BeatmapMetadata(),
@@ -115,7 +118,9 @@ public struct BeatmapTimingData: Sendable, Equatable {
         uninheritedPoints: [UninheritedTimingPoint] = [],
         breaks: [BreakPeriod] = [],
         kiaiSections: [KiaiSection] = [],
+        previewTime: Double? = nil,
     ) {
+        self.previewTime = previewTime
         self.metadata = metadata
         self.audioFilename = audioFilename
         self.isWidescreen = isWidescreen

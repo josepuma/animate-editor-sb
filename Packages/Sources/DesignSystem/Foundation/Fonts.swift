@@ -18,17 +18,19 @@ import Foundation
 /// can be checked. A variable font leaves the weight to an axis SwiftUI may or
 /// may not drive. Upstream only publishes Nunito as a variable font, so the
 /// statics are instanced from it with `fonttools varLib.instancer
-/// Nunito[wght].ttf wght=<300|400|500|600> --update-name-table`.
+/// Nunito[wght].ttf wght=<300|400|500|600|700> --update-name-table`.
 public extension Theme {
     enum FontFace {
         public static let light = "Nunito-Light"
         public static let regular = "Nunito-Regular"
         public static let medium = "Nunito-Medium"
         public static let semibold = "Nunito-SemiBold"
+        /// Only the featured title uses it: Bold everywhere would shout.
+        public static let bold = "Nunito-Bold"
         public static let mono = "GeistMono-Regular"
 
         /// Every face the bundle is expected to provide.
-        public static let all = [light, regular, medium, semibold, mono]
+        public static let all = [light, regular, medium, semibold, bold, mono]
     }
 
     /// Makes the bundled faces available to the process.

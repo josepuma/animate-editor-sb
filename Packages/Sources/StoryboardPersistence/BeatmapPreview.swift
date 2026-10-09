@@ -12,6 +12,8 @@ public struct BeatmapPreview: Sendable {
     public let bpm: Double?
     /// Length of the track, in milliseconds.
     public let duration: Double?
+    /// Where the song's best moment starts, as the mapper set it.
+    public let previewTime: Double?
 
     public init(
         title: String,
@@ -20,7 +22,9 @@ public struct BeatmapPreview: Sendable {
         backgroundURL: URL?,
         bpm: Double?,
         duration: Double?,
+        previewTime: Double? = nil,
     ) {
+        self.previewTime = previewTime
         self.title = title
         self.artist = artist
         self.creator = creator
@@ -75,6 +79,7 @@ public enum BeatmapPreviewLoader {
             backgroundURL: backgroundURL,
             bpm: timing?.uninheritedPoints.first?.bpm,
             duration: nil,
+            previewTime: timing?.previewTime,
         )
     }
 

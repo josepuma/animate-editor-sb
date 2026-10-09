@@ -12,6 +12,7 @@ public enum OsuParser {
         // osu! treats a missing key as off: a beatmap written before widescreen
         // storyboards existed is a 4:3 one.
         var isWidescreen = false
+        var previewTime: Double?
         var metadataFields: [String: String] = [:]
         var uninheritedPoints: [UninheritedTimingPoint] = []
         // Both red and green points, needed to track kiai across the map.
@@ -39,6 +40,9 @@ public enum OsuParser {
                         audioFilename = value
                     case "WidescreenStoryboard":
                         isWidescreen = value == "1"
+                    case "PreviewTime":
+                        // -1 is osu!'s "not set", not a moment before the song.
+                        previewTime = Double(value).flatMap { $0 >= 0 ? $0 : nil }
                     default:
                         break
                     }
@@ -81,6 +85,7 @@ public enum OsuParser {
             uninheritedPoints: uninheritedPoints,
             breaks: breaks,
             kiaiSections: kiaiSections(from: allPoints),
+            previewTime: previewTime,
         )
     }
 

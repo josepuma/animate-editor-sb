@@ -126,6 +126,40 @@ struct CompositesPage: View {
             }
         }
 
+        Specimen("ShelfCard", note: "A project on the home shelf: 16:9 art with the title and artist · tempo beneath it, never over it — a row of scrims is a row of smudges. Featured is outlined in the accent; hover lightens the hairline; busy shows a spinner over a scrim.") {
+            HStack(alignment: .top, spacing: Theme.Spacing.loose) {
+                ShelfCard(title: "Toki wo Kizamu Uta", subtitle: "Konomi Suzuki · 128 BPM", isFeatured: true, action: {}) {
+                    PosterArtwork(url: nil)
+                }
+                .frame(width: Theme.Size.shelfCard)
+                ShelfCard(title: "miracle", subtitle: "Celldweller", action: {}) {
+                    PosterArtwork(url: nil, fallbackSymbol: "waveform")
+                }
+                .frame(width: Theme.Size.shelfCard)
+                ShelfCard(title: "In the Rain", subtitle: "Opening…", isBusy: true, action: {}) {
+                    PosterArtwork(url: nil)
+                }
+                .frame(width: Theme.Size.shelfCard)
+                Spacer(minLength: 0)
+            }
+        }
+
+        Specimen("FeaturedHero", note: "The home screen's poster: the featured project's storyboard plays behind its name (here only the artwork placeholder — the trailer is a live render the app supplies). Full bleed: a black scrim from the side the words sit on, and the foot dissolving into the page tone so the first row of projects starts on the poster. Muted until asked.") {
+            FeaturedHero(
+                title: "Toki wo Kizamu Uta",
+                artist: "Konomi Suzuki",
+                detail: "Mapped by someone · 128 BPM",
+                artworkURL: nil,
+                isMuted: true,
+                isOpening: false,
+                open: {},
+                toggleMute: {},
+            ) {
+                EmptyView()
+            }
+            .frame(height: Theme.Size.heroMinimum)
+        }
+
         Specimen("ComingSoon", note: "The empty state of a panel with nothing to show — labelled, because an unlabelled blank reads as a bug.") {
             ComingSoon(
                 title: "No selection",

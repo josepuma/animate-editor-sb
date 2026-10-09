@@ -23,19 +23,66 @@ public final class ProjectBrowserModel {
     /// feedback reads as a click that did nothing.
     public private(set) var openingURL: URL?
 
+    /// The project the hero plays, chosen once when the browser appears.
+    ///
+    /// Chosen here rather than per render: a hero that reshuffles whenever the
+    /// list refreshes would swap trailers under somebody reading the first.
+    public private(set) var featuredURL: URL?
+
+    /// Whether the hero's trailer plays without sound.
+    ///
+    /// On by default — music starting by itself is startling — and remembered
+    /// once changed, because asking again on every launch is a chore.
+    public var isTrailerMuted: Bool {
+        didSet { defaults.set(!isTrailerMuted, forKey: Self.soundKey) }
+    }
+
     private let store: RecentProjectStore
+    private let defaults: UserDefaults
     private let onOpen: (URL) -> Void
+
+    private static let lastFeaturedKey = "projectBrowser.lastFeatured"
+    /// Stored as "sound on", so an absent key reads as muted.
+    private static let soundKey = "projectBrowser.trailerSound"
 
     /// - Parameters:
     ///   - store: where recent folders are remembered.
     ///   - onOpen: called with a folder that loaded successfully.
     public init(
         store: RecentProjectStore = RecentProjectStore(),
+        defaults: UserDefaults = .standard,
         onOpen: @escaping (URL) -> Void,
     ) {
         self.store = store
+        self.defaults = defaults
         self.onOpen = onOpen
+        isTrailerMuted = !defaults.bool(forKey: Self.soundKey)
         refreshRecents()
+        chooseFeatured()
+    }
+
+    /// The preview of the featured project, once it has loaded.
+    public var featuredPreview: BeatmapPreview? {
+        guard let featuredURL,
+              let entry = recents.first(where: { $0.url == featuredURL })
+        else { return nil }
+        return previews[entry.id]
+    }
+
+    /// Picks the hero at random, never the one featured last time.
+    ///
+    /// Compared by path: an entry's id is minted afresh on every read, and a
+    /// URL resolved from a bookmark can differ in its trailing slash.
+    private func chooseFeatured() {
+        let last = defaults.string(forKey: Self.lastFeaturedKey)
+        var generator = SystemRandomNumberGenerator()
+        let paths = recents.map(\.url.standardizedFileURL.path)
+        guard let path = FeaturedPicker.pick(from: paths, avoiding: last, using: &generator) else {
+            featuredURL = nil
+            return
+        }
+        featuredURL = recents.first { $0.url.standardizedFileURL.path == path }?.url
+        defaults.set(path, forKey: Self.lastFeaturedKey)
     }
 
     public func refreshRecents() {
@@ -134,8 +181,12 @@ public final class ProjectBrowserModel {
     }
 
     public func forget(_ entry: RecentProjectStore.Entry) {
+        let wasFeatured = entry.url == featuredURL
         store.forget(url: entry.url)
         refreshRecents()
+        // A trailer of a project no longer in the list would be a hero for
+        // nothing; the rest of the time the hero stays put.
+        if wasFeatured { chooseFeatured() }
     }
 
     public func dismissError() {
