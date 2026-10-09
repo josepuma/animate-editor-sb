@@ -175,7 +175,20 @@ public struct EffectEvaluator: Sendable {
             )
         }
 
-        return placed.map { shift($0, by: node.startTime, layer: node.layer) }
+        return placed.map { sprite in
+            var owned = shift(sprite, by: node.startTime, layer: node.layer)
+            // Every sprite the clip draws is the clip's. A filter names what
+            // it adds after its own id — `chromatic-1a2b3c4d/cR-0` — so the
+            // frame, the drag preview and everything else that asks "is this
+            // the clip's?" passed it over; with Keep Original off, Chromatic
+            // left a clip with nothing to frame. Re-homed here, after every
+            // filter, rather than in each: several seed their randomness from
+            // their own id, and changing it would redraw every saved jitter.
+            if !ClipBounds.sprite(owned.id, belongsTo: node.id) {
+                owned.id = "\(node.id)/\(owned.id)"
+            }
+            return owned
+        }
     }
 
     /// Evaluates every node, in the order given.
